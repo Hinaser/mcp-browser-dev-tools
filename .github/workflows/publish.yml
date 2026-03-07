@@ -48,7 +48,7 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
           EXPECTED_TAG="v${PACKAGE_VERSION}"
           if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
             echo "Expected tag ${EXPECTED_TAG} but got ${TAG_NAME}" >&2
@@ -57,9 +57,15 @@ jobs:
 
       - name: Publish to npm
         run: |
-          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_NAME=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).name")
+          PACKAGE_VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
           ACCESS_FLAG=""
+          TAG_FLAG="--tag latest"
           if printf '%s' "$PACKAGE_NAME" | grep -q '^@'; then
             ACCESS_FLAG="--access public"
           fi
-          npm publish --provenance $ACCESS_FLAG
+          if printf '%s' "$PACKAGE_VERSION" | grep -q -- '-'; then
+            DIST_TAG=$(node -p "const version = JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version; version.split('-')[1].split('.')[0]")
+            TAG_FLAG="--tag ${DIST_TAG}"
+          fi
+          npm publish --provenance $TAG_FLAG $ACCESS_FLAG
