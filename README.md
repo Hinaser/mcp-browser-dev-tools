@@ -178,6 +178,19 @@ Interaction and inspection tools accept these locator forms:
 - In WSL, Linux browser executables are preferred before Windows fallback paths
 - For Windows Chrome + WSL, prefer the `relay` command over changing Chrome's remote debugging bind
 
+## Why Not Playwright?
+
+Playwright is still the stronger choice for deterministic browser automation and end-to-end tests. It has a more mature locator model, assertions, waiting semantics, tracing, and CI story.
+
+`mcp-browser-dev-tools` solves a different problem:
+
+- it is MCP-native, so AI clients call a bounded tool surface instead of generating and executing Playwright scripts
+- it attaches to an already-open browser tab and inspects the current session state, cookies, login state, extensions, console, and network history
+- it is designed for local AI debugging workflows, including loopback-only defaults, opt-in evaluation, and the Windows-to-WSL relay path
+- it presents one MCP interface across Chromium CDP and Firefox BiDi instead of requiring the AI client to know browser protocol details
+
+Use Playwright when you want reproducible automation. Use this project when you want an AI assistant to inspect and manipulate a live browser session through MCP.
+
 ## Debugging Notes
 
 - `attach_tab` now seeds network history from the Performance API so already-loaded pages still show useful requests
