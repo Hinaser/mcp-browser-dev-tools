@@ -1,4 +1,5 @@
 node_modules
 .codex-reviews
 .npm-pack-cache
+.husky/_
 .DS_Store

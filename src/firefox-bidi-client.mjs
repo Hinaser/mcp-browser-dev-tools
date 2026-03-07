@@ -55,12 +55,20 @@ export function normalizeFirefoxContext(context) {
 }
 
 export function resolveBidiEventContext(method, params = {}) {
-  return params.context ?? params.source?.context ?? params.navigation?.context ?? null;
+  return (
+    params.context ??
+    params.source?.context ??
+    params.navigation?.context ??
+    null
+  );
 }
 
 function normalizeMapEntries(entries) {
   return Object.fromEntries(
-    entries.map(([key, value]) => [String(summarizeBidiRemoteValue(key)), summarizeBidiRemoteValue(value)]),
+    entries.map(([key, value]) => [
+      String(summarizeBidiRemoteValue(key)),
+      summarizeBidiRemoteValue(value),
+    ]),
   );
 }
 
@@ -231,7 +239,8 @@ export class FirefoxBidiSessionManager {
   constructor(config, options = {}) {
     this.config = config;
     this.sessions = new Map();
-    this.websocketFactory = options.websocketFactory ?? ((url) => new WebSocket(url));
+    this.websocketFactory =
+      options.websocketFactory ?? ((url) => new WebSocket(url));
     this.pending = new Map();
     this.nextMessageId = 1;
     this.websocket = null;
@@ -241,7 +250,10 @@ export class FirefoxBidiSessionManager {
   }
 
   async ensureConnected() {
-    if (this.browserSessionId && this.websocket?.readyState === WebSocket.OPEN) {
+    if (
+      this.browserSessionId &&
+      this.websocket?.readyState === WebSocket.OPEN
+    ) {
       return;
     }
 
@@ -279,7 +291,9 @@ export class FirefoxBidiSessionManager {
         () => {
           if (!settled) {
             settled = true;
-            reject(new Error(`Failed to connect to ${this.config.firefoxBidiWsUrl}`));
+            reject(
+              new Error(`Failed to connect to ${this.config.firefoxBidiWsUrl}`),
+            );
           }
         },
         { once: true },
@@ -297,7 +311,9 @@ export class FirefoxBidiSessionManager {
         this.sessions.clear();
         if (!settled) {
           settled = true;
-          reject(new Error("Firefox BiDi connection closed before it connected"));
+          reject(
+            new Error("Firefox BiDi connection closed before it connected"),
+          );
         }
       });
     });
@@ -350,7 +366,9 @@ export class FirefoxBidiSessionManager {
 
       this.pending.delete(message.id);
       if (message.type === "error") {
-        pending.reject(new Error(message.message || message.error || "BiDi error"));
+        pending.reject(
+          new Error(message.message || message.error || "BiDi error"),
+        );
         return;
       }
 
@@ -404,11 +422,15 @@ export class FirefoxBidiSessionManager {
   async listTargets() {
     await this.ensureConnected();
     const result = await this.send("browsingContext.getTree", {});
-    return (result.contexts || []).map((context) => normalizeFirefoxContext(context));
+    return (result.contexts || []).map((context) =>
+      normalizeFirefoxContext(context),
+    );
   }
 
   listSessions() {
-    return Array.from(this.sessions.values(), (session) => session.getSummary());
+    return Array.from(this.sessions.values(), (session) =>
+      session.getSummary(),
+    );
   }
 
   getSession(sessionId) {
@@ -482,8 +504,11 @@ export class FirefoxBidiSessionManager {
 
     return {
       result:
-        result.type === "success" ? summarizeBidiRemoteValue(result.result) : null,
-      exceptionDetails: result.type === "exception" ? result.exceptionDetails : null,
+        result.type === "success"
+          ? summarizeBidiRemoteValue(result.result)
+          : null,
+      exceptionDetails:
+        result.type === "exception" ? result.exceptionDetails : null,
       realm: result.realm ?? null,
     };
   }
@@ -606,7 +631,9 @@ export class FirefoxBidiSessionManager {
 
   async closeAll() {
     await Promise.allSettled(
-      Array.from(this.sessions.keys(), (sessionId) => this.detachSession(sessionId)),
+      Array.from(this.sessions.keys(), (sessionId) =>
+        this.detachSession(sessionId),
+      ),
     );
 
     if (this.websocket && this.websocket.readyState < WebSocket.CLOSING) {

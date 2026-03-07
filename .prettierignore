@@ -1,0 +1,5 @@
+.codex-reviews
+.husky/_
+.npm-pack-cache
+node_modules
+package-lock.json

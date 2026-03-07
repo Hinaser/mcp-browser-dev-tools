@@ -131,4 +131,5 @@ npm run pack:check
 Additional docs:
 
 - [Architecture](docs/architecture.md)
+- [Repository Settings](docs/repository-settings.md)
 - [Publishing](PUBLISHING.md)

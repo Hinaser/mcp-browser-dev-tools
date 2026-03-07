@@ -106,7 +106,9 @@ function validateValue(path, value, schema) {
 }
 
 function screenshotFormatsFor(browserFamily) {
-  return browserFamily === "firefox" ? ["png", "jpeg"] : ["png", "jpeg", "webp"];
+  return browserFamily === "firefox"
+    ? ["png", "jpeg"]
+    : ["png", "jpeg", "webp"];
 }
 
 function sessionWithLimitSchema(description) {
@@ -128,7 +130,13 @@ function sessionWithLimitSchema(description) {
 }
 
 export class McpBrowserDevToolsServer {
-  constructor({ config, browserAdapter, input = process.stdin, output = process.stdout, errorOutput = process.stderr }) {
+  constructor({
+    config,
+    browserAdapter,
+    input = process.stdin,
+    output = process.stdout,
+    errorOutput = process.stderr,
+  }) {
     this.config = config;
     this.browserAdapter = browserAdapter;
     this.input = input;
@@ -157,7 +165,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "list_tabs",
-            description: "List inspectable page targets exposed by the configured browser adapter.",
+            description:
+              "List inspectable page targets exposed by the configured browser adapter.",
             inputSchema: emptyObjectSchema(),
           },
           handler: async () => ({
@@ -170,7 +179,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "list_sessions",
-            description: "List active attached debugging sessions held by this broker.",
+            description:
+              "List active attached debugging sessions held by this broker.",
             inputSchema: emptyObjectSchema(),
           },
           handler: async () => ({
@@ -183,7 +193,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "attach_tab",
-            description: "Attach to a page target and start buffering console, log, and network events.",
+            description:
+              "Attach to a page target and start buffering console, log, and network events.",
             inputSchema: {
               type: "object",
               properties: {
@@ -196,7 +207,8 @@ export class McpBrowserDevToolsServer {
               additionalProperties: false,
             },
           },
-          handler: async (args) => this.browserAdapter.attachToTarget(args.targetId),
+          handler: async (args) =>
+            this.browserAdapter.attachToTarget(args.targetId),
         },
       ],
       [
@@ -217,7 +229,8 @@ export class McpBrowserDevToolsServer {
               additionalProperties: false,
             },
           },
-          handler: async (args) => this.browserAdapter.detachSession(args.sessionId),
+          handler: async (args) =>
+            this.browserAdapter.detachSession(args.sessionId),
         },
       ],
       [
@@ -225,7 +238,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "get_console_messages",
-            description: "Read buffered console, log, and exception messages for an attached session.",
+            description:
+              "Read buffered console, log, and exception messages for an attached session.",
             inputSchema: sessionWithLimitSchema(),
           },
           handler: async (args) => ({
@@ -325,7 +339,10 @@ export class McpBrowserDevToolsServer {
             },
           },
           handler: async (args) =>
-            this.browserAdapter.takeScreenshot(args.sessionId, args.format ?? "png"),
+            this.browserAdapter.takeScreenshot(
+              args.sessionId,
+              args.format ?? "png",
+            ),
         },
       ],
       [
@@ -333,7 +350,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "get_events",
-            description: "Read buffered console, log, exception, and network events for an attached session.",
+            description:
+              "Read buffered console, log, exception, and network events for an attached session.",
             inputSchema: {
               type: "object",
               properties: {
@@ -350,7 +368,10 @@ export class McpBrowserDevToolsServer {
             },
           },
           handler: async (args) => ({
-            events: this.browserAdapter.getEvents(args.sessionId, args.limit ?? 50),
+            events: this.browserAdapter.getEvents(
+              args.sessionId,
+              args.limit ?? 50,
+            ),
           }),
         },
       ],
@@ -397,7 +418,7 @@ export class McpBrowserDevToolsServer {
 
   start() {
     this.input.on("data", (chunk) => {
-      let messages = [];
+      let messages;
       try {
         messages = this.messageBuffer.push(chunk);
       } catch (error) {

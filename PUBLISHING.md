@@ -23,3 +23,4 @@ This repository is structured as an npm CLI package with the binary name `mcp-br
 - The published tarball is intentionally limited by the `files` field in [`package.json`](package.json).
 - The root package export resolves to [`src/index.mjs`](src/index.mjs).
 - If the unscoped name `mcp-browser-dev-tools` is unavailable, publish under a scope such as `@your-scope/mcp-browser-dev-tools`.
+- GitHub repository protections are described in [`docs/repository-settings.md`](docs/repository-settings.md).

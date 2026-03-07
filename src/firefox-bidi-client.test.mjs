@@ -50,7 +50,10 @@ test("summarizeBidiRemoteValue converts common remote values", () => {
     summarizeBidiRemoteValue({
       type: "object",
       value: [
-        [{ type: "string", value: "title" }, { type: "string", value: "Example" }],
+        [
+          { type: "string", value: "title" },
+          { type: "string", value: "Example" },
+        ],
       ],
     }),
     { title: "Example" },

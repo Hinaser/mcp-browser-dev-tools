@@ -14,7 +14,9 @@ test("getBrowserCandidates includes WSL Chrome paths for Chromium", () => {
 
   assert.deepEqual(candidates.slice(0, 2), ["chromium-browser", "chromium"]);
   assert.equal(
-    candidates.includes("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"),
+    candidates.includes(
+      "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+    ),
     true,
   );
 });
@@ -23,11 +25,15 @@ test("getBrowserCandidates uses native Windows executable paths on win32", () =>
   const candidates = getBrowserCandidates("chromium", {}, "win32");
 
   assert.equal(
-    candidates.includes("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"),
+    candidates.includes(
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    ),
     true,
   );
   assert.equal(
-    candidates.includes("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"),
+    candidates.includes(
+      "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+    ),
     false,
   );
 });

@@ -18,7 +18,10 @@ async function isExecutable(filePath) {
 
 function detectPlatform(env = process.env) {
   const release = os.release().toLowerCase();
-  if (process.platform === "linux" && (release.includes("microsoft") || env.WSL_INTEROP)) {
+  if (
+    process.platform === "linux" &&
+    (release.includes("microsoft") || env.WSL_INTEROP)
+  ) {
     return "wsl";
   }
 
@@ -36,10 +39,7 @@ export function getBrowserCandidates(
 ) {
   if (family === "firefox") {
     if (platform === "darwin") {
-      return [
-        "/Applications/Firefox.app/Contents/MacOS/firefox",
-        "firefox",
-      ];
+      return ["/Applications/Firefox.app/Contents/MacOS/firefox", "firefox"];
     }
 
     if (platform === "wsl") {

@@ -21,7 +21,10 @@ async function probeUrl(url) {
   }
 }
 
-export async function collectDoctorReport({ env = process.env, url = null } = {}) {
+export async function collectDoctorReport({
+  env = process.env,
+  url = null,
+} = {}) {
   const config = loadConfig(env);
   const installedBrowsers = await detectInstalledBrowsers(env);
   const adapter = createBrowserAdapter(config);

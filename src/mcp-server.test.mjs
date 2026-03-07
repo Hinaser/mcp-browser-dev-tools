@@ -11,7 +11,9 @@ function createFakeManager() {
       return { available: true };
     },
     async listTargets() {
-      return [{ targetId: "tab-1", title: "Example", url: "https://example.com" }];
+      return [
+        { targetId: "tab-1", title: "Example", url: "https://example.com" },
+      ];
     },
     listSessions() {
       return [{ sessionId: "session-1", targetId: "tab-1" }];
@@ -32,7 +34,9 @@ function createFakeManager() {
       return [{ sessionId, limit, kind: "console", text: "hello" }];
     },
     getNetworkRequests(sessionId, limit) {
-      return [{ sessionId, limit, requestId: "req-1", url: "https://example.com" }];
+      return [
+        { sessionId, limit, requestId: "req-1", url: "https://example.com" },
+      ];
     },
     async inspectElement(sessionId, selector) {
       return { sessionId, selector, found: true, node: { nodeName: "DIV" } };
@@ -224,8 +228,8 @@ test("Firefox tool schemas only advertise screenshot formats the adapter support
     (tool) => tool.name === "take_screenshot",
   );
 
-  assert.deepEqual(
-    screenshotTool.inputSchema.properties.format.enum,
-    ["png", "jpeg"],
-  );
+  assert.deepEqual(screenshotTool.inputSchema.properties.format.enum, [
+    "png",
+    "jpeg",
+  ]);
 });

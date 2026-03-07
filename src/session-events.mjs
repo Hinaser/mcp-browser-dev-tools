@@ -6,7 +6,9 @@ function normalizeLimit(limit, fallback = 50) {
 
 export function filterConsoleMessages(events = [], limit = 50) {
   const safeLimit = normalizeLimit(limit);
-  return events.filter((event) => CONSOLE_EVENT_KINDS.has(event.kind)).slice(-safeLimit);
+  return events
+    .filter((event) => CONSOLE_EVENT_KINDS.has(event.kind))
+    .slice(-safeLimit);
 }
 
 function createEmptyNetworkRequest(requestId) {

@@ -143,7 +143,9 @@ function normalizeEvent(method, params) {
 
 async function parseJson(response) {
   if (!response.ok) {
-    throw new Error(`CDP endpoint returned ${response.status} ${response.statusText}`);
+    throw new Error(
+      `CDP endpoint returned ${response.status} ${response.statusText}`,
+    );
   }
 
   return response.json();
@@ -197,7 +199,9 @@ export class CdpSession {
 
   async connect() {
     if (!this.target.webSocketDebuggerUrl) {
-      throw new Error(`Target ${this.target.targetId} does not expose a debugger websocket`);
+      throw new Error(
+        `Target ${this.target.targetId} does not expose a debugger websocket`,
+      );
     }
 
     this.websocket = new WebSocket(this.target.webSocketDebuggerUrl);
@@ -224,7 +228,11 @@ export class CdpSession {
             return;
           }
           settled = true;
-          reject(new Error(`Failed to connect to ${this.target.webSocketDebuggerUrl}`));
+          reject(
+            new Error(
+              `Failed to connect to ${this.target.webSocketDebuggerUrl}`,
+            ),
+          );
         },
         { once: true },
       );
@@ -373,16 +381,18 @@ export class CdpSession {
       };
     }
 
-    const [description, attributes, outerHtml, textContent] = await Promise.all([
-      this.send("DOM.describeNode", {
-        nodeId,
-        depth: 1,
-        pierce: true,
-      }),
-      this.send("DOM.getAttributes", { nodeId }),
-      this.send("DOM.getOuterHTML", { nodeId }),
-      this.readNodeText(nodeId),
-    ]);
+    const [description, attributes, outerHtml, textContent] = await Promise.all(
+      [
+        this.send("DOM.describeNode", {
+          nodeId,
+          depth: 1,
+          pierce: true,
+        }),
+        this.send("DOM.getAttributes", { nodeId }),
+        this.send("DOM.getOuterHTML", { nodeId }),
+        this.readNodeText(nodeId),
+      ],
+    );
 
     return {
       browserFamily: "chromium",
@@ -504,11 +514,15 @@ export class CdpSessionManager {
 
   async listTargets() {
     const targets = await this.fetchJson("/json/list");
-    return targets.filter((target) => target.type === "page").map(normalizeTarget);
+    return targets
+      .filter((target) => target.type === "page")
+      .map(normalizeTarget);
   }
 
   listSessions() {
-    return Array.from(this.sessions.values(), (session) => session.getSummary());
+    return Array.from(this.sessions.values(), (session) =>
+      session.getSummary(),
+    );
   }
 
   async attachToTarget(targetId) {

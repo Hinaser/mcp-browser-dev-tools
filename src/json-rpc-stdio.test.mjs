@@ -27,7 +27,10 @@ test("MessageBuffer decodes multiple frames in one chunk", () => {
 test("MessageBuffer recovers after a malformed frame", () => {
   const buffer = new MessageBuffer();
 
-  assert.throws(() => buffer.push("X-Test: 1\r\n\r\n{}"), /Missing Content-Length/);
+  assert.throws(
+    () => buffer.push("X-Test: 1\r\n\r\n{}"),
+    /Missing Content-Length/,
+  );
   assert.deepEqual(
     buffer.push(encodeMessage({ jsonrpc: "2.0", id: 3, method: "ping" })),
     [{ jsonrpc: "2.0", id: 3, method: "ping" }],

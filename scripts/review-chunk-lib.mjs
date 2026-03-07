@@ -7,12 +7,14 @@ export function formatStamp(date) {
 }
 
 export function slugify(value) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "review";
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "review"
+  );
 }
 
 export function parseTimeoutMs(value, fallback = DEFAULT_TIMEOUT_MS) {

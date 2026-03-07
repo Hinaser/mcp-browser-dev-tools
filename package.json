@@ -2,8 +2,17 @@
   "name": "mcp-browser-dev-tools",
   "version": "0.0.1-beta.0",
   "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
+  "author": "Hinaser <rindo.hinase@gmail.com>",
   "type": "module",
+  "homepage": "https://github.com/Hinaser/mcp-browser-dev-tools#readme",
   "main": "./src/index.mjs",
+  "bugs": {
+    "url": "https://github.com/Hinaser/mcp-browser-dev-tools/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hinaser/mcp-browser-dev-tools.git"
+  },
   "exports": {
     ".": "./src/index.mjs",
     "./package.json": "./package.json"
@@ -47,9 +56,30 @@
     "start": "node src/cli.mjs serve",
     "dev": "node --watch src/cli.mjs serve",
     "doctor": "node src/cli.mjs doctor",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run lint && npm run format:check && npm test",
+    "prepare": "husky",
     "pack:check": "npm pack --dry-run --cache .npm-pack-cache",
-    "prepublishOnly": "npm test",
+    "prepublishOnly": "npm run check",
     "review:chunk": "node scripts/review-chunk.mjs",
     "test": "node --test"
+  },
+  "lint-staged": {
+    "*.mjs": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": "prettier --write"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.3",
+    "globals": "^17.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.2",
+    "prettier": "^3.8.1"
   }
 }

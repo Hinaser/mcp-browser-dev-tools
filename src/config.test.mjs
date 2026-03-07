@@ -24,7 +24,10 @@ test("parsePositiveInteger rejects invalid values", () => {
 });
 
 test("normalizeBaseUrl trims trailing slashes", () => {
-  assert.equal(normalizeBaseUrl("http://127.0.0.1:9222/"), DEFAULT_CDP_BASE_URL);
+  assert.equal(
+    normalizeBaseUrl("http://127.0.0.1:9222/"),
+    DEFAULT_CDP_BASE_URL,
+  );
 });
 
 test("normalizeWebSocketUrl trims trailing slashes", () => {

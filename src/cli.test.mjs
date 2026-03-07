@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { parseCliArgs, runCli } from "./cli.mjs";
+import { PACKAGE_VERSION } from "./package-info.mjs";
 
 test("parseCliArgs defaults to serve", () => {
   assert.deepEqual(parseCliArgs([]), {
@@ -62,5 +63,5 @@ test("runCli prints the package version for top-level --version", async () => {
     process.stdout.write = originalWrite;
   }
 
-  assert.equal(output.trim(), "0.1.0");
+  assert.equal(output.trim(), PACKAGE_VERSION);
 });

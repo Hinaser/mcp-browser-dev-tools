@@ -87,7 +87,10 @@ async function runDoctor(options) {
     url: typeof options.url === "string" ? options.url : null,
   });
   process.stdout.write(`${renderDoctorReport(report)}\n`);
-  if (!report.browserStatus.available || (report.targetUrl && !report.targetUrl.reachable)) {
+  if (
+    !report.browserStatus.available ||
+    (report.targetUrl && !report.targetUrl.reachable)
+  ) {
     process.exitCode = 1;
   }
 }
@@ -173,7 +176,10 @@ export async function runCli(argv = process.argv.slice(2)) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   runCli().catch((error) => {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);
