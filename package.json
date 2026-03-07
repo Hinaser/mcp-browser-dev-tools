@@ -19,6 +19,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "cli.mjs",
     "src/app.mjs",
     "src/browser-adapter.mjs",
     "src/browser-launcher.mjs",
@@ -36,7 +37,7 @@
     "README.md"
   ],
   "bin": {
-    "mcp-browser-dev-tools": "./src/cli.mjs"
+    "mcp-browser-dev-tools": "cli.mjs"
   },
   "keywords": [
     "mcp",
