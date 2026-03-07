@@ -1,6 +1,6 @@
 {
   "name": "mcp-browser-dev-tools",
-  "version": "0.0.1-beta.2",
+  "version": "0.0.1-beta.3",
   "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
   "author": "Hinaser <rindo.hinase@gmail.com>",
   "type": "module",
