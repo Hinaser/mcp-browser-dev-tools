@@ -4,6 +4,10 @@ export const DEFAULT_EVENT_BUFFER_SIZE = 200;
 export const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 export const DEFAULT_BROWSER_FAMILY = "chromium";
 
+export function isLoopbackHost(value) {
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(value);
+}
+
 function allowsRemoteEndpoints(env = process.env) {
   return (
     isTruthyFlag(env.MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS) ||
@@ -37,7 +41,7 @@ export function isTruthyFlag(value) {
 
 export function isLoopbackOrigin(value) {
   const url = new URL(value);
-  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname);
+  return isLoopbackHost(url.hostname);
 }
 
 export function parseBrowserFamily(value) {

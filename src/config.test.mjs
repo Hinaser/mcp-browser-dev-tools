@@ -6,6 +6,7 @@ import {
   DEFAULT_CDP_BASE_URL,
   DEFAULT_EVENT_BUFFER_SIZE,
   DEFAULT_FIREFOX_BIDI_WS_URL,
+  isLoopbackHost,
   isLoopbackOrigin,
   loadConfig,
   normalizeWebSocketUrl,
@@ -43,6 +44,13 @@ test("isLoopbackOrigin accepts loopback hosts only", () => {
   assert.equal(isLoopbackOrigin("ws://localhost:9222"), true);
   assert.equal(isLoopbackOrigin("ws://[::1]:9222"), true);
   assert.equal(isLoopbackOrigin("http://192.0.2.10:9222"), false);
+});
+
+test("isLoopbackHost accepts loopback hostnames only", () => {
+  assert.equal(isLoopbackHost("127.0.0.1"), true);
+  assert.equal(isLoopbackHost("localhost"), true);
+  assert.equal(isLoopbackHost("::1"), true);
+  assert.equal(isLoopbackHost("0.0.0.0"), false);
 });
 
 test("parseBrowserFamily falls back to chromium", () => {

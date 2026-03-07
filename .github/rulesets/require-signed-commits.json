@@ -1,0 +1,16 @@
+{
+  "name": "Require signed commits on all branches",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_signatures"
+    }
+  ]
+}

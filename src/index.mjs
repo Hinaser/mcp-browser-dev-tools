@@ -12,6 +12,7 @@ export {
   DEFAULT_EVENT_BUFFER_SIZE,
   DEFAULT_FIREFOX_BIDI_WS_URL,
   DEFAULT_PROTOCOL_VERSION,
+  isLoopbackHost,
   isLoopbackOrigin,
   isTruthyFlag,
   loadConfig,

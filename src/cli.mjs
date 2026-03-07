@@ -8,7 +8,7 @@ import {
   buildBrowserLaunchArgs,
   findBrowserExecutable,
 } from "./browser-launcher.mjs";
-import { loadConfig } from "./config.mjs";
+import { isLoopbackHost, loadConfig } from "./config.mjs";
 import { collectDoctorReport, renderDoctorReport } from "./doctor.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 
@@ -104,6 +104,21 @@ async function runOpen(positional, options) {
   const config = loadConfig();
   const family =
     typeof options.family === "string" ? options.family : config.browserFamily;
+  const requestedAddress =
+    family === "chromium" && typeof options.address === "string"
+      ? options.address.trim()
+      : null;
+
+  if (
+    requestedAddress &&
+    !isLoopbackHost(requestedAddress) &&
+    !config.allowRemoteEndpoints
+  ) {
+    throw new Error(
+      "--address must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1",
+    );
+  }
+
   const executable = await findBrowserExecutable(family);
   if (!executable) {
     throw new Error(`No local ${family} browser executable found`);
@@ -119,10 +134,7 @@ async function runOpen(positional, options) {
     url,
     remoteDebuggingPort:
       typeof options.port === "string" ? options.port : defaultPort,
-    remoteDebuggingAddress:
-      family === "chromium" && typeof options.address === "string"
-        ? options.address
-        : undefined,
+    remoteDebuggingAddress: requestedAddress || undefined,
     userDataDir:
       family === "chromium" && typeof options["user-data-dir"] === "string"
         ? options["user-data-dir"]

@@ -2,6 +2,8 @@
 
 This repository uses GitHub Actions for CI and tag-based npm publishing, but signed-commit enforcement belongs in GitHub repository rulesets.
 
+Version-controlled ruleset definitions live in [`/.github/rulesets`](/home/hinaser/projects/mcp-browser-dev-tools/.github/rulesets).
+
 ## Required GitHub Ruleset For `main`
 
 Create a branch ruleset that targets `refs/heads/main` and enable these protections:
@@ -13,6 +15,8 @@ Create a branch ruleset that targets `refs/heads/main` and enable these protecti
 - Block branch deletion
 
 Use the `verify` job from the `CI` workflow as the required status check.
+
+If the repository has not been pushed yet, create this ruleset after the first push to `main` so the required status check context already exists.
 
 ## Signed Commits For PR Branches
 
@@ -29,13 +33,23 @@ Recommended repository settings:
 - Enable merge commits or rebase merges
 - Disable squash merges unless the PR author is expected to perform the squash merge themselves
 
+## Required Tag Ruleset
+
+Create a tag ruleset that targets `refs/tags/v*` and enable these protections:
+
+- Restrict tag creation
+- Restrict tag updates
+- Restrict tag deletion
+
+Add an admin bypass actor only for the people who are allowed to create release tags.
+
 ## npm Publish Workflow
 
-The `Publish` workflow runs when a tag matching `v*` is pushed. It checks that the tag matches the version in `package.json` and then publishes to npm.
+The `Publish` workflow runs only when a tag matching `v*` is pushed. It checks that the tag matches the version in `package.json` and then publishes to npm from the `npm-release` environment.
 
 Recommended authentication setup:
 
 1. Configure npm trusted publishing for this GitHub repository.
-2. Keep the workflow permission `id-token: write` enabled.
-
-If you prefer token-based publishing instead, create an `NPM_TOKEN` repository secret with publish access to the npm package.
+2. Create the `npm-release` environment.
+3. Add yourself as the required reviewer for that environment.
+4. Keep the workflow permission `id-token: write` enabled.

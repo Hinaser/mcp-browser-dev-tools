@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
+import {
+  encodeMessage,
+  MAX_MESSAGE_BYTES,
+  MessageBuffer,
+} from "./json-rpc-stdio.mjs";
 
 test("MessageBuffer decodes framed JSON-RPC messages", () => {
   const buffer = new MessageBuffer();
@@ -35,4 +39,11 @@ test("MessageBuffer recovers after a malformed frame", () => {
     buffer.push(encodeMessage({ jsonrpc: "2.0", id: 3, method: "ping" })),
     [{ jsonrpc: "2.0", id: 3, method: "ping" }],
   );
+});
+
+test("MessageBuffer rejects oversized messages", () => {
+  const buffer = new MessageBuffer();
+  const frame = `Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n{}`;
+
+  assert.throws(() => buffer.push(frame), /maximum size/);
 });

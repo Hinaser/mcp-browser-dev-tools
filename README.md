@@ -90,6 +90,8 @@ mcp-browser-dev-tools open http://127.0.0.1:3000 --family chromium
 - `MCP_BROWSER_ALLOW_REMOTE_CDP=1` is still accepted as a legacy alias
 - `MCP_PROTOCOL_VERSION` overrides the advertised MCP protocol version
 
+The `open` command also requires `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` before it will bind Chromium remote debugging to a non-loopback address.
+
 ## Exposed Tools
 
 - `browser_status`

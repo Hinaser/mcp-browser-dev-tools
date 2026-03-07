@@ -1,3 +1,5 @@
+export const MAX_MESSAGE_BYTES = 1024 * 1024;
+
 export function encodeMessage(message) {
   const payload = Buffer.from(JSON.stringify(message), "utf8");
   return Buffer.concat([
@@ -15,6 +17,11 @@ export class MessageBuffer {
     const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     this.buffer = Buffer.concat([this.buffer, incoming]);
 
+    if (this.buffer.length > MAX_MESSAGE_BYTES) {
+      this.buffer = Buffer.alloc(0);
+      throw new Error("Message buffer exceeded maximum size");
+    }
+
     const messages = [];
     while (true) {
       const headerEnd = this.buffer.indexOf("\r\n\r\n");
@@ -30,6 +37,11 @@ export class MessageBuffer {
       }
 
       const bodyLength = Number.parseInt(match[1], 10);
+      if (bodyLength > MAX_MESSAGE_BYTES) {
+        this.buffer = Buffer.alloc(0);
+        throw new Error("Message exceeded maximum size");
+      }
+
       const bodyStart = headerEnd + 4;
       const bodyEnd = bodyStart + bodyLength;
       if (this.buffer.length < bodyEnd) {
