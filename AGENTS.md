@@ -4,13 +4,14 @@
 
 - Package name: `mcp-browser-dev-tools`
 - Purpose: local MCP server that bridges AI clients to Chromium CDP and Firefox BiDi
-- Runtime: Node.js `22+`, ESM-only
+- Runtime: Node.js `24+`, ESM-only
+- Package manager for development and CI: `pnpm`
 
 ## Core Commands
 
-- `npm run check`: lint, format check, and tests
-- `npm run pack:check`: verify npm tarball contents
-- `npm test`: run the Node test suite
+- `pnpm run check`: lint, format check, and tests
+- `pnpm run pack:check`: verify npm tarball contents
+- `pnpm test`: run the Node test suite
 
 ## Release And GitHub Rules
 
@@ -33,6 +34,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 - Keep arbitrary page evaluation behind `MCP_BROWSER_ENABLE_EVAL`.
 - Keep inbound JSON-RPC/stdin message size bounded.
 - Prefer trusted publishing over long-lived npm tokens.
+- Keep `package-lock.json` out of the repo; `pnpm-lock.yaml` is the canonical lockfile.
 
 ## Public Repo Hygiene
 
@@ -44,6 +46,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 ## Current Repository Shape
 
 - Public docs: `README.md`, `docs/architecture.md`, `docs/repository-settings.md`, `PUBLISHING.md`
+- Maintainer scripts: `scripts/`
 - Runtime source: `src/`
 - GitHub automation: `.github/workflows/`
 - Repo ruleset definitions: `.github/rulesets/`

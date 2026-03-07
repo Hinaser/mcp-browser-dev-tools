@@ -16,7 +16,7 @@ It is designed for a local trust boundary:
 
 ## Requirements
 
-- Node.js `22+`
+- Node.js `24+`
 - A local browser exposing either CDP or BiDi
 - Loopback endpoints by default; remote endpoints require an explicit opt-in flag
 
@@ -126,9 +126,13 @@ For tools that take `sessionId`, call `attach_tab` first and reuse the returned 
 ## Development
 
 ```bash
-npm test
-npm run pack:check
+corepack enable
+pnpm install
+pnpm run check
+pnpm run pack:check
 ```
+
+The repository uses `pnpm` for local development and CI. End-user installation and publish flows still target the npm registry.
 
 Additional docs:
 
