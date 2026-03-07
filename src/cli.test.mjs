@@ -72,3 +72,10 @@ test("runCli rejects non-loopback remote debugging addresses by default", async 
     /MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1/,
   );
 });
+
+test("runCli rejects non-loopback relay listen hosts by default", async () => {
+  await assert.rejects(
+    runCli(["relay", "--listen-host", "0.0.0.0"]),
+    /MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1/,
+  );
+});

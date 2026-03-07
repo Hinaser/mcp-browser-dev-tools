@@ -17,6 +17,7 @@ The CLI provides three user-facing entrypoints:
 - `serve` for the MCP server
 - `doctor` for environment and endpoint checks
 - `open` for launching a local browser with debugging enabled
+- `relay` for forwarding TCP traffic across a local machine boundary such as Windows Chrome to WSL
 
 ### MCP Broker
 
@@ -70,6 +71,7 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - Loopback-only browser endpoints by default
 - Read-oriented tools enabled by default
 - Explicit opt-in for evaluation
+- The relay command stays loopback-only by default unless you explicitly bind it differently
 - Bounded in-memory event buffers per session
 - Adapter-specific normalization before data is returned to the MCP client
 
