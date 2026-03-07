@@ -11,6 +11,7 @@ import {
 import { isLoopbackHost, loadConfig } from "./config.mjs";
 import { collectDoctorReport, renderDoctorReport } from "./doctor.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
+import { resolveRelayOptions, startTcpRelay } from "./tcp-relay.mjs";
 
 export function parseCliArgs(argv) {
   const args = [...argv];
@@ -55,6 +56,7 @@ function printUsage() {
       "  serve                Run the MCP broker over stdio",
       "  doctor [--url URL]   Check browser endpoint and optional page reachability",
       "  open <url>           Launch a local browser with remote debugging enabled",
+      "  relay                Forward TCP traffic across a local machine boundary",
       "  version              Print the package version",
       "  help                 Print usage information",
       "",
@@ -67,6 +69,13 @@ function printUsage() {
       "  --port <port>        remote debugging port",
       "  --address <host>     remote debugging address for Chromium",
       "  --user-data-dir <p>  optional browser profile directory",
+      "",
+      "Relay options:",
+      "  --listen-host <host> relay bind host (defaults to 127.0.0.1)",
+      "  --listen-port <port> relay bind port (defaults to 9223)",
+      "  --target-host <host> relay target host (defaults to 127.0.0.1)",
+      "  --target-port <port> relay target port (defaults to 9222)",
+      "  --wsl                on Windows, bind to the WSL virtual interface",
       "",
     ].join("\n"),
   );
@@ -152,6 +161,34 @@ async function runOpen(positional, options) {
   );
 }
 
+async function runRelay(options) {
+  const relayOptions = resolveRelayOptions(options);
+  const relay = await startTcpRelay(relayOptions);
+
+  const close = async (signal) => {
+    process.stderr.write(`[relay] shutting down after ${signal}\n`);
+    await relay.close();
+  };
+
+  process.on("SIGINT", () => {
+    void close("SIGINT").finally(() => process.exit(0));
+  });
+
+  process.on("SIGTERM", () => {
+    void close("SIGTERM").finally(() => process.exit(0));
+  });
+
+  process.stdout.write(
+    `relay listening on ${relayOptions.listenHost}:${relayOptions.listenPort} -> ${relayOptions.targetHost}:${relayOptions.targetPort}\n`,
+  );
+
+  if (relayOptions.useWslBridge) {
+    process.stdout.write(
+      `for WSL use: CDP_BASE_URL=http://${relayOptions.listenHost}:${relayOptions.listenPort}\n`,
+    );
+  }
+}
+
 export async function runCli(argv = process.argv.slice(2)) {
   const { command, positional, options } = parseCliArgs(argv);
 
@@ -174,6 +211,9 @@ export async function runCli(argv = process.argv.slice(2)) {
       return;
     case "open":
       await runOpen(positional, options);
+      return;
+    case "relay":
+      await runRelay(options);
       return;
     case "version":
     case "-v":

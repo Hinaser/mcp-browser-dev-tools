@@ -29,3 +29,12 @@ export {
   PACKAGE_NAME,
   PACKAGE_VERSION,
 } from "./package-info.mjs";
+export {
+  DEFAULT_RELAY_LISTEN_HOST,
+  DEFAULT_RELAY_LISTEN_PORT,
+  DEFAULT_RELAY_TARGET_HOST,
+  DEFAULT_RELAY_TARGET_PORT,
+  getWindowsWslHostCandidates,
+  resolveRelayOptions,
+  startTcpRelay,
+} from "./tcp-relay.mjs";

@@ -12,7 +12,7 @@ It is designed for a local trust boundary:
 - Browser discovery and attach/detach for Chromium-family browsers and Firefox
 - Read-oriented tools for DOM inspection, element lookup, console messages, network requests, screenshots, tab listing, and buffered events
 - Optional JavaScript evaluation behind an explicit environment flag
-- Helper commands to check browser connectivity and launch a debug-enabled browser
+- Helper commands to check browser connectivity, launch a debug-enabled browser, and relay CDP traffic across a local machine boundary
 
 ## Requirements
 
@@ -21,6 +21,8 @@ It is designed for a local trust boundary:
 - Loopback endpoints by default; remote endpoints require an explicit opt-in flag
 
 ## Install
+
+If you are trying the prerelease from npm, replace `mcp-browser-dev-tools` below with `mcp-browser-dev-tools@beta`.
 
 One-off execution with `npx`:
 
@@ -41,6 +43,35 @@ Project-local install:
 npm install mcp-browser-dev-tools
 npx mcp-browser-dev-tools serve
 ```
+
+## Try It Locally
+
+You can smoke-test the broker before wiring it into an MCP client.
+
+For Windows, WSL, macOS, and Linux-specific setup paths, see [docs/setup.md](docs/setup.md).
+
+Quick Chromium flow:
+
+```bash
+# Launch a local browser with remote debugging enabled
+npx -y mcp-browser-dev-tools@beta open https://example.com --family chromium
+
+# Verify that the browser endpoint and page are reachable
+npx -y mcp-browser-dev-tools@beta doctor --url https://example.com
+
+# Start the MCP server in a dedicated terminal
+npx -y mcp-browser-dev-tools@beta serve
+```
+
+`serve` stays attached to stdio because MCP clients talk to it over standard input and output. Run it in its own terminal or let your MCP client spawn it directly.
+
+If you already have a browser listening on `http://127.0.0.1:9222`, `doctor` is enough to confirm that the broker can reach it:
+
+```bash
+CDP_BASE_URL=http://127.0.0.1:9222 npx -y mcp-browser-dev-tools@beta doctor
+```
+
+If you need to bridge Windows Chrome into WSL without changing WSL networking mode, run the relay on Windows and point WSL at the relay port instead. The full procedure is in [docs/setup.md](docs/setup.md).
 
 ## MCP Client Configuration
 
@@ -68,6 +99,7 @@ For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_U
 - `serve` runs the MCP broker over stdio
 - `doctor [--url URL]` checks browser reachability, local display state, and optional page access
 - `open <url>` launches a local browser with remote debugging enabled
+- `relay` forwards TCP traffic, useful for Windows-to-WSL DevTools bridging
 - `--help` and `help` print usage
 - `--version` and `version` print the package version
 
@@ -77,6 +109,7 @@ Examples:
 mcp-browser-dev-tools doctor
 mcp-browser-dev-tools doctor --url http://127.0.0.1:3000
 mcp-browser-dev-tools open http://127.0.0.1:3000 --family chromium
+mcp-browser-dev-tools relay --wsl
 ```
 
 ## Configuration
@@ -91,6 +124,8 @@ mcp-browser-dev-tools open http://127.0.0.1:3000 --family chromium
 - `MCP_PROTOCOL_VERSION` overrides the advertised MCP protocol version
 
 The `open` command also requires `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` before it will bind Chromium remote debugging to a non-loopback address.
+
+The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback relay binds require either `--wsl` on Windows or `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1`.
 
 ## Exposed Tools
 
@@ -115,6 +150,7 @@ For tools that take `sessionId`, call `attach_tab` first and reuse the returned 
 - Chromium uses the standard DevTools endpoints at `/json/version` and `/json/list`
 - Firefox support expects a direct BiDi websocket endpoint
 - In WSL, Linux browser executables are preferred before Windows fallback paths
+- For Windows Chrome + WSL, prefer the `relay` command over changing Chrome's remote debugging bind
 
 ## Safety Defaults
 
@@ -137,5 +173,6 @@ The repository uses `pnpm` for local development and CI. End-user installation a
 Additional docs:
 
 - [Architecture](docs/architecture.md)
+- [Setup Guide](docs/setup.md)
 - [Repository Settings](docs/repository-settings.md)
 - [Publishing](PUBLISHING.md)
