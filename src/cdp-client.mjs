@@ -2,6 +2,7 @@ import {
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { buildPageContextExpression } from "./page-context.mjs";
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -42,26 +43,100 @@ function summarizeRemoteObject(object) {
   };
 }
 
-function toAttributeObject(attributes = []) {
-  const result = {};
-  for (let index = 0; index < attributes.length; index += 2) {
-    result[attributes[index]] = attributes[index + 1] ?? "";
+function summarizeCallFrames(callFrames = []) {
+  return callFrames.map((frame) => ({
+    functionName: frame.functionName || null,
+    url: frame.url || null,
+    lineNumber: frame.lineNumber ?? null,
+    columnNumber: frame.columnNumber ?? null,
+  }));
+}
+
+function firstCallFrame(stackTrace) {
+  const frame = stackTrace?.callFrames?.[0];
+  if (!frame) {
+    return null;
   }
 
-  return result;
+  return {
+    functionName: frame.functionName || null,
+    url: frame.url || null,
+    lineNumber: frame.lineNumber ?? null,
+    columnNumber: frame.columnNumber ?? null,
+  };
+}
+
+function normalizeConsoleText(values = []) {
+  const text = values
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) =>
+      typeof value === "string" ? value : JSON.stringify(value, null, 2),
+    )
+    .join(" ");
+
+  return text || null;
+}
+
+function screenshotMimeType(format) {
+  if (format === "jpeg") {
+    return "image/jpeg";
+  }
+
+  if (format === "webp") {
+    return "image/webp";
+  }
+
+  return "image/png";
+}
+
+function formatScreenshotResult(data, format, extras = {}) {
+  return {
+    format,
+    mimeType: screenshotMimeType(format),
+    encoding: "base64",
+    byteLength: Buffer.byteLength(data, "base64"),
+    data,
+    ...extras,
+  };
+}
+
+function normalizeWaitUntil(value) {
+  if (value === "none" || value === "interactive") {
+    return value;
+  }
+
+  return "complete";
+}
+
+function cdpLifecycleEventFor(waitUntil) {
+  if (waitUntil === "interactive") {
+    return "Page.domContentEventFired";
+  }
+
+  if (waitUntil === "none") {
+    return null;
+  }
+
+  return "Page.loadEventFired";
 }
 
 function normalizeEvent(method, params) {
   if (method === "Runtime.consoleAPICalled") {
+    const values = (params.args || []).map(summarizeRemoteObject);
+    const source = firstCallFrame(params.stackTrace);
     return {
       kind: "console",
       level: params.type,
       timestamp: params.timestamp,
-      values: (params.args || []).map(summarizeRemoteObject),
+      text: normalizeConsoleText(values),
+      values,
+      source,
+      stackTrace: summarizeCallFrames(params.stackTrace?.callFrames),
     };
   }
 
   if (method === "Runtime.exceptionThrown") {
+    const exception = params.exceptionDetails?.exception ?? null;
     return {
       kind: "exception",
       timestamp: params.timestamp,
@@ -69,16 +144,28 @@ function normalizeEvent(method, params) {
       url: params.exceptionDetails?.url,
       lineNumber: params.exceptionDetails?.lineNumber,
       columnNumber: params.exceptionDetails?.columnNumber,
+      stackTrace: summarizeCallFrames(
+        params.exceptionDetails?.stackTrace?.callFrames,
+      ),
+      exception:
+        exception && typeof exception === "object"
+          ? summarizeRemoteObject(exception)
+          : null,
     };
   }
 
   if (method === "Log.entryAdded") {
+    const source = firstCallFrame(params.entry?.stackTrace);
     return {
       kind: "log",
       level: params.entry?.level,
       text: params.entry?.text,
       url: params.entry?.url,
       timestamp: params.entry?.timestamp,
+      lineNumber: source?.lineNumber ?? null,
+      columnNumber: source?.columnNumber ?? null,
+      source,
+      stackTrace: summarizeCallFrames(params.entry?.stackTrace?.callFrames),
     };
   }
 
@@ -92,6 +179,7 @@ function normalizeEvent(method, params) {
       method: params.request?.method,
       url: params.request?.url,
       resourceType: params.type,
+      source: "protocol",
     };
   }
 
@@ -107,6 +195,7 @@ function normalizeEvent(method, params) {
       status: params.response?.status,
       statusText: params.response?.statusText,
       mimeType: params.response?.mimeType,
+      source: "protocol",
     };
   }
 
@@ -118,6 +207,8 @@ function normalizeEvent(method, params) {
       failed: false,
       timestamp: params.timestamp,
       requestId: params.requestId,
+      encodedBodySize: params.encodedDataLength ?? null,
+      source: "protocol",
     };
   }
 
@@ -131,6 +222,33 @@ function normalizeEvent(method, params) {
       requestId: params.requestId,
       errorText: params.errorText,
       canceled: params.canceled ?? false,
+      source: "protocol",
+    };
+  }
+
+  if (
+    method === "Page.frameNavigated" ||
+    method === "Page.navigatedWithinDocument"
+  ) {
+    return {
+      kind: "page",
+      phase: "navigated",
+      timestamp: new Date().toISOString(),
+      url: params.frame?.url ?? params.url ?? null,
+      frameId: params.frame?.id ?? params.frameId ?? null,
+      loaderId: params.frame?.loaderId ?? params.loaderId ?? null,
+    };
+  }
+
+  if (
+    method === "Page.loadEventFired" ||
+    method === "Page.domContentEventFired" ||
+    method === "Page.frameStoppedLoading"
+  ) {
+    return {
+      kind: "page",
+      phase: method,
+      timestamp: params.timestamp ?? new Date().toISOString(),
     };
   }
 
@@ -185,6 +303,10 @@ export class CdpSession {
     this.connectedAt = new Date().toISOString();
     this.websocket = null;
     this.closed = false;
+    this.eventWaiters = new Set();
+    this.lastNavigationAt = null;
+    this.lastReloadAt = null;
+    this.viewportOverride = null;
   }
 
   markClosed() {
@@ -194,6 +316,7 @@ export class CdpSession {
 
     this.closed = true;
     this.rejectPending(new Error("CDP session closed"));
+    this.rejectEventWaiters(new Error("CDP session closed"));
     this.onClosed?.(this);
   }
 
@@ -258,6 +381,8 @@ export class CdpSession {
       this.send("Network.enable"),
     ]);
 
+    await this.seedBufferedState();
+
     return this.getSummary();
   }
 
@@ -291,15 +416,94 @@ export class CdpSession {
   }
 
   bufferEvent(method, params) {
-    this.bufferedEvents.push({
+    const capturedAt = new Date().toISOString();
+    if (
+      method === "Page.frameNavigated" &&
+      params.frame?.url &&
+      !params.frame?.parentId
+    ) {
+      this.target.url = params.frame.url;
+      this.lastNavigationAt = capturedAt;
+    }
+
+    if (method === "Page.navigatedWithinDocument" && params.url) {
+      this.target.url = params.url;
+      this.lastNavigationAt = capturedAt;
+    }
+
+    if (method === "Page.loadEventFired") {
+      this.lastNavigationAt = capturedAt;
+    }
+
+    this.pushEvent({
       method,
-      capturedAt: new Date().toISOString(),
+      capturedAt,
       ...normalizeEvent(method, params),
     });
+    this.resolveEventWaiters(method, params);
+  }
 
+  pushEvent(event) {
+    this.bufferedEvents.push(event);
     if (this.bufferedEvents.length > this.eventBufferSize) {
       this.bufferedEvents.shift();
     }
+  }
+
+  resolveEventWaiters(method, params) {
+    for (const waiter of Array.from(this.eventWaiters)) {
+      if (waiter.method !== method) {
+        continue;
+      }
+
+      try {
+        if (!waiter.predicate(params)) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+
+      clearTimeout(waiter.timer);
+      this.eventWaiters.delete(waiter);
+      waiter.resolve(params);
+    }
+  }
+
+  rejectEventWaiters(error) {
+    for (const waiter of this.eventWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+
+    this.eventWaiters.clear();
+  }
+
+  createEventWaiter(method, predicate = () => true, timeoutMs = 10_000) {
+    let waiter = null;
+    const promise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.eventWaiters.delete(waiter);
+        reject(new Error(`Timed out waiting for ${method}`));
+      }, timeoutMs);
+
+      waiter = { method, predicate, resolve, reject, timer };
+      this.eventWaiters.add(waiter);
+    });
+
+    return {
+      promise,
+      cancel: (error = new Error(`Stopped waiting for ${method}`)) => {
+        if (waiter && this.eventWaiters.delete(waiter)) {
+          clearTimeout(waiter.timer);
+          waiter.reject(error);
+        }
+      },
+    };
+  }
+
+  waitForEvent(method, predicate = () => true, timeoutMs = 10_000) {
+    return this.createEventWaiter(method, predicate, timeoutMs).promise;
   }
 
   rejectPending(error) {
@@ -328,13 +532,18 @@ export class CdpSession {
     });
   }
 
-  async evaluate(expression, options = {}) {
-    const result = await this.send("Runtime.evaluate", {
+  async evaluateRuntime(expression, options = {}) {
+    return this.send("Runtime.evaluate", {
       expression,
       awaitPromise: options.awaitPromise ?? true,
       returnByValue: options.returnByValue ?? true,
-      replMode: true,
+      replMode: options.replMode ?? true,
+      userGesture: options.userGesture ?? false,
     });
+  }
+
+  async evaluate(expression, options = {}) {
+    const result = await this.evaluateRuntime(expression, options);
 
     return {
       result: summarizeRemoteObject(result.result),
@@ -349,8 +558,88 @@ export class CdpSession {
     });
   }
 
-  async takeScreenshot(format = "png") {
-    return this.send("Page.captureScreenshot", { format });
+  async runPageAction(payload, options = {}) {
+    const result = await this.evaluateRuntime(
+      buildPageContextExpression(
+        {
+          browserFamily: "chromium",
+          ...payload,
+        },
+        { serialize: true },
+      ),
+      {
+        awaitPromise: true,
+        replMode: false,
+        userGesture: options.userGesture ?? false,
+      },
+    );
+
+    if (result.exceptionDetails) {
+      throw new Error(result.exceptionDetails.text || "Page action failed");
+    }
+
+    const value = result.result?.value ?? summarizeRemoteObject(result.result);
+    return typeof value === "string" ? JSON.parse(value) : value;
+  }
+
+  async getPageState() {
+    const result = await this.runPageAction({
+      action: "page_state",
+    });
+
+    return {
+      browserFamily: "chromium",
+      ...result.page,
+      lastNavigationAt: this.lastNavigationAt,
+      lastReloadAt: this.lastReloadAt,
+      viewportOverride: this.viewportOverride,
+    };
+  }
+
+  async takeScreenshot(format = "png", options = {}) {
+    if (options.selector) {
+      const inspected = await this.runPageAction({
+        action: "inspect",
+        selector: options.selector,
+        scrollIntoView: true,
+      });
+
+      if (!inspected.found) {
+        return {
+          browserFamily: "chromium",
+          format,
+          scope: "element",
+          selector: options.selector,
+          found: false,
+        };
+      }
+
+      const clip = {
+        x: Math.max(inspected.node.box?.x ?? 0, 0),
+        y: Math.max(inspected.node.box?.y ?? 0, 0),
+        width: Math.max(inspected.node.box?.width ?? 0, 1),
+        height: Math.max(inspected.node.box?.height ?? 0, 1),
+        scale: 1,
+      };
+
+      const screenshot = await this.send("Page.captureScreenshot", {
+        format,
+        clip,
+      });
+
+      return formatScreenshotResult(screenshot.data, format, {
+        browserFamily: "chromium",
+        scope: "element",
+        selector: options.selector,
+        clip,
+      });
+    }
+
+    const screenshot = await this.send("Page.captureScreenshot", { format });
+    return formatScreenshotResult(screenshot.data, format, {
+      browserFamily: "chromium",
+      scope: "page",
+    });
   }
 
   getConsoleMessages(limit = 50) {
@@ -362,93 +651,196 @@ export class CdpSession {
   }
 
   async inspectElement(selector) {
-    const document = await this.getDocument(1);
-    const rootNodeId = document.root?.nodeId;
-    if (!rootNodeId) {
-      throw new Error("Unable to resolve the DOM root node");
-    }
-
-    const { nodeId } = await this.send("DOM.querySelector", {
-      nodeId: rootNodeId,
+    return this.runPageAction({
+      action: "inspect",
       selector,
     });
+  }
 
-    if (!nodeId) {
+  async click(selector) {
+    return this.runPageAction(
+      {
+        action: "click",
+        selector,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async hover(selector) {
+    return this.runPageAction(
+      {
+        action: "hover",
+        selector,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async type(selector, text, options = {}) {
+    return this.runPageAction(
+      {
+        action: "type",
+        selector,
+        text,
+        clear: options.clear,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async select(selector, options = {}) {
+    return this.runPageAction(
+      {
+        action: "select",
+        selector,
+        value: options.value,
+        label: options.label,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async pressKey(key, selector = null) {
+    return this.runPageAction(
+      {
+        action: "press_key",
+        key,
+        selector,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async scroll(options = {}) {
+    return this.runPageAction(
+      {
+        action: "scroll",
+        selector: options.selector,
+        deltaX: options.deltaX,
+        deltaY: options.deltaY,
+        block: options.block,
+      },
+      { userGesture: true },
+    );
+  }
+
+  async navigate(url, options = {}) {
+    const waitUntil = normalizeWaitUntil(options.waitUntil);
+    const initiatedAt = new Date().toISOString();
+    const lifecycleEvent = cdpLifecycleEventFor(waitUntil);
+    const lifecycleWaiter = lifecycleEvent
+      ? this.createEventWaiter(lifecycleEvent, () => true, options.timeoutMs)
+      : null;
+
+    try {
+      const result = await this.send("Page.navigate", { url });
+      if (result.errorText) {
+        throw new Error(result.errorText);
+      }
+
+      this.target.url = url;
+      if (lifecycleWaiter) {
+        await lifecycleWaiter.promise;
+      }
+
+      const page = lifecycleWaiter ? await this.getPageState() : null;
       return {
         browserFamily: "chromium",
-        selector,
-        found: false,
+        url,
+        frameId: result.frameId ?? null,
+        loaderId: result.loaderId ?? null,
+        waitUntil,
+        initiatedAt,
+        page,
       };
+    } catch (error) {
+      lifecycleWaiter?.cancel(error);
+      throw error;
+    }
+  }
+
+  async reload(options = {}) {
+    const waitUntil = normalizeWaitUntil(options.waitUntil);
+    const reloadedAt = new Date().toISOString();
+    const lifecycleEvent = cdpLifecycleEventFor(waitUntil);
+    const lifecycleWaiter = lifecycleEvent
+      ? this.createEventWaiter(lifecycleEvent, () => true, options.timeoutMs)
+      : null;
+
+    try {
+      await this.send("Page.reload", {
+        ignoreCache: options.ignoreCache ?? false,
+      });
+
+      if (lifecycleWaiter) {
+        await lifecycleWaiter.promise;
+      }
+    } catch (error) {
+      lifecycleWaiter?.cancel(error);
+      throw error;
     }
 
-    const [description, attributes, outerHtml, textContent] = await Promise.all(
-      [
-        this.send("DOM.describeNode", {
-          nodeId,
-          depth: 1,
-          pierce: true,
-        }),
-        this.send("DOM.getAttributes", { nodeId }),
-        this.send("DOM.getOuterHTML", { nodeId }),
-        this.readNodeText(nodeId),
-      ],
-    );
-
+    this.lastReloadAt = reloadedAt;
+    const page = lifecycleWaiter ? await this.getPageState() : null;
     return {
       browserFamily: "chromium",
-      selector,
-      found: true,
-      node: {
-        nodeId,
-        backendNodeId: description.node?.backendNodeId ?? null,
-        nodeName: description.node?.nodeName ?? null,
-        localName: description.node?.localName ?? null,
-        nodeType: description.node?.nodeType ?? null,
-        childNodeCount: description.node?.childNodeCount ?? 0,
-        attributes: toAttributeObject(attributes.attributes),
-        textContent: textContent.textContent,
-        innerText: textContent.innerText,
-        outerHTML: outerHtml.outerHTML ?? null,
-      },
+      url: this.target.url,
+      waitUntil,
+      ignoreCache: options.ignoreCache ?? false,
+      reloadedAt,
+      page,
     };
   }
 
-  async readNodeText(nodeId) {
-    let objectId = null;
+  async setViewport(options) {
+    const viewport = {
+      width: options.width,
+      height: options.height,
+      deviceScaleFactor:
+        typeof options.deviceScaleFactor === "number" &&
+        options.deviceScaleFactor > 0
+          ? options.deviceScaleFactor
+          : 1,
+      mobile: options.mobile ?? false,
+    };
 
+    await this.send("Emulation.setDeviceMetricsOverride", viewport);
+    this.viewportOverride = {
+      ...viewport,
+      appliedAt: new Date().toISOString(),
+    };
+
+    return {
+      browserFamily: "chromium",
+      applied: true,
+      viewport: this.viewportOverride,
+      page: await this.getPageState(),
+    };
+  }
+
+  async seedBufferedState() {
     try {
-      const resolved = await this.send("DOM.resolveNode", { nodeId });
-      objectId = resolved.object?.objectId ?? null;
-      if (!objectId) {
-        return {
-          textContent: null,
-          innerText: null,
-        };
-      }
-
-      const result = await this.send("Runtime.callFunctionOn", {
-        objectId,
-        functionDeclaration:
-          "function() { return { textContent: this.textContent ?? null, innerText: typeof this.innerText === 'string' ? this.innerText : null }; }",
-        returnByValue: true,
-        silent: true,
+      const snapshot = await this.runPageAction({
+        action: "network_snapshot",
       });
 
-      return (
-        result.result?.value ?? {
-          textContent: null,
-          innerText: null,
-        }
-      );
-    } catch {
-      return {
-        textContent: null,
-        innerText: null,
-      };
-    } finally {
-      if (objectId) {
-        await this.send("Runtime.releaseObject", { objectId }).catch(() => {});
+      for (const entry of snapshot?.entries ?? []) {
+        this.pushEvent({
+          method: "Network.snapshotCaptured",
+          capturedAt: new Date().toISOString(),
+          kind: "network",
+          phase: "snapshot",
+          completed: true,
+          finished: true,
+          failed: false,
+          canceled: false,
+          source: "performance",
+          ...entry,
+        });
       }
+    } catch {
+      // Ignore snapshot failures so attach still succeeds against restrictive pages.
     }
   }
 
@@ -466,6 +858,9 @@ export class CdpSession {
       browserFamily: "chromium",
       connectedAt: this.connectedAt,
       bufferedEvents: this.bufferedEvents.length,
+      lastNavigationAt: this.lastNavigationAt,
+      lastReloadAt: this.lastReloadAt,
+      viewportOverride: this.viewportOverride,
     };
   }
 
@@ -570,8 +965,48 @@ export class CdpSessionManager {
     return this.getSession(sessionId).getDocument(depth);
   }
 
-  async takeScreenshot(sessionId, format) {
-    return this.getSession(sessionId).takeScreenshot(format);
+  async getPageState(sessionId) {
+    return this.getSession(sessionId).getPageState();
+  }
+
+  async navigate(sessionId, url, options) {
+    return this.getSession(sessionId).navigate(url, options);
+  }
+
+  async reload(sessionId, options) {
+    return this.getSession(sessionId).reload(options);
+  }
+
+  async click(sessionId, selector) {
+    return this.getSession(sessionId).click(selector);
+  }
+
+  async hover(sessionId, selector) {
+    return this.getSession(sessionId).hover(selector);
+  }
+
+  async type(sessionId, selector, text, options) {
+    return this.getSession(sessionId).type(selector, text, options);
+  }
+
+  async select(sessionId, selector, options) {
+    return this.getSession(sessionId).select(selector, options);
+  }
+
+  async pressKey(sessionId, key, selector) {
+    return this.getSession(sessionId).pressKey(key, selector);
+  }
+
+  async scroll(sessionId, options) {
+    return this.getSession(sessionId).scroll(options);
+  }
+
+  async setViewport(sessionId, options) {
+    return this.getSession(sessionId).setViewport(options);
+  }
+
+  async takeScreenshot(sessionId, format, options = {}) {
+    return this.getSession(sessionId).takeScreenshot(format, options);
   }
 
   getConsoleMessages(sessionId, limit) {

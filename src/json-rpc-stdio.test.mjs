@@ -28,6 +28,35 @@ test("MessageBuffer decodes multiple frames in one chunk", () => {
   assert.deepEqual(buffer.push(framed), [first, second]);
 });
 
+test("MessageBuffer accepts LF-delimited headers", () => {
+  const buffer = new MessageBuffer();
+  const message = { jsonrpc: "2.0", id: 1, method: "ping" };
+  const payload = JSON.stringify(message);
+  const framed = Buffer.from(
+    `Content-Length: ${Buffer.byteLength(payload)}\n\n${payload}`,
+    "utf8",
+  );
+
+  assert.deepEqual(buffer.push(framed), [message]);
+});
+
+test("MessageBuffer accepts raw JSON messages and records the transport mode", () => {
+  const buffer = new MessageBuffer();
+  const message = { jsonrpc: "2.0", id: 1, method: "ping" };
+
+  assert.deepEqual(buffer.push(`${JSON.stringify(message)}\n`), [message]);
+  assert.equal(buffer.transportMode, "json");
+});
+
+test("encodeMessage emits newline-delimited JSON in raw mode", () => {
+  const message = { jsonrpc: "2.0", id: 1, result: {} };
+
+  assert.equal(
+    encodeMessage(message, "json").toString("utf8"),
+    `${JSON.stringify(message)}\n`,
+  );
+});
+
 test("MessageBuffer recovers after a malformed frame", () => {
   const buffer = new MessageBuffer();
 

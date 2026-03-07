@@ -17,12 +17,18 @@ function createEmptyNetworkRequest(requestId) {
     url: null,
     method: null,
     resourceType: null,
+    initiatorType: null,
     status: null,
     statusText: null,
     mimeType: null,
     startedAt: null,
     completedAt: null,
     updatedAt: null,
+    duration: null,
+    transferSize: null,
+    encodedBodySize: null,
+    decodedBodySize: null,
+    source: null,
     finished: false,
     failed: false,
     canceled: false,
@@ -49,17 +55,25 @@ export function summarizeNetworkRequests(events = [], limit = 50) {
     next.url = event.url ?? next.url;
     next.method = event.method ?? next.method;
     next.resourceType = event.resourceType ?? next.resourceType;
+    next.initiatorType = event.initiatorType ?? next.initiatorType;
     next.status = event.status ?? next.status;
     next.statusText = event.statusText ?? next.statusText;
     next.mimeType = event.mimeType ?? next.mimeType;
+    next.duration = event.duration ?? next.duration;
+    next.transferSize = event.transferSize ?? next.transferSize;
+    next.encodedBodySize = event.encodedBodySize ?? next.encodedBodySize;
+    next.decodedBodySize = event.decodedBodySize ?? next.decodedBodySize;
+    next.source = event.source ?? next.source;
     next.updatedAt = timestamp ?? next.updatedAt;
 
-    if (!next.startedAt || event.phase === "request") {
+    if (event.startedAt !== undefined && event.startedAt !== null) {
+      next.startedAt = event.startedAt;
+    } else if (!next.startedAt || event.phase === "request") {
       next.startedAt = next.startedAt ?? timestamp;
     }
 
     if (event.completed) {
-      next.completedAt = timestamp ?? next.completedAt;
+      next.completedAt = event.completedAt ?? timestamp ?? next.completedAt;
       next.finished = !event.failed;
     }
 
