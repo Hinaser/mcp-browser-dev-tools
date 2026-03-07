@@ -1,0 +1,55 @@
+{
+  "name": "mcp-browser-dev-tools",
+  "version": "0.0.1-beta.0",
+  "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/app.mjs",
+    "src/browser-adapter.mjs",
+    "src/browser-launcher.mjs",
+    "src/cdp-client.mjs",
+    "src/cli.mjs",
+    "src/config.mjs",
+    "src/doctor.mjs",
+    "src/firefox-bidi-client.mjs",
+    "src/index.mjs",
+    "src/json-rpc-stdio.mjs",
+    "src/mcp-server.mjs",
+    "src/package-info.mjs",
+    "src/session-events.mjs",
+    "src/server.mjs",
+    "README.md"
+  ],
+  "bin": {
+    "mcp-browser-dev-tools": "./src/cli.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "browser",
+    "devtools",
+    "cdp",
+    "webdriver-bidi",
+    "chromium",
+    "firefox",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs serve",
+    "dev": "node --watch src/cli.mjs serve",
+    "doctor": "node src/cli.mjs doctor",
+    "pack:check": "npm pack --dry-run --cache .npm-pack-cache",
+    "prepublishOnly": "npm test",
+    "review:chunk": "node scripts/review-chunk.mjs",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,4 @@
+node_modules
+.codex-reviews
+.npm-pack-cache
+.DS_Store
