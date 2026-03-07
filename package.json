@@ -64,7 +64,6 @@
     "prepare": "husky",
     "pack:check": "npm pack --dry-run --cache .npm-pack-cache",
     "prepublishOnly": "npm run check",
-    "review:chunk": "node scripts/review-chunk.mjs",
     "test": "node --test"
   },
   "lint-staged": {

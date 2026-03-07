@@ -2,7 +2,7 @@
 
 This repository uses GitHub Actions for CI and tag-based npm publishing, but signed-commit enforcement belongs in GitHub repository rulesets.
 
-Version-controlled ruleset definitions live in [`/.github/rulesets`](/home/hinaser/projects/mcp-browser-dev-tools/.github/rulesets).
+Version-controlled ruleset definitions live in [`.github/rulesets`](../.github/rulesets).
 
 ## Required GitHub Ruleset For `main`
 

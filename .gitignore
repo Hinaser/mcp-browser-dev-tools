@@ -2,4 +2,11 @@ node_modules
 .codex-reviews
 .npm-pack-cache
 .husky/_
+.env
+.env.*
+!.env.example
+coverage
+*.log
+npm-debug.log*
+*.tgz
 .DS_Store
