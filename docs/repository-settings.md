@@ -16,6 +16,8 @@ Create a branch ruleset that targets `refs/heads/main` and enable these protecti
 
 Use the `verify` job from the `CI` workflow as the required status check.
 
+For a solo-maintainer repository, do not require approving reviews or "approval of the most recent push". Keep the PR requirement and status checks, but set the required approval count to `0`.
+
 If the repository has not been pushed yet, create this ruleset after the first push to `main` so the required status check context already exists.
 
 ## Signed Commits For PR Branches

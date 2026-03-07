@@ -5,8 +5,9 @@ This repository's canonical agent memory is in `AGENTS.md`. Keep both files alig
 ## Project Snapshot
 
 - `mcp-browser-dev-tools` is a local MCP server for Chromium CDP and Firefox BiDi.
-- Node.js `22+`, ESM-only.
-- Main verification command: `npm run check`
+- Node.js `24+`, ESM-only.
+- Main verification command: `pnpm run check`
+- Development and CI use `pnpm`.
 
 ## Non-Negotiables
 
@@ -17,6 +18,7 @@ This repository's canonical agent memory is in `AGENTS.md`. Keep both files alig
 - Loopback-only browser/debug endpoints by default.
 - `MCP_BROWSER_ENABLE_EVAL` stays opt-in.
 - `.codex-reviews/` stays ignored and local-only.
+- `pnpm-lock.yaml` is the canonical lockfile.
 
 ## Public Repo Hygiene
 
