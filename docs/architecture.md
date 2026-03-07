@@ -32,6 +32,8 @@ The adapter layer hides protocol-specific details behind a shared interface:
 
 Each adapter owns target discovery, session attachment, event buffering, screenshots, DOM retrieval, and optional evaluation.
 
+Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, click, type, select, scroll, and page-state reads.
+
 ## Tool Design
 
 The broker exposes stable, task-oriented MCP tools instead of raw protocol methods:
@@ -41,6 +43,16 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - `list_sessions`
 - `attach_tab`
 - `detach_tab`
+- `get_page_state`
+- `navigate`
+- `reload`
+- `click`
+- `hover`
+- `type`
+- `select`
+- `press_key`
+- `scroll`
+- `set_viewport`
 - `get_console_messages`
 - `get_network_requests`
 - `get_document`
@@ -58,13 +70,16 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - Page targets come from `/json/list`
 - Each attached tab gets its own debugger websocket
 - The session enables `Page`, `Runtime`, `DOM`, `Log`, and `Network`
+- Navigation and viewport overrides map to `Page.navigate`, `Page.reload`, and `Emulation.setDeviceMetricsOverride`
+- Element screenshots use the normalized locator result plus `Page.captureScreenshot` clipping
 
 ### Firefox
 
 - The broker opens one BiDi websocket to the configured endpoint
 - `browsingContext.getTree` provides page targets
 - `session.subscribe` attaches event streams per context
-- `script.evaluate` and `browsingContext.captureScreenshot` provide page inspection primitives
+- `script.evaluate` provides shared locator and action behavior
+- `browsingContext.navigate`, `browsingContext.reload`, `browsingContext.setViewport`, and `browsingContext.captureScreenshot` cover page control and screenshots
 
 ## Safety Model
 

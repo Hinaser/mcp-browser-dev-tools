@@ -2,6 +2,7 @@ import {
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { buildPageContextExpression } from "./page-context.mjs";
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -108,6 +109,52 @@ export function summarizeBidiRemoteValue(value) {
   }
 }
 
+function summarizeFirefoxStackFrames(callFrames = []) {
+  return callFrames.map((frame) => ({
+    functionName: frame.functionName || null,
+    url: frame.url || null,
+    lineNumber: frame.lineNumber ?? null,
+    columnNumber: frame.columnNumber ?? null,
+  }));
+}
+
+function firstFirefoxCallFrame(stackTrace) {
+  const frame = stackTrace?.callFrames?.[0];
+  if (!frame) {
+    return null;
+  }
+
+  return {
+    functionName: frame.functionName || null,
+    url: frame.url || null,
+    lineNumber: frame.lineNumber ?? null,
+    columnNumber: frame.columnNumber ?? null,
+  };
+}
+
+function screenshotMimeType(format) {
+  return format === "jpeg" ? "image/jpeg" : "image/png";
+}
+
+function formatScreenshotResult(data, format, extras = {}) {
+  return {
+    format,
+    mimeType: screenshotMimeType(format),
+    encoding: "base64",
+    byteLength: Buffer.byteLength(data, "base64"),
+    data,
+    ...extras,
+  };
+}
+
+function normalizeWaitUntil(value) {
+  if (value === "none" || value === "interactive") {
+    return value;
+  }
+
+  return "complete";
+}
+
 function normalizeFirefoxEvent(method, params = {}) {
   if (method === "log.entryAdded") {
     return {
@@ -116,6 +163,10 @@ function normalizeFirefoxEvent(method, params = {}) {
       text: params.text,
       timestamp: params.timestamp,
       values: (params.args || []).map((arg) => summarizeBidiRemoteValue(arg)),
+      source: firstFirefoxCallFrame(params.stackTrace),
+      stackTrace: summarizeFirefoxStackFrames(params.stackTrace?.callFrames),
+      realm: params.source?.realm ?? null,
+      context: params.source?.context ?? null,
     };
   }
 
@@ -128,6 +179,7 @@ function normalizeFirefoxEvent(method, params = {}) {
       requestId: params.request?.request,
       method: params.request?.method,
       url: params.request?.url,
+      source: "protocol",
     };
   }
 
@@ -143,6 +195,7 @@ function normalizeFirefoxEvent(method, params = {}) {
       statusText: params.response?.statusText,
       mimeType: params.response?.mimeType,
       url: params.request?.url,
+      source: "protocol",
     };
   }
 
@@ -152,6 +205,7 @@ function normalizeFirefoxEvent(method, params = {}) {
       timestamp: params.timestamp ?? null,
       url: params.url ?? null,
       navigation: params.navigation ?? null,
+      context: params.context ?? null,
     };
   }
 
@@ -194,15 +248,27 @@ class FirefoxBidiTabSession {
     this.bufferedEvents = [];
     this.subscription = null;
     this.closed = false;
+    this.lastNavigationAt = null;
+    this.lastReloadAt = null;
+    this.viewportOverride = null;
   }
 
   bufferEvent(method, params) {
-    this.bufferedEvents.push({
+    const capturedAt = new Date().toISOString();
+    if (method === "browsingContext.load" && params.url) {
+      this.target.url = params.url;
+      this.lastNavigationAt = capturedAt;
+    }
+
+    this.pushEvent({
       method,
-      capturedAt: new Date().toISOString(),
+      capturedAt,
       ...normalizeFirefoxEvent(method, params),
     });
+  }
 
+  pushEvent(event) {
+    this.bufferedEvents.push(event);
     if (this.bufferedEvents.length > this.eventBufferSize) {
       this.bufferedEvents.shift();
     }
@@ -231,6 +297,9 @@ class FirefoxBidiTabSession {
       connectedAt: this.connectedAt,
       bufferedEvents: this.bufferedEvents.length,
       subscription: this.subscription,
+      lastNavigationAt: this.lastNavigationAt,
+      lastReloadAt: this.lastReloadAt,
+      viewportOverride: this.viewportOverride,
     };
   }
 }
@@ -466,6 +535,7 @@ export class FirefoxBidiSessionManager {
 
     session.subscription = subscription.subscription ?? null;
     this.sessions.set(session.id, session);
+    await this.seedBufferedState(session);
     return session.getSummary();
   }
 
@@ -488,19 +558,7 @@ export class FirefoxBidiSessionManager {
 
   async evaluate(sessionId, expression, options = {}) {
     const session = this.getSession(sessionId);
-    const result = await this.send("script.evaluate", {
-      expression,
-      target: {
-        context: session.target.targetId,
-      },
-      awaitPromise: options.awaitPromise ?? true,
-      resultOwnership: "none",
-      serializationOptions: {
-        maxObjectDepth: 5,
-        maxDomDepth: 0,
-      },
-      userActivation: false,
-    });
+    const result = await this.evaluateInContext(session, expression, options);
 
     return {
       result:
@@ -513,28 +571,71 @@ export class FirefoxBidiSessionManager {
     };
   }
 
+  async evaluateInContext(session, expression, options = {}) {
+    return this.send("script.evaluate", {
+      expression,
+      target: {
+        context: session.target.targetId,
+      },
+      awaitPromise: options.awaitPromise ?? true,
+      resultOwnership: "none",
+      serializationOptions: options.serializationOptions ?? {
+        maxObjectDepth: 5,
+        maxDomDepth: 0,
+      },
+      userActivation: options.userActivation ?? false,
+    });
+  }
+
+  async runPageAction(session, payload, options = {}) {
+    const result = await this.evaluateInContext(
+      session,
+      buildPageContextExpression(
+        {
+          browserFamily: "firefox",
+          ...payload,
+        },
+        { serialize: true },
+      ),
+      {
+        awaitPromise: true,
+        serializationOptions: {
+          maxObjectDepth: 1,
+          maxDomDepth: 0,
+        },
+        userActivation: options.userActivation ?? false,
+      },
+    );
+
+    if (result.type !== "success") {
+      throw new Error(
+        result.exceptionDetails?.text || "Firefox page action failed",
+      );
+    }
+
+    const payloadText = summarizeBidiRemoteValue(result.result);
+    return JSON.parse(payloadText);
+  }
+
   async getDocument(sessionId, depth) {
     const session = this.getSession(sessionId);
     const requestedDepth = normalizeRequestedDepth(depth);
-    const result = await this.send("script.evaluate", {
-      expression: `JSON.stringify({
+    const result = await this.evaluateInContext(
+      session,
+      `JSON.stringify({
         title: document.title,
         url: location.href,
         readyState: document.readyState,
         requestedDepth: ${JSON.stringify(requestedDepth)},
         outerHTML: document.documentElement ? document.documentElement.outerHTML : null
       })`,
-      target: {
-        context: session.target.targetId,
+      {
+        serializationOptions: {
+          maxObjectDepth: 1,
+          maxDomDepth: 0,
+        },
       },
-      awaitPromise: true,
-      resultOwnership: "none",
-      serializationOptions: {
-        maxObjectDepth: 1,
-        maxDomDepth: 0,
-      },
-      userActivation: false,
-    });
+    );
 
     if (result.type !== "success") {
       return {
@@ -550,11 +651,219 @@ export class FirefoxBidiSessionManager {
     };
   }
 
-  async takeScreenshot(sessionId, format) {
+  async getPageState(sessionId) {
     const session = this.getSession(sessionId);
-    return this.send("browsingContext.captureScreenshot", {
+    const result = await this.runPageAction(session, {
+      action: "page_state",
+    });
+
+    return {
+      browserFamily: "firefox",
+      ...result.page,
+      lastNavigationAt: session.lastNavigationAt,
+      lastReloadAt: session.lastReloadAt,
+      viewportOverride: session.viewportOverride,
+    };
+  }
+
+  async navigate(sessionId, url, options = {}) {
+    const session = this.getSession(sessionId);
+    const waitUntil = normalizeWaitUntil(options.waitUntil);
+    const initiatedAt = new Date().toISOString();
+    const result = await this.send("browsingContext.navigate", {
+      context: session.target.targetId,
+      url,
+      wait: waitUntil,
+    });
+
+    session.target.url = url;
+    const page =
+      waitUntil === "none" ? null : await this.getPageState(sessionId);
+    return {
+      browserFamily: "firefox",
+      url,
+      navigation: result.navigation ?? null,
+      waitUntil,
+      initiatedAt,
+      page,
+    };
+  }
+
+  async reload(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    const waitUntil = normalizeWaitUntil(options.waitUntil);
+    const reloadedAt = new Date().toISOString();
+    const result = await this.send("browsingContext.reload", {
+      context: session.target.targetId,
+      ignoreCache: options.ignoreCache ?? false,
+      wait: waitUntil,
+    });
+
+    session.lastReloadAt = reloadedAt;
+    const page =
+      waitUntil === "none" ? null : await this.getPageState(sessionId);
+    return {
+      browserFamily: "firefox",
+      url: session.target.url,
+      navigation: result.navigation ?? null,
+      waitUntil,
+      ignoreCache: options.ignoreCache ?? false,
+      reloadedAt,
+      page,
+    };
+  }
+
+  async click(sessionId, selector) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "click",
+        selector,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async hover(sessionId, selector) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "hover",
+        selector,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async type(sessionId, selector, text, options = {}) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "type",
+        selector,
+        text,
+        clear: options.clear,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async select(sessionId, selector, options = {}) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "select",
+        selector,
+        value: options.value,
+        label: options.label,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async pressKey(sessionId, key, selector = null) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "press_key",
+        key,
+        selector,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async scroll(sessionId, options = {}) {
+    return this.runPageAction(
+      this.getSession(sessionId),
+      {
+        action: "scroll",
+        selector: options.selector,
+        deltaX: options.deltaX,
+        deltaY: options.deltaY,
+        block: options.block,
+      },
+      { userActivation: true },
+    );
+  }
+
+  async setViewport(sessionId, options) {
+    const session = this.getSession(sessionId);
+    const params = {
+      context: session.target.targetId,
+      viewport: {
+        width: options.width,
+        height: options.height,
+      },
+    };
+
+    if (
+      typeof options.deviceScaleFactor === "number" &&
+      options.deviceScaleFactor > 0
+    ) {
+      params.devicePixelRatio = options.deviceScaleFactor;
+    }
+
+    await this.send("browsingContext.setViewport", params);
+    session.viewportOverride = {
+      width: options.width,
+      height: options.height,
+      deviceScaleFactor: params.devicePixelRatio ?? null,
+      mobile: options.mobile ?? false,
+      appliedAt: new Date().toISOString(),
+    };
+
+    return {
+      browserFamily: "firefox",
+      applied: true,
+      viewport: session.viewportOverride,
+      page: await this.getPageState(sessionId),
+    };
+  }
+
+  async takeScreenshot(sessionId, format, options = {}) {
+    const session = this.getSession(sessionId);
+    const params = {
       context: session.target.targetId,
       format: screenshotFormat(format),
+    };
+
+    if (options.selector) {
+      const inspected = await this.runPageAction(session, {
+        action: "inspect",
+        selector: options.selector,
+        scrollIntoView: true,
+      });
+
+      if (!inspected.found) {
+        return {
+          browserFamily: "firefox",
+          format,
+          scope: "element",
+          selector: options.selector,
+          found: false,
+        };
+      }
+
+      params.origin = "viewport";
+      params.clip = {
+        type: "box",
+        x: Math.max(inspected.node.box?.x ?? 0, 0),
+        y: Math.max(inspected.node.box?.y ?? 0, 0),
+        width: Math.max(inspected.node.box?.width ?? 0, 1),
+        height: Math.max(inspected.node.box?.height ?? 0, 1),
+      };
+    }
+
+    const screenshot = await this.send(
+      "browsingContext.captureScreenshot",
+      params,
+    );
+    return formatScreenshotResult(screenshot.data, format, {
+      browserFamily: "firefox",
+      scope: options.selector ? "element" : "page",
+      selector: options.selector ?? null,
+      clip: params.clip ?? null,
     });
   }
 
@@ -567,62 +876,35 @@ export class FirefoxBidiSessionManager {
   }
 
   async inspectElement(sessionId, selector) {
-    const session = this.getSession(sessionId);
-    const result = await this.send("script.evaluate", {
-      expression: `(() => {
-        const selector = ${JSON.stringify(selector)};
-        const element = document.querySelector(selector);
-        if (!element) {
-          return JSON.stringify({
-            browserFamily: "firefox",
-            selector,
-            found: false
-          });
-        }
-
-        const attributes = Object.fromEntries(
-          Array.from(element.attributes, (attribute) => [attribute.name, attribute.value])
-        );
-
-        return JSON.stringify({
-          browserFamily: "firefox",
-          selector,
-          found: true,
-          node: {
-            tagName: element.tagName,
-            id: element.getAttribute("id"),
-            className: element.getAttribute("class"),
-            childElementCount: element.childElementCount,
-            attributes,
-            textContent: element.textContent,
-            innerText: typeof element.innerText === "string" ? element.innerText : null,
-            outerHTML: element.outerHTML
-          }
-        });
-      })()`,
-      target: {
-        context: session.target.targetId,
-      },
-      awaitPromise: true,
-      resultOwnership: "none",
-      serializationOptions: {
-        maxObjectDepth: 1,
-        maxDomDepth: 0,
-      },
-      userActivation: false,
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "inspect",
+      selector,
     });
+  }
 
-    if (result.type !== "success") {
-      return {
-        browserFamily: "firefox",
-        selector,
-        found: false,
-        exceptionDetails: result.exceptionDetails ?? null,
-      };
+  async seedBufferedState(session) {
+    try {
+      const snapshot = await this.runPageAction(session, {
+        action: "network_snapshot",
+      });
+
+      for (const entry of snapshot?.entries ?? []) {
+        session.pushEvent({
+          method: "network.snapshotCaptured",
+          capturedAt: new Date().toISOString(),
+          kind: "network",
+          phase: "snapshot",
+          completed: true,
+          finished: true,
+          failed: false,
+          canceled: false,
+          source: "performance",
+          ...entry,
+        });
+      }
+    } catch {
+      // Ignore snapshot failures so attach still succeeds.
     }
-
-    const payload = summarizeBidiRemoteValue(result.result);
-    return JSON.parse(payload);
   }
 
   getEvents(sessionId, limit) {

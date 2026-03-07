@@ -3,6 +3,16 @@ import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 
 const SERVER_NAME = PACKAGE_NAME;
 const SERVER_VERSION = PACKAGE_VERSION;
+const DEBUG_STDIO_ENABLED = process.env.MCP_BROWSER_DEBUG_STDIO === "1";
+
+function formatChunkPreview(chunk, limit = 160) {
+  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  return buffer
+    .subarray(0, limit)
+    .toString("utf8")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+}
 
 function success(id, result) {
   return {
@@ -102,6 +112,18 @@ function validateValue(path, value, schema) {
     if (schema.minimum !== undefined && value < schema.minimum) {
       throw new Error(`${path} must be >= ${schema.minimum}`);
     }
+
+    return;
+  }
+
+  if (schema.type === "number") {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      throw new Error(`${path} must be a number`);
+    }
+
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      throw new Error(`${path} must be >= ${schema.minimum}`);
+    }
   }
 }
 
@@ -126,6 +148,28 @@ function sessionWithLimitSchema(description) {
     required: ["sessionId"],
     additionalProperties: false,
     description,
+  };
+}
+
+function sessionSchema(properties, required, description) {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+      },
+      ...properties,
+    },
+    required: ["sessionId", ...required],
+    additionalProperties: false,
+    description,
+  };
+}
+
+function waitUntilProperty() {
+  return {
+    type: "string",
+    enum: ["none", "interactive", "complete"],
   };
 }
 
@@ -234,6 +278,278 @@ export class McpBrowserDevToolsServer {
         },
       ],
       [
+        "get_page_state",
+        {
+          definition: {
+            name: "get_page_state",
+            description:
+              "Return the current URL, title, ready state, viewport, and scroll positions for an attached page.",
+            inputSchema: sessionSchema({}, []),
+          },
+          handler: async (args) =>
+            this.browserAdapter.getPageState(args.sessionId),
+        },
+      ],
+      [
+        "navigate",
+        {
+          definition: {
+            name: "navigate",
+            description:
+              "Navigate an attached tab to a URL and optionally wait for interactive or complete load state.",
+            inputSchema: sessionSchema(
+              {
+                url: {
+                  type: "string",
+                },
+                waitUntil: waitUntilProperty(),
+              },
+              ["url"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.navigate(args.sessionId, args.url, {
+              waitUntil: args.waitUntil,
+            }),
+        },
+      ],
+      [
+        "reload",
+        {
+          definition: {
+            name: "reload",
+            description:
+              "Reload the attached tab and optionally ignore cache while waiting for interactive or complete load state.",
+            inputSchema: sessionSchema(
+              {
+                ignoreCache: {
+                  type: "boolean",
+                },
+                waitUntil: waitUntilProperty(),
+              },
+              [],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.reload(args.sessionId, {
+              ignoreCache: args.ignoreCache,
+              waitUntil: args.waitUntil,
+            }),
+        },
+      ],
+      [
+        "click",
+        {
+          definition: {
+            name: "click",
+            description:
+              "Click a single element located by CSS, text=..., role=..., or name=... syntax.",
+            inputSchema: sessionSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+              },
+              ["selector"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.click(args.sessionId, args.selector),
+        },
+      ],
+      [
+        "hover",
+        {
+          definition: {
+            name: "hover",
+            description:
+              "Hover a single element located by CSS, text=..., role=..., or name=... syntax.",
+            inputSchema: sessionSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+              },
+              ["selector"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.hover(args.sessionId, args.selector),
+        },
+      ],
+      [
+        "type",
+        {
+          definition: {
+            name: "type",
+            description:
+              "Type text into an input, textarea, or contenteditable element.",
+            inputSchema: sessionSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+                text: {
+                  type: "string",
+                },
+                clear: {
+                  type: "boolean",
+                },
+              },
+              ["selector", "text"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.type(args.sessionId, args.selector, args.text, {
+              clear: args.clear,
+            }),
+        },
+      ],
+      [
+        "select",
+        {
+          definition: {
+            name: "select",
+            description:
+              "Select an option from a <select> by value or visible label.",
+            inputSchema: sessionSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+                value: {
+                  type: "string",
+                },
+                label: {
+                  type: "string",
+                },
+              },
+              ["selector"],
+            ),
+          },
+          handler: async (args) => {
+            if (!args.value && !args.label) {
+              throw new Error("select requires either value or label");
+            }
+
+            return this.browserAdapter.select(args.sessionId, args.selector, {
+              value: args.value,
+              label: args.label,
+            });
+          },
+        },
+      ],
+      [
+        "press_key",
+        {
+          definition: {
+            name: "press_key",
+            description:
+              "Dispatch a key press against the focused element or an optionally targeted element.",
+            inputSchema: sessionSchema(
+              {
+                key: {
+                  type: "string",
+                },
+                selector: {
+                  type: "string",
+                },
+              },
+              ["key"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.pressKey(
+              args.sessionId,
+              args.key,
+              args.selector,
+            ),
+        },
+      ],
+      [
+        "scroll",
+        {
+          definition: {
+            name: "scroll",
+            description:
+              "Scroll the page by deltas or scroll a specific element into view.",
+            inputSchema: sessionSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+                deltaX: {
+                  type: "integer",
+                },
+                deltaY: {
+                  type: "integer",
+                },
+                block: {
+                  type: "string",
+                  enum: ["start", "center", "end", "nearest"],
+                },
+              },
+              [],
+            ),
+          },
+          handler: async (args) => {
+            if (
+              !args.selector &&
+              args.deltaX === undefined &&
+              args.deltaY === undefined
+            ) {
+              throw new Error(
+                "scroll requires either selector or deltaX/deltaY values",
+              );
+            }
+
+            return this.browserAdapter.scroll(args.sessionId, {
+              selector: args.selector,
+              deltaX: args.deltaX,
+              deltaY: args.deltaY,
+              block: args.block,
+            });
+          },
+        },
+      ],
+      [
+        "set_viewport",
+        {
+          definition: {
+            name: "set_viewport",
+            description:
+              "Override the page viewport to a specific width and height for responsive debugging.",
+            inputSchema: sessionSchema(
+              {
+                width: {
+                  type: "integer",
+                  minimum: 1,
+                },
+                height: {
+                  type: "integer",
+                  minimum: 1,
+                },
+                deviceScaleFactor: {
+                  type: "number",
+                  minimum: 0.1,
+                },
+                mobile: {
+                  type: "boolean",
+                },
+              },
+              ["width", "height"],
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.setViewport(args.sessionId, {
+              width: args.width,
+              height: args.height,
+              deviceScaleFactor: args.deviceScaleFactor,
+              mobile: args.mobile,
+            }),
+        },
+      ],
+      [
         "get_console_messages",
         {
           definition: {
@@ -298,7 +614,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "inspect_element",
             description:
-              "Inspect a single DOM element with a CSS selector and return normalized element details.",
+              "Inspect a single DOM element located by CSS, text=..., role=..., or name=... syntax and return normalized element details.",
             inputSchema: {
               type: "object",
               properties: {
@@ -322,7 +638,8 @@ export class McpBrowserDevToolsServer {
         {
           definition: {
             name: "take_screenshot",
-            description: "Capture a screenshot from an attached page.",
+            description:
+              "Capture a screenshot from an attached page or a single element when selector is provided.",
             inputSchema: {
               type: "object",
               properties: {
@@ -333,6 +650,9 @@ export class McpBrowserDevToolsServer {
                   type: "string",
                   enum: screenshotFormatsFor(this.config.browserFamily),
                 },
+                selector: {
+                  type: "string",
+                },
               },
               required: ["sessionId"],
               additionalProperties: false,
@@ -342,6 +662,9 @@ export class McpBrowserDevToolsServer {
             this.browserAdapter.takeScreenshot(
               args.sessionId,
               args.format ?? "png",
+              {
+                selector: args.selector,
+              },
             ),
         },
       ],
@@ -417,7 +740,16 @@ export class McpBrowserDevToolsServer {
   }
 
   start() {
+    let sawInput = false;
+
     this.input.on("data", (chunk) => {
+      sawInput = true;
+      if (DEBUG_STDIO_ENABLED) {
+        this.log(
+          `stdin chunk bytes=${chunk.length} preview="${formatChunkPreview(chunk)}"`,
+        );
+      }
+
       let messages;
       try {
         messages = this.messageBuffer.push(chunk);
@@ -430,6 +762,20 @@ export class McpBrowserDevToolsServer {
         void this.dispatch(message);
       }
     });
+
+    if (DEBUG_STDIO_ENABLED) {
+      this.input.on("end", () => {
+        this.log(`stdin ended after_input=${sawInput}`);
+      });
+
+      this.input.on("close", () => {
+        this.log(`stdin closed after_input=${sawInput}`);
+      });
+    }
+
+    if (typeof this.input.resume === "function") {
+      this.input.resume();
+    }
 
     this.log(
       `listening on stdio for MCP messages; browser=${this.config.browserFamily}`,
@@ -446,7 +792,12 @@ export class McpBrowserDevToolsServer {
       return;
     }
 
-    this.output.write(encodeMessage(response));
+    this.output.write(
+      encodeMessage(
+        response,
+        this.messageBuffer.transportMode ?? "content-length",
+      ),
+    );
   }
 
   async handleRequest(message) {
@@ -469,7 +820,7 @@ export class McpBrowserDevToolsServer {
               version: SERVER_VERSION,
             },
             instructions:
-              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, and specific elements across Chromium CDP or Firefox BiDi.",
+              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi.",
           });
         case "notifications/initialized":
           return null;

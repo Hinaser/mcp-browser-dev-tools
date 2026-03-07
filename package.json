@@ -31,6 +31,7 @@
     "src/index.mjs",
     "src/json-rpc-stdio.mjs",
     "src/mcp-server.mjs",
+    "src/page-context.mjs",
     "src/package-info.mjs",
     "src/session-events.mjs",
     "src/server.mjs",

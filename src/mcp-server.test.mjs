@@ -24,6 +24,54 @@ function createFakeManager() {
     async detachSession(sessionId) {
       return { detached: true, sessionId };
     },
+    async getPageState(sessionId) {
+      return {
+        sessionId,
+        url: "https://example.com/dashboard",
+        viewport: { width: 1280, height: 720 },
+      };
+    },
+    async navigate(sessionId, url, options) {
+      return { sessionId, url, waitUntil: options.waitUntil ?? "complete" };
+    },
+    async reload(sessionId, options) {
+      return {
+        sessionId,
+        url: "https://example.com/dashboard",
+        ignoreCache: options.ignoreCache ?? false,
+      };
+    },
+    async click(sessionId, selector) {
+      return { sessionId, selector, clicked: true };
+    },
+    async hover(sessionId, selector) {
+      return { sessionId, selector, hovered: true };
+    },
+    async type(sessionId, selector, text, options) {
+      return {
+        sessionId,
+        selector,
+        typedText: text,
+        clear: options.clear ?? true,
+      };
+    },
+    async select(sessionId, selector, options) {
+      return {
+        sessionId,
+        selector,
+        selectedValue: options.value ?? null,
+        selectedLabel: options.label ?? null,
+      };
+    },
+    async pressKey(sessionId, key, selector) {
+      return { sessionId, key, selector: selector ?? null, dispatched: true };
+    },
+    async scroll(sessionId, options) {
+      return { sessionId, ...options, scrolled: true };
+    },
+    async setViewport(sessionId, options) {
+      return { sessionId, applied: true, viewport: options };
+    },
     async evaluate(sessionId, expression) {
       return { sessionId, result: expression };
     },
@@ -41,8 +89,13 @@ function createFakeManager() {
     async inspectElement(sessionId, selector) {
       return { sessionId, selector, found: true, node: { nodeName: "DIV" } };
     },
-    async takeScreenshot(sessionId, format) {
-      return { sessionId, format, data: "ZmFrZQ==" };
+    async takeScreenshot(sessionId, format, options) {
+      return {
+        sessionId,
+        format,
+        selector: options.selector ?? null,
+        data: "ZmFrZQ==",
+      };
     },
     getEvents(sessionId, limit) {
       return [{ sessionId, limit, method: "Runtime.consoleAPICalled" }];
@@ -70,6 +123,34 @@ test("initialize returns MCP server metadata", async () => {
   assert.deepEqual(response.result.capabilities, { tools: {} });
 });
 
+test("start resumes the input stream so spawned stdio servers stay alive", () => {
+  let resumed = false;
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+    input: {
+      on() {},
+      resume() {
+        resumed = true;
+      },
+    },
+    output: {
+      write() {
+        return true;
+      },
+    },
+    errorOutput: {
+      write() {
+        return true;
+      },
+    },
+  });
+
+  server.start();
+
+  assert.equal(resumed, true);
+});
+
 test("tools/list exposes the broker tools", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
@@ -84,6 +165,11 @@ test("tools/list exposes the broker tools", async () => {
 
   const toolNames = response.result.tools.map((tool) => tool.name);
   assert.ok(toolNames.includes("list_tabs"));
+  assert.ok(toolNames.includes("get_page_state"));
+  assert.ok(toolNames.includes("navigate"));
+  assert.ok(toolNames.includes("click"));
+  assert.ok(toolNames.includes("type"));
+  assert.ok(toolNames.includes("set_viewport"));
   assert.ok(toolNames.includes("get_console_messages"));
   assert.ok(toolNames.includes("get_network_requests"));
   assert.ok(toolNames.includes("inspect_element"));
@@ -134,6 +220,55 @@ test("inspect_element delegates to the browser adapter", async () => {
 
   assert.equal(response.result.structuredContent.selector, "#app");
   assert.equal(response.result.structuredContent.found, true);
+});
+
+test("navigate delegates to the browser adapter", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 34,
+    method: "tools/call",
+    params: {
+      name: "navigate",
+      arguments: {
+        sessionId: "session-1",
+        url: "https://example.com/settings",
+        waitUntil: "interactive",
+      },
+    },
+  });
+
+  assert.equal(
+    response.result.structuredContent.url,
+    "https://example.com/settings",
+  );
+  assert.equal(response.result.structuredContent.waitUntil, "interactive");
+});
+
+test("take_screenshot forwards the optional selector", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 35,
+    method: "tools/call",
+    params: {
+      name: "take_screenshot",
+      arguments: {
+        sessionId: "session-1",
+        selector: "text=Open modal",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.selector, "text=Open modal");
 });
 
 test("evaluate_js is only exposed when explicitly enabled", async () => {
@@ -210,6 +345,29 @@ test("tool calls validate arguments against the declared schema", async () => {
 
   assert.equal(response.error.code, -32000);
   assert.match(response.error.message, /arguments\.limit must be an integer/);
+});
+
+test("select requires either value or label", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 51,
+    method: "tools/call",
+    params: {
+      name: "select",
+      arguments: {
+        sessionId: "session-1",
+        selector: "#plan",
+      },
+    },
+  });
+
+  assert.equal(response.error.code, -32000);
+  assert.match(response.error.message, /requires either value or label/);
 });
 
 test("Firefox tool schemas only advertise screenshot formats the adapter supports", async () => {

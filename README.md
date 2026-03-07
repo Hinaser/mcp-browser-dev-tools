@@ -10,7 +10,8 @@ It is designed for a local trust boundary:
 
 - A stdio MCP server for local desktop and terminal clients
 - Browser discovery and attach/detach for Chromium-family browsers and Firefox
-- Read-oriented tools for DOM inspection, element lookup, console messages, network requests, screenshots, tab listing, and buffered events
+- Inspection tools for DOM lookup, richer element details, console messages, network requests, screenshots, tab listing, and buffered events
+- Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
 - Optional JavaScript evaluation behind an explicit environment flag
 - Helper commands to check browser connectivity, launch a debug-enabled browser, and relay CDP traffic across a local machine boundary
 
@@ -134,6 +135,16 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
 - `list_sessions`
 - `attach_tab`
 - `detach_tab`
+- `get_page_state`
+- `navigate`
+- `reload`
+- `click`
+- `hover`
+- `type`
+- `select`
+- `press_key`
+- `scroll`
+- `set_viewport`
 - `get_console_messages`
 - `get_network_requests`
 - `get_document`
@@ -145,12 +156,33 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
 
 For tools that take `sessionId`, call `attach_tab` first and reuse the returned session.
 
+### Locator Syntax
+
+Interaction and inspection tools accept these locator forms:
+
+- CSS selectors such as `#app button.primary` or `css=.modal button`
+- visible-text lookup such as `text=プラン比較`
+- role plus accessible name such as `role=button[name="プラン比較"]`
+- accessible-name lookup such as `name=プラン比較`
+
+`inspect_element` returns layout and accessibility-focused metadata including bounding box, visibility flags, interactivity flags, accessible name, inferred role, and a subset of computed styles. Invalid CSS selectors now return an explicit locator error instead of a generic DOM failure.
+
+### Screenshot Output
+
+`take_screenshot` returns base64 image data plus metadata such as `mimeType`, `byteLength`, and `scope`. Pass `selector` to capture a single element instead of the full page.
+
 ## Browser Notes
 
 - Chromium uses the standard DevTools endpoints at `/json/version` and `/json/list`
 - Firefox support expects a direct BiDi websocket endpoint
 - In WSL, Linux browser executables are preferred before Windows fallback paths
 - For Windows Chrome + WSL, prefer the `relay` command over changing Chrome's remote debugging bind
+
+## Debugging Notes
+
+- `attach_tab` now seeds network history from the Performance API so already-loaded pages still show useful requests
+- console buffers include source URL, line and column where the browser reports them, plus stack frames when available
+- `get_page_state` reports the current URL, title, viewport, and scroll position without enabling `evaluate_js`
 
 ## Safety Defaults
 
