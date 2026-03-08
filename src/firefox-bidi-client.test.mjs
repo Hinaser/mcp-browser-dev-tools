@@ -72,7 +72,7 @@ test("summarizeBidiRemoteValue converts common remote values", () => {
 
 test("getDocument normalizes depth before embedding it in the Firefox expression", async () => {
   const manager = new FirefoxBidiSessionManager({
-    firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
     eventBufferSize: 10,
   });
 
@@ -128,7 +128,7 @@ test("ensureConnected rejects if the websocket closes before opening", async () 
 
   const manager = new FirefoxBidiSessionManager(
     {
-      firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+      firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
       eventBufferSize: 10,
     },
     {
@@ -137,4 +137,77 @@ test("ensureConnected rejects if the websocket closes before opening", async () 
   );
 
   await assert.rejects(manager.ensureConnected(), /closed before it connected/);
+});
+
+test("ensureConnected bootstraps a Firefox WebDriver session from the root endpoint", async () => {
+  class FakeSocket extends EventTarget {
+    constructor() {
+      super();
+      this.readyState = 0;
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.dispatchEvent(new Event("open"));
+      });
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+
+  let capturedWebSocketUrl = null;
+  let capturedFetchUrl = null;
+  let capturedFetchBody = null;
+
+  const manager = new FirefoxBidiSessionManager(
+    {
+      firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+      eventBufferSize: 10,
+    },
+    {
+      websocketFactory: (url) => {
+        capturedWebSocketUrl = url;
+        return new FakeSocket();
+      },
+      fetchImpl: async (url, options = {}) => {
+        capturedFetchUrl = String(url);
+        capturedFetchBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return {
+              value: {
+                sessionId: "webdriver-session-1",
+                capabilities: {
+                  browserName: "firefox",
+                  webSocketUrl:
+                    "ws://127.0.0.1:9222/session/webdriver-session-1",
+                },
+              },
+            };
+          },
+        };
+      },
+    },
+  );
+
+  await manager.ensureConnected();
+
+  assert.equal(capturedFetchUrl, "http://127.0.0.1:9222/session");
+  assert.deepEqual(capturedFetchBody, {
+    capabilities: {
+      alwaysMatch: {
+        webSocketUrl: true,
+      },
+    },
+  });
+  assert.equal(
+    capturedWebSocketUrl,
+    "ws://127.0.0.1:9222/session/webdriver-session-1",
+  );
+  assert.equal(manager.browserSessionId, "webdriver-session-1");
+  assert.equal(manager.capabilities.browserName, "firefox");
 });

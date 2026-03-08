@@ -225,7 +225,7 @@ mbdt relay --wsl
 
 - `MCP_BROWSER_FAMILY` defaults to `chromium`; set `firefox` for Firefox BiDi
 - `CDP_BASE_URL` defaults to `http://127.0.0.1:9222`
-- `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`
+- `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when pointed at the root Firefox remote debugging port, the broker first requests `webSocketUrl` from `POST /session` and then connects to the returned BiDi session socket
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
