@@ -20,6 +20,9 @@ test("parseCliArgs parses positional arguments and flags", () => {
       "--family",
       "firefox",
       "--port=9222",
+      "--wait-ms",
+      "2000",
+      "--no-doctor",
     ]),
     {
       command: "open",
@@ -27,6 +30,8 @@ test("parseCliArgs parses positional arguments and flags", () => {
       options: {
         family: "firefox",
         port: "9222",
+        "wait-ms": "2000",
+        "no-doctor": true,
       },
     },
   );

@@ -8,21 +8,32 @@ Use the prerelease package name while the project is still beta:
 npx -y mcp-browser-dev-tools@beta --help
 ```
 
+If you install the package globally or project-locally, use `mbdt` as the CLI command.
+
 ## Windows (PowerShell)
 
 Chrome and Edge often ignore `--remote-debugging-port` when an existing browser process is reused. The safest path is to use a dedicated profile directory. If the browser still reuses an existing session, close the browser normally and retry.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
-Start-Sleep -Seconds 2
-Invoke-WebRequest http://127.0.0.1:9222/json/version | Select-Object -Expand Content
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 What you want to see:
 
-- `http://127.0.0.1:9222/json/version` returns JSON with `webSocketDebuggerUrl`
-- `doctor` reports `adapter available: true`
+- `open` prints `launched chromium browser: ...`
+- the doctor summary printed by `open` reports `adapter available: true`
+
+If you also want to verify your app endpoint:
+
+```powershell
+npx -y mcp-browser-dev-tools@beta doctor --url http://localhost:3000
+```
+
+If `open` fails to report `adapter available: true`, use the raw endpoint check as troubleshooting:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:9222/json/version | Select-Object -Expand Content
+```
 
 ## WSL Using A Windows Browser
 
@@ -40,7 +51,7 @@ Recommended flow:
 Use PowerShell on Windows, or call it from WSL through `powershell.exe` if you prefer.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 ### Start The Relay On Windows
@@ -131,7 +142,39 @@ npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
 
 ## After The Smoke Test
 
-Once `doctor` shows `adapter available: true`, point your MCP client at:
+Once `doctor` shows `adapter available: true`, point your MCP client at a stdio server command:
+
+```bash
+npx -y mcp-browser-dev-tools@beta serve
+```
+
+If you already installed the package, use:
+
+```bash
+mbdt serve
+```
+
+The most common client-specific examples are:
+
+Codex:
+
+```bash
+codex mcp add browser-devtools \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+Claude Code:
+
+```bash
+claude mcp add browser-devtools --scope user \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+Cursor:
 
 ```json
 {
@@ -144,4 +187,6 @@ Once `doctor` shows `adapter available: true`, point your MCP client at:
 }
 ```
 
-`serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client.
+For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`. For WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port.
+
+`serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client. More complete client examples live in [README.md](../README.md).
