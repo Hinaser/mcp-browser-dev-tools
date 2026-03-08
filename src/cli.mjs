@@ -67,7 +67,7 @@ function printUsage() {
       "  --version            Print the package version",
       "",
       "Open options:",
-      "  --family <name>      chromium or firefox",
+      "  --family <name>      chromium, edge, or firefox",
       "  --port <port>        remote debugging port",
       "  --address <host>     remote debugging address for Chromium",
       "  --user-data-dir <p>  optional Chromium user data dir or Firefox profile dir",
@@ -217,7 +217,8 @@ async function runOpen(positional, options) {
   const family =
     typeof options.family === "string" ? options.family : config.browserFamily;
   const requestedAddress =
-    family === "chromium" && typeof options.address === "string"
+    (family === "chromium" || family === "edge") &&
+    typeof options.address === "string"
       ? options.address.trim()
       : null;
 

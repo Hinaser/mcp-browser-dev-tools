@@ -19,6 +19,10 @@ function normalizeTarget(target) {
   };
 }
 
+function cdpBrowserFamily(config) {
+  return config.browserFamily === "edge" ? "edge" : "chromium";
+}
+
 function summarizeRemoteObject(object) {
   if (!object) {
     return null;
@@ -562,7 +566,7 @@ export class CdpSession {
     const result = await this.evaluateRuntime(
       buildPageContextExpression(
         {
-          browserFamily: "chromium",
+          browserFamily: cdpBrowserFamily(this.config),
           ...payload,
         },
         { serialize: true },
@@ -588,7 +592,7 @@ export class CdpSession {
     });
 
     return {
-      browserFamily: "chromium",
+      browserFamily: cdpBrowserFamily(this.config),
       ...result.page,
       lastNavigationAt: this.lastNavigationAt,
       lastReloadAt: this.lastReloadAt,
@@ -606,7 +610,7 @@ export class CdpSession {
 
       if (!inspected.found) {
         return {
-          browserFamily: "chromium",
+          browserFamily: cdpBrowserFamily(this.config),
           format,
           scope: "element",
           selector: options.selector,
@@ -628,7 +632,7 @@ export class CdpSession {
       });
 
       return formatScreenshotResult(screenshot.data, format, {
-        browserFamily: "chromium",
+        browserFamily: cdpBrowserFamily(this.config),
         scope: "element",
         selector: options.selector,
         clip,
@@ -637,7 +641,7 @@ export class CdpSession {
 
     const screenshot = await this.send("Page.captureScreenshot", { format });
     return formatScreenshotResult(screenshot.data, format, {
-      browserFamily: "chromium",
+      browserFamily: cdpBrowserFamily(this.config),
       scope: "page",
     });
   }
@@ -746,7 +750,7 @@ export class CdpSession {
 
       const page = lifecycleWaiter ? await this.getPageState() : null;
       return {
-        browserFamily: "chromium",
+        browserFamily: cdpBrowserFamily(this.config),
         url,
         frameId: result.frameId ?? null,
         loaderId: result.loaderId ?? null,
@@ -784,7 +788,7 @@ export class CdpSession {
     this.lastReloadAt = reloadedAt;
     const page = lifecycleWaiter ? await this.getPageState() : null;
     return {
-      browserFamily: "chromium",
+      browserFamily: cdpBrowserFamily(this.config),
       url: this.target.url,
       waitUntil,
       ignoreCache: options.ignoreCache ?? false,
@@ -812,7 +816,7 @@ export class CdpSession {
     };
 
     return {
-      browserFamily: "chromium",
+      browserFamily: cdpBrowserFamily(this.config),
       applied: true,
       viewport: this.viewportOverride,
       page: await this.getPageState(),
@@ -855,7 +859,7 @@ export class CdpSession {
       targetId: this.target.targetId,
       title: this.target.title,
       url: this.target.url,
-      browserFamily: "chromium",
+      browserFamily: cdpBrowserFamily(this.config),
       connectedAt: this.connectedAt,
       bufferedEvents: this.bufferedEvents.length,
       lastNavigationAt: this.lastNavigationAt,

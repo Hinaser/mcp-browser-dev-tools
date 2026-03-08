@@ -27,12 +27,15 @@ The CLI provides three user-facing entrypoints:
 
 The adapter layer hides protocol-specific details behind a shared interface:
 
-- `CdpSessionManager` for Chromium-family browsers
+- `CdpSessionManager` for Chromium-family browsers, including Microsoft Edge
 - `FirefoxBidiSessionManager` for Firefox
+- `MultiBrowserAdapter` for `MCP_BROWSER_FAMILY=auto`, which multiplexes both behind one broker
 
 Each adapter owns target discovery, session attachment, event buffering, screenshots, DOM retrieval, and optional evaluation.
 
 Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, click, type, select, scroll, and page-state reads.
+
+In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity.
 
 ## Tool Design
 

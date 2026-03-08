@@ -187,6 +187,6 @@ Cursor:
 }
 ```
 
-For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`. For WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port.
+For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`. For Microsoft Edge, switch `MCP_BROWSER_FAMILY` to `edge` and keep using `CDP_BASE_URL`. For WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port.
 
 `serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client. More complete client examples live in [README.md](../README.md).

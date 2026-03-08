@@ -37,6 +37,36 @@ export function getBrowserCandidates(
   env = process.env,
   platform = detectPlatform(env),
 ) {
+  if (family === "edge") {
+    if (platform === "darwin") {
+      return [
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "microsoft-edge",
+      ];
+    }
+
+    if (platform === "wsl") {
+      return [
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+        "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+        "msedge.exe",
+      ];
+    }
+
+    if (platform === "win32") {
+      return [
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        "msedge.exe",
+        "microsoft-edge",
+      ];
+    }
+
+    return ["microsoft-edge", "microsoft-edge-stable", "msedge"];
+  }
+
   if (family === "firefox") {
     if (platform === "darwin") {
       return ["/Applications/Firefox.app/Contents/MacOS/firefox", "firefox"];
@@ -128,10 +158,12 @@ export async function findBrowserExecutable(family, env = process.env) {
 
 export async function detectInstalledBrowsers(env = process.env) {
   const chromium = await findBrowserExecutable("chromium", env);
+  const edge = await findBrowserExecutable("edge", env);
   const firefox = await findBrowserExecutable("firefox", env);
 
   return {
     chromium,
+    edge,
     firefox,
   };
 }

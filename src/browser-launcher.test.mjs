@@ -38,10 +38,45 @@ test("getBrowserCandidates uses native Windows executable paths on win32", () =>
   );
 });
 
+test("getBrowserCandidates includes native Windows Edge paths on win32", () => {
+  const candidates = getBrowserCandidates("edge", {}, "win32");
+
+  assert.equal(
+    candidates.includes(
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    ),
+    true,
+  );
+  assert.equal(
+    candidates.includes(
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    ),
+    true,
+  );
+});
+
 test("buildBrowserLaunchArgs builds Chromium args", () => {
   assert.deepEqual(
     buildBrowserLaunchArgs({
       family: "chromium",
+      url: "http://127.0.0.1:3000",
+      remoteDebuggingPort: "9222",
+      remoteDebuggingAddress: "127.0.0.1",
+      userDataDir: "/tmp/profile",
+    }),
+    [
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=9222",
+      "--user-data-dir=/tmp/profile",
+      "http://127.0.0.1:3000",
+    ],
+  );
+});
+
+test("buildBrowserLaunchArgs builds Edge args like Chromium", () => {
+  assert.deepEqual(
+    buildBrowserLaunchArgs({
+      family: "edge",
       url: "http://127.0.0.1:3000",
       remoteDebuggingPort: "9222",
       remoteDebuggingAddress: "127.0.0.1",

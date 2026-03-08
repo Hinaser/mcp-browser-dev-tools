@@ -1,5 +1,8 @@
 export { createBrowserDevToolsApp } from "./app.mjs";
-export { createBrowserAdapter } from "./browser-adapter.mjs";
+export {
+  createBrowserAdapter,
+  MultiBrowserAdapter,
+} from "./browser-adapter.mjs";
 export {
   buildBrowserLaunchArgs,
   detectInstalledBrowsers,
