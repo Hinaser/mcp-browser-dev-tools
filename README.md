@@ -114,8 +114,9 @@ Add the server with the Codex CLI:
 
 ```bash
 codex mcp add browser-devtools \
-  --env MCP_BROWSER_FAMILY=chromium \
-  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  --env MCP_BROWSER_FAMILY=auto \
+  --env CDP_BASE_URL=http://127.0.0.1:9223 \
+  --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
   -- npx -y mcp-browser-dev-tools@beta serve
 ```
 
@@ -127,8 +128,9 @@ command = "npx"
 args = ["-y", "mcp-browser-dev-tools@beta", "serve"]
 
 [mcp_servers.browser-devtools.env]
-MCP_BROWSER_FAMILY = "chromium"
-CDP_BASE_URL = "http://127.0.0.1:9222"
+MCP_BROWSER_FAMILY = "auto"
+CDP_BASE_URL = "http://127.0.0.1:9223"
+FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222"
 ```
 
 If Codex runs in WSL but the browser runs on Windows, run the broker on Windows too so it can connect to Windows loopback directly. This avoids relay and WSL networking issues.
@@ -159,15 +161,16 @@ Add the server with Claude Code:
 
 ```bash
 claude mcp add browser-devtools --scope user \
-  --env MCP_BROWSER_FAMILY=chromium \
-  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  --env MCP_BROWSER_FAMILY=auto \
+  --env CDP_BASE_URL=http://127.0.0.1:9223 \
+  --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
   -- npx -y mcp-browser-dev-tools@beta serve
 ```
 
 On native Windows, wrap `npx` with `cmd /c`:
 
 ```powershell
-claude mcp add browser-devtools --scope user --env MCP_BROWSER_FAMILY=chromium --env CDP_BASE_URL=http://127.0.0.1:9222 -- cmd /c npx -y mcp-browser-dev-tools@beta serve
+claude mcp add browser-devtools --scope user --env MCP_BROWSER_FAMILY=auto --env CDP_BASE_URL=http://127.0.0.1:9223 --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 -- cmd /c npx -y mcp-browser-dev-tools@beta serve
 ```
 
 Equivalent `.mcp.json` shape:
@@ -179,8 +182,9 @@ Equivalent `.mcp.json` shape:
       "command": "npx",
       "args": ["-y", "mcp-browser-dev-tools@beta", "serve"],
       "env": {
-        "MCP_BROWSER_FAMILY": "chromium",
-        "CDP_BASE_URL": "http://127.0.0.1:9222"
+        "MCP_BROWSER_FAMILY": "auto",
+        "CDP_BASE_URL": "http://127.0.0.1:9223",
+        "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9222"
       }
     }
   }
@@ -198,8 +202,9 @@ Cursor reads MCP servers from `mcp.json`:
       "command": "npx",
       "args": ["-y", "mcp-browser-dev-tools", "serve"],
       "env": {
-        "MCP_BROWSER_FAMILY": "chromium",
-        "CDP_BASE_URL": "http://127.0.0.1:9222"
+        "MCP_BROWSER_FAMILY": "auto",
+        "CDP_BASE_URL": "http://127.0.0.1:9223",
+        "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9222"
       }
     }
   }
@@ -245,6 +250,8 @@ Windows browser bridged into WSL through the relay:
   "CDP_BASE_URL": "http://<windows-host-ip>:9223"
 }
 ```
+
+If you only want a single CDP browser, switch `MCP_BROWSER_FAMILY` back to `chromium` or `edge` and omit `FIREFOX_BIDI_WS_URL`.
 
 Enable `evaluate_js`:
 
