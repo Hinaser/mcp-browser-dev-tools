@@ -39,6 +39,7 @@
     "README.md"
   ],
   "bin": {
+    "mbdt": "cli.mjs",
     "mcp-browser-dev-tools": "cli.mjs"
   },
   "keywords": [

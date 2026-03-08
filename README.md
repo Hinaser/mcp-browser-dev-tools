@@ -25,6 +25,8 @@ It is designed for a local trust boundary:
 
 If you are trying the prerelease from npm, replace `mcp-browser-dev-tools` below with `mcp-browser-dev-tools@beta`.
 
+The published package name stays `mcp-browser-dev-tools`. The preferred installed CLI command is `mbdt`.
+
 One-off execution with `npx`:
 
 ```bash
@@ -35,14 +37,14 @@ Global install:
 
 ```bash
 npm install -g mcp-browser-dev-tools
-mcp-browser-dev-tools serve
+mbdt serve
 ```
 
 Project-local install:
 
 ```bash
 npm install mcp-browser-dev-tools
-npx mcp-browser-dev-tools serve
+npx mbdt serve
 ```
 
 ## Try It Locally
@@ -54,13 +56,20 @@ For Windows, WSL, macOS, and Linux-specific setup paths, see [docs/setup.md](doc
 Quick Chromium flow:
 
 ```bash
-# Launch a local browser with remote debugging enabled
-npx -y mcp-browser-dev-tools@beta open https://example.com --family chromium
+# Launch a local browser with remote debugging enabled.
+# open waits for the debug endpoint and prints the doctor summary automatically.
+npx -y mcp-browser-dev-tools@beta open about:blank --family chromium
+```
 
-# Verify that the browser endpoint and page are reachable
-npx -y mcp-browser-dev-tools@beta doctor --url https://example.com
+If you want to verify a specific app URL too:
 
-# Start the MCP server in a dedicated terminal
+```bash
+npx -y mcp-browser-dev-tools@beta doctor --url http://127.0.0.1:3000
+```
+
+Then start the MCP server in a dedicated terminal:
+
+```bash
 npx -y mcp-browser-dev-tools@beta serve
 ```
 
@@ -107,10 +116,10 @@ For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_U
 Examples:
 
 ```bash
-mcp-browser-dev-tools doctor
-mcp-browser-dev-tools doctor --url http://127.0.0.1:3000
-mcp-browser-dev-tools open http://127.0.0.1:3000 --family chromium
-mcp-browser-dev-tools relay --wsl
+mbdt doctor
+mbdt doctor --url http://127.0.0.1:3000
+mbdt open http://127.0.0.1:3000 --family chromium
+mbdt relay --wsl
 ```
 
 ## Configuration
@@ -161,9 +170,9 @@ For tools that take `sessionId`, call `attach_tab` first and reuse the returned 
 Interaction and inspection tools accept these locator forms:
 
 - CSS selectors such as `#app button.primary` or `css=.modal button`
-- visible-text lookup such as `text=プラン比較`
-- role plus accessible name such as `role=button[name="プラン比較"]`
-- accessible-name lookup such as `name=プラン比較`
+- visible-text lookup such as `text=Open settings`
+- role plus accessible name such as `role=button[name="Open settings"]`
+- accessible-name lookup such as `name=Open settings`
 
 `inspect_element` returns layout and accessibility-focused metadata including bounding box, visibility flags, interactivity flags, accessible name, inferred role, and a subset of computed styles. Invalid CSS selectors now return an explicit locator error instead of a generic DOM failure.
 

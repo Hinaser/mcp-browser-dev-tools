@@ -8,21 +8,32 @@ Use the prerelease package name while the project is still beta:
 npx -y mcp-browser-dev-tools@beta --help
 ```
 
+If you install the package globally or project-locally, use `mbdt` as the CLI command.
+
 ## Windows (PowerShell)
 
 Chrome and Edge often ignore `--remote-debugging-port` when an existing browser process is reused. The safest path is to use a dedicated profile directory. If the browser still reuses an existing session, close the browser normally and retry.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
-Start-Sleep -Seconds 2
-Invoke-WebRequest http://127.0.0.1:9222/json/version | Select-Object -Expand Content
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 What you want to see:
 
-- `http://127.0.0.1:9222/json/version` returns JSON with `webSocketDebuggerUrl`
-- `doctor` reports `adapter available: true`
+- `open` prints `launched chromium browser: ...`
+- the doctor summary printed by `open` reports `adapter available: true`
+
+If you also want to verify your app endpoint:
+
+```powershell
+npx -y mcp-browser-dev-tools@beta doctor --url http://localhost:3000
+```
+
+If `open` fails to report `adapter available: true`, use the raw endpoint check as troubleshooting:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:9222/json/version | Select-Object -Expand Content
+```
 
 ## WSL Using A Windows Browser
 
@@ -40,7 +51,7 @@ Recommended flow:
 Use PowerShell on Windows, or call it from WSL through `powershell.exe` if you prefer.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 ### Start The Relay On Windows

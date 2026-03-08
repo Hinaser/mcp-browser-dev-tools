@@ -1,6 +1,6 @@
 # Publishing
 
-This repository is structured as an npm CLI package with the binary name `mcp-browser-dev-tools`.
+This repository is structured as an npm CLI package with the package name `mcp-browser-dev-tools` and the preferred binary name `mbdt`.
 
 ## Before The First Public Release
 

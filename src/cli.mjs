@@ -69,6 +69,8 @@ function printUsage() {
       "  --port <port>        remote debugging port",
       "  --address <host>     remote debugging address for Chromium",
       "  --user-data-dir <p>  optional browser profile directory",
+      "  --wait-ms <ms>       wait for the debug endpoint and print doctor output",
+      "  --no-doctor          skip the post-launch doctor check",
       "",
       "Relay options:",
       "  --listen-host <host> relay bind host (defaults to 127.0.0.1)",
@@ -83,6 +85,21 @@ function printUsage() {
 
 function printVersion() {
   process.stdout.write(`${PACKAGE_VERSION}\n`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isHttpLikeUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 async function runServe() {
@@ -137,12 +154,13 @@ async function runOpen(positional, options) {
     family === "firefox"
       ? new URL(config.firefoxBidiWsUrl).port || "9222"
       : new URL(config.cdpBaseUrl).port || "9222";
+  const resolvedPort =
+    typeof options.port === "string" ? options.port : defaultPort;
 
   const args = buildBrowserLaunchArgs({
     family,
     url,
-    remoteDebuggingPort:
-      typeof options.port === "string" ? options.port : defaultPort,
+    remoteDebuggingPort: resolvedPort,
     remoteDebuggingAddress: requestedAddress || undefined,
     userDataDir:
       family === "chromium" && typeof options["user-data-dir"] === "string"
@@ -159,6 +177,50 @@ async function runOpen(positional, options) {
   process.stdout.write(
     `launched ${family} browser: ${executable} ${args.join(" ")}\n`,
   );
+
+  if (options["no-doctor"] === true) {
+    return;
+  }
+
+  const waitMs =
+    typeof options["wait-ms"] === "string"
+      ? Number.parseInt(options["wait-ms"], 10)
+      : 5000;
+  const timeoutMs = Number.isInteger(waitMs) && waitMs >= 0 ? waitMs : 5000;
+  const startedAt = Date.now();
+  const doctorEnv = {
+    ...process.env,
+    MCP_BROWSER_FAMILY: family,
+  };
+
+  if (family === "firefox") {
+    doctorEnv.FIREFOX_BIDI_WS_URL = `ws://127.0.0.1:${resolvedPort}`;
+  } else {
+    const address = requestedAddress || "127.0.0.1";
+    doctorEnv.CDP_BASE_URL = `http://${address}:${resolvedPort}`;
+  }
+
+  let report = await collectDoctorReport({
+    env: doctorEnv,
+    url: isHttpLikeUrl(url) ? url : null,
+  });
+
+  while (
+    !report.browserStatus.available &&
+    Date.now() - startedAt < timeoutMs
+  ) {
+    await sleep(250);
+    report = await collectDoctorReport({
+      env: doctorEnv,
+      url: isHttpLikeUrl(url) ? url : null,
+    });
+  }
+
+  process.stdout.write(`${renderDoctorReport(report)}\n`);
+
+  if (!report.browserStatus.available) {
+    process.exitCode = 1;
+  }
 }
 
 async function runRelay(options) {
