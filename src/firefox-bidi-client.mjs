@@ -349,6 +349,7 @@ export class FirefoxBidiSessionManager {
     this.capabilities = null;
     this.connectPromise = null;
     this.resolvedWebSocketUrl = null;
+    this.deleteSessionUrl = null;
   }
 
   async ensureConnected() {
@@ -374,6 +375,7 @@ export class FirefoxBidiSessionManager {
   async openConnection() {
     const endpoint = await this.resolveConnectionEndpoint();
     this.resolvedWebSocketUrl = endpoint.webSocketUrl;
+    this.deleteSessionUrl = endpoint.deleteSessionUrl ?? null;
     this.websocket = this.websocketFactory(endpoint.webSocketUrl);
 
     await new Promise((resolve, reject) => {
@@ -453,6 +455,7 @@ export class FirefoxBidiSessionManager {
       requiresSessionNew: true,
       sessionId: null,
       capabilities: null,
+      deleteSessionUrl: null,
     };
   }
 
@@ -495,7 +498,47 @@ export class FirefoxBidiSessionManager {
       requiresSessionNew: false,
       sessionId,
       capabilities,
+      deleteSessionUrl: joinUrlPath(sessionUrl, sessionId).toString(),
     };
+  }
+
+  async waitForWebSocketClose(websocket, timeoutMs = 250) {
+    if (!websocket || websocket.readyState === WebSocket.CLOSED) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      };
+
+      websocket.addEventListener("close", done, { once: true });
+      const timer = setTimeout(done, timeoutMs);
+      timer.unref?.();
+    });
+  }
+
+  async closeBrowserSession() {
+    if (!this.browserSessionId) {
+      return;
+    }
+
+    if (this.deleteSessionUrl) {
+      await this.fetchImpl(this.deleteSessionUrl, {
+        method: "DELETE",
+        signal: AbortSignal.timeout(2_000),
+      }).catch(() => {});
+      return;
+    }
+
+    if (this.websocket?.readyState === WebSocket.OPEN) {
+      await this.send("session.end", {}).catch(() => {});
+    }
   }
 
   rejectPending(error) {
@@ -1019,10 +1062,20 @@ export class FirefoxBidiSessionManager {
       ),
     );
 
-    if (this.websocket && this.websocket.readyState < WebSocket.CLOSING) {
-      this.websocket.close();
+    const websocket = this.websocket;
+
+    await this.closeBrowserSession();
+
+    if (websocket && websocket.readyState < WebSocket.CLOSING) {
+      websocket.close();
+      await this.waitForWebSocketClose(websocket);
     }
 
     this.sessions.clear();
+    this.websocket = null;
+    this.browserSessionId = null;
+    this.capabilities = null;
+    this.resolvedWebSocketUrl = null;
+    this.deleteSessionUrl = null;
   }
 }

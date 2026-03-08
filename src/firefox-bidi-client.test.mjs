@@ -211,3 +211,61 @@ test("ensureConnected bootstraps a Firefox WebDriver session from the root endpo
   assert.equal(manager.browserSessionId, "webdriver-session-1");
   assert.equal(manager.capabilities.browserName, "firefox");
 });
+
+test("closeAll deletes WebDriver-backed Firefox sessions and closes the websocket", async () => {
+  class FakeSocket extends EventTarget {
+    constructor() {
+      super();
+      this.readyState = 1;
+      this.closeCount = 0;
+    }
+
+    addEventListener(...args) {
+      return super.addEventListener(...args);
+    }
+
+    close() {
+      this.closeCount += 1;
+      this.readyState = 2;
+      queueMicrotask(() => {
+        this.readyState = 3;
+        this.dispatchEvent(new Event("close"));
+      });
+    }
+  }
+
+  const websocket = new FakeSocket();
+  const requests = [];
+  const manager = new FirefoxBidiSessionManager(
+    {
+      firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+      eventBufferSize: 10,
+    },
+    {
+      fetchImpl: async (url, options = {}) => {
+        requests.push({
+          url: String(url),
+          method: options.method ?? "GET",
+        });
+        return { ok: true };
+      },
+    },
+  );
+
+  manager.websocket = websocket;
+  manager.browserSessionId = "webdriver-session-1";
+  manager.deleteSessionUrl =
+    "http://127.0.0.1:9222/session/webdriver-session-1";
+
+  await manager.closeAll();
+
+  assert.deepEqual(requests, [
+    {
+      url: "http://127.0.0.1:9222/session/webdriver-session-1",
+      method: "DELETE",
+    },
+  ]);
+  assert.equal(websocket.closeCount, 1);
+  assert.equal(manager.websocket, null);
+  assert.equal(manager.browserSessionId, null);
+});
