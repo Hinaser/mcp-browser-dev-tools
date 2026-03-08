@@ -142,7 +142,39 @@ npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
 
 ## After The Smoke Test
 
-Once `doctor` shows `adapter available: true`, point your MCP client at:
+Once `doctor` shows `adapter available: true`, point your MCP client at a stdio server command:
+
+```bash
+npx -y mcp-browser-dev-tools@beta serve
+```
+
+If you already installed the package, use:
+
+```bash
+mbdt serve
+```
+
+The most common client-specific examples are:
+
+Codex:
+
+```bash
+codex mcp add browser-devtools \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+Claude Code:
+
+```bash
+claude mcp add browser-devtools --scope user \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+Cursor:
 
 ```json
 {
@@ -155,4 +187,6 @@ Once `doctor` shows `adapter available: true`, point your MCP client at:
 }
 ```
 
-`serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client.
+For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`. For WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port.
+
+`serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client. More complete client examples live in [README.md](../README.md).

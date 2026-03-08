@@ -85,7 +85,78 @@ If you need to bridge Windows Chrome into WSL without changing WSL networking mo
 
 ## MCP Client Configuration
 
-Generic stdio client configuration:
+Use the same server command across MCP clients:
+
+```bash
+npx -y mcp-browser-dev-tools@beta serve
+```
+
+If you installed the package already, the shorter equivalent is:
+
+```bash
+mbdt serve
+```
+
+### Codex
+
+Add the server with the Codex CLI:
+
+```bash
+codex mcp add browser-devtools \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+Equivalent `~/.codex/config.toml` entry:
+
+```toml
+[mcp_servers.browser-devtools]
+command = "npx"
+args = ["-y", "mcp-browser-dev-tools@beta", "serve"]
+
+[mcp_servers.browser-devtools.env]
+MCP_BROWSER_FAMILY = "chromium"
+CDP_BASE_URL = "http://127.0.0.1:9222"
+```
+
+### Claude Code
+
+Add the server with Claude Code:
+
+```bash
+claude mcp add browser-devtools --scope user \
+  --env MCP_BROWSER_FAMILY=chromium \
+  --env CDP_BASE_URL=http://127.0.0.1:9222 \
+  -- npx -y mcp-browser-dev-tools@beta serve
+```
+
+On native Windows, wrap `npx` with `cmd /c`:
+
+```powershell
+claude mcp add browser-devtools --scope user --env MCP_BROWSER_FAMILY=chromium --env CDP_BASE_URL=http://127.0.0.1:9222 -- cmd /c npx -y mcp-browser-dev-tools@beta serve
+```
+
+Equivalent `.mcp.json` shape:
+
+```json
+{
+  "mcpServers": {
+    "browser-devtools": {
+      "command": "npx",
+      "args": ["-y", "mcp-browser-dev-tools@beta", "serve"],
+      "env": {
+        "MCP_BROWSER_FAMILY": "chromium",
+        "CDP_BASE_URL": "http://127.0.0.1:9222"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Cursor reads MCP servers from `mcp.json`:
 
 ```json
 {
@@ -102,7 +173,34 @@ Generic stdio client configuration:
 }
 ```
 
-For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`.
+### Common Variants
+
+Firefox:
+
+```json
+{
+  "MCP_BROWSER_FAMILY": "firefox",
+  "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9222"
+}
+```
+
+Windows browser bridged into WSL through the relay:
+
+```json
+{
+  "MCP_BROWSER_FAMILY": "chromium",
+  "MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS": "1",
+  "CDP_BASE_URL": "http://<windows-host-ip>:9223"
+}
+```
+
+Enable `evaluate_js`:
+
+```json
+{
+  "MCP_BROWSER_ENABLE_EVAL": "1"
+}
+```
 
 ## Commands
 
