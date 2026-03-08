@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -94,12 +95,98 @@ function sleep(ms) {
   });
 }
 
+const FIREFOX_BIDI_SERVER_FILENAME = "WebDriverBiDiServer.json";
+
 function isHttpLikeUrl(value) {
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
+  }
+}
+
+function normalizeFirefoxDoctorHost(value) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!host || host === "0.0.0.0" || host === "::" || host === "[::]") {
+    return "127.0.0.1";
+  }
+
+  return host;
+}
+
+function normalizeFirefoxDoctorPath(value) {
+  if (typeof value !== "string") {
+    return "/";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "/";
+  }
+
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+export function parseFirefoxBidiServerInfo(contents) {
+  const parsed = JSON.parse(contents);
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const directUrl =
+    parsed.webSocketUrl ??
+    parsed.websocketUrl ??
+    parsed.wsUrl ??
+    parsed.ws_url ??
+    null;
+  if (typeof directUrl === "string" && directUrl.trim()) {
+    return directUrl.trim().replace(/\/+$/, "");
+  }
+
+  const port =
+    parsed.ws_port ?? parsed.port ?? parsed.remoteDebuggingPort ?? null;
+  if (!Number.isInteger(port) && !/^\d+$/.test(String(port ?? "").trim())) {
+    return null;
+  }
+
+  const host = normalizeFirefoxDoctorHost(
+    parsed.ws_host ?? parsed.host ?? parsed.hostname ?? "127.0.0.1",
+  );
+  const protocol =
+    parsed.protocol === "https" || parsed.protocol === "wss"
+      ? "https:"
+      : "http:";
+  const endpoint = new URL(`${protocol}//${host}`);
+  endpoint.port = String(port);
+  endpoint.pathname = normalizeFirefoxDoctorPath(
+    parsed.path ?? parsed.ws_path ?? "/",
+  );
+  return endpoint.toString().replace(/\/+$/, "");
+}
+
+export async function resolveFirefoxDoctorEndpoint({
+  userDataDir,
+  fallbackPort,
+}) {
+  if (!userDataDir) {
+    return `ws://127.0.0.1:${fallbackPort}`;
+  }
+
+  try {
+    const serverInfo = await readFile(
+      path.join(userDataDir, FIREFOX_BIDI_SERVER_FILENAME),
+      "utf8",
+    );
+    return (
+      parseFirefoxBidiServerInfo(serverInfo) ?? `ws://127.0.0.1:${fallbackPort}`
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return `ws://127.0.0.1:${fallbackPort}`;
+    }
+
+    return `ws://127.0.0.1:${fallbackPort}`;
   }
 }
 
@@ -200,7 +287,10 @@ async function runOpen(positional, options) {
   };
 
   if (family === "firefox") {
-    doctorEnv.FIREFOX_BIDI_WS_URL = `ws://127.0.0.1:${resolvedPort}`;
+    doctorEnv.FIREFOX_BIDI_WS_URL = await resolveFirefoxDoctorEndpoint({
+      userDataDir,
+      fallbackPort: resolvedPort,
+    });
   } else {
     const address = requestedAddress || "127.0.0.1";
     doctorEnv.CDP_BASE_URL = `http://${address}:${resolvedPort}`;
@@ -216,6 +306,12 @@ async function runOpen(positional, options) {
     Date.now() - startedAt < timeoutMs
   ) {
     await sleep(250);
+    if (family === "firefox") {
+      doctorEnv.FIREFOX_BIDI_WS_URL = await resolveFirefoxDoctorEndpoint({
+        userDataDir,
+        fallbackPort: resolvedPort,
+      });
+    }
     report = await collectDoctorReport({
       env: doctorEnv,
       url: isHttpLikeUrl(url) ? url : null,

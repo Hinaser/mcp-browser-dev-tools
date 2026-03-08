@@ -269,3 +269,68 @@ test("closeAll deletes WebDriver-backed Firefox sessions and closes the websocke
   assert.equal(manager.websocket, null);
   assert.equal(manager.browserSessionId, null);
 });
+
+test("getBrowserStatus times out if Firefox WebDriver session creation stalls", async () => {
+  const manager = new FirefoxBidiSessionManager(
+    {
+      firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+      eventBufferSize: 10,
+    },
+    {
+      connectionTimeoutMs: 20,
+      fetchImpl: (_url, options = {}) =>
+        new Promise((_resolve, reject) => {
+          options.signal?.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        }),
+    },
+  );
+
+  const status = await manager.getBrowserStatus();
+
+  assert.equal(status.available, false);
+  assert.match(status.error, /Timed out creating Firefox WebDriver session/);
+});
+
+test("getBrowserStatus times out if the Firefox websocket never opens", async () => {
+  class HangingSocket extends EventTarget {
+    constructor() {
+      super();
+      this.readyState = 0;
+      this.closeCount = 0;
+    }
+
+    send() {}
+
+    close() {
+      this.closeCount += 1;
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+
+  const websocket = new HangingSocket();
+  const manager = new FirefoxBidiSessionManager(
+    {
+      firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+      eventBufferSize: 10,
+    },
+    {
+      connectionTimeoutMs: 20,
+      websocketFactory: () => websocket,
+    },
+  );
+
+  const status = await manager.getBrowserStatus();
+
+  assert.equal(status.available, false);
+  assert.match(status.error, /Timed out connecting to Firefox BiDi/);
+  assert.equal(websocket.closeCount, 1);
+});
