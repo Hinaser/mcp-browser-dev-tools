@@ -35,7 +35,7 @@ Each adapter owns target discovery, session attachment, event buffering, screens
 
 Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, click, type, select, scroll, and page-state reads.
 
-In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity.
+In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity. Edge also uses the CDP-backed `chromium:` namespace in `auto` mode because it shares the same adapter family.
 
 ## Tool Design
 

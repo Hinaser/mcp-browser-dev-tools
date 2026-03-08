@@ -298,6 +298,7 @@ async function readWebSocketData(data) {
 export class CdpSession {
   constructor(target, options = {}) {
     this.id = crypto.randomUUID();
+    this.config = options.config ?? { browserFamily: "chromium" };
     this.target = target;
     this.eventBufferSize = options.eventBufferSize ?? 200;
     this.onClosed = options.onClosed ?? null;
@@ -932,6 +933,7 @@ export class CdpSessionManager {
     }
 
     const session = new CdpSession(target, {
+      config: this.config,
       eventBufferSize: this.config.eventBufferSize,
       onClosed: (closedSession) => {
         this.sessions.delete(closedSession.id);
