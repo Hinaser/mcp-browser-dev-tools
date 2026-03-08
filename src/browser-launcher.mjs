@@ -149,6 +149,9 @@ export function buildBrowserLaunchArgs({
 
   const args = [];
   if (family === "firefox") {
+    if (userDataDir) {
+      args.push("-new-instance", "-profile", userDataDir);
+    }
     if (remoteDebuggingPort) {
       args.push(`--remote-debugging-port=${remoteDebuggingPort}`);
     }

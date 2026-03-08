@@ -217,6 +217,7 @@ Examples:
 mbdt doctor
 mbdt doctor --url http://127.0.0.1:3000
 mbdt open http://127.0.0.1:3000 --family chromium
+mbdt open about:blank --family firefox --user-data-dir /tmp/mbdt-firefox
 mbdt relay --wsl
 ```
 
