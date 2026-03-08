@@ -79,10 +79,12 @@ If you want one broker to handle Chromium and Firefox at the same time, run it i
 
 ```bash
 MCP_BROWSER_FAMILY=auto \
-CDP_BASE_URL=http://127.0.0.1:9222 \
-FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9333 \
+CDP_BASE_URL=http://127.0.0.1:9223 \
+FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
 npx -y mcp-browser-dev-tools@beta serve
 ```
+
+Use distinct ports in `auto` mode. A practical local split is Firefox on `9222` and Chrome or Edge on `9223`.
 
 If you already have a browser listening on `http://127.0.0.1:9222`, `doctor` is enough to confirm that the broker can reach it:
 
@@ -128,6 +130,28 @@ args = ["-y", "mcp-browser-dev-tools@beta", "serve"]
 MCP_BROWSER_FAMILY = "chromium"
 CDP_BASE_URL = "http://127.0.0.1:9222"
 ```
+
+If Codex runs in WSL but the browser runs on Windows, run the broker on Windows too so it can connect to Windows loopback directly. This avoids relay and WSL networking issues.
+
+Example `~/.codex/config.toml` entry for Firefox on Windows:
+
+```toml
+[mcp_servers.browser-devtools]
+startup_timeout_sec = 30
+command = "/mnt/c/nvm4w/nodejs/node.exe"
+args = ["-e", "process.env.MCP_BROWSER_FAMILY='firefox';process.env.FIREFOX_BIDI_WS_URL='ws://127.0.0.1:9222';import('//wsl.localhost/<wsl-distro>/<repo-wsl-path>/src/cli.mjs').then(({ runCli }) => runCli(['serve'])).catch((error) => { console.error(error?.stack || String(error)); process.exit(1); });"]
+```
+
+Example `auto` mode entry for Firefox plus Chrome or Edge on Windows:
+
+```toml
+[mcp_servers.browser-devtools]
+startup_timeout_sec = 30
+command = "/mnt/c/nvm4w/nodejs/node.exe"
+args = ["-e", "process.env.MCP_BROWSER_FAMILY='auto';process.env.CDP_BASE_URL='http://127.0.0.1:9223';process.env.FIREFOX_BIDI_WS_URL='ws://127.0.0.1:9222';import('//wsl.localhost/<wsl-distro>/<repo-wsl-path>/src/cli.mjs').then(({ runCli }) => runCli(['serve'])).catch((error) => { console.error(error?.stack || String(error)); process.exit(1); });"]
+```
+
+Replace `<wsl-distro>` and `<repo-wsl-path>` with your own WSL distro name and repository path.
 
 ### Claude Code
 
@@ -189,8 +213,8 @@ Auto mode with both browsers attached to one MCP server:
 ```json
 {
   "MCP_BROWSER_FAMILY": "auto",
-  "CDP_BASE_URL": "http://127.0.0.1:9222",
-  "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9333"
+  "CDP_BASE_URL": "http://127.0.0.1:9223",
+  "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9222"
 }
 ```
 
@@ -245,6 +269,7 @@ Examples:
 mbdt doctor
 mbdt doctor --url http://127.0.0.1:3000
 mbdt open http://127.0.0.1:3000 --family chromium
+mbdt open http://127.0.0.1:3000 --family edge --port 9223 --user-data-dir /tmp/mbdt-edge
 mbdt open about:blank --family firefox --user-data-dir /tmp/mbdt-firefox
 mbdt relay --wsl
 ```
@@ -254,6 +279,7 @@ mbdt relay --wsl
 - `MCP_BROWSER_FAMILY` defaults to `chromium`; set `edge` for Microsoft Edge, `firefox` for Firefox BiDi, or `auto` to multiplex both adapters
 - `CDP_BASE_URL` defaults to `http://127.0.0.1:9222`
 - `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when pointed at the root Firefox remote debugging port, the broker connects to the `/session` websocket and creates a BiDi session there
+- in `auto` mode, assign CDP and Firefox different ports so both browsers can run at once
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
