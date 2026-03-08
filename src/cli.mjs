@@ -154,9 +154,7 @@ export function parseFirefoxBidiServerInfo(contents) {
     parsed.ws_host ?? parsed.host ?? parsed.hostname ?? "127.0.0.1",
   );
   const protocol =
-    parsed.protocol === "https" || parsed.protocol === "wss"
-      ? "https:"
-      : "http:";
+    parsed.protocol === "https" || parsed.protocol === "wss" ? "wss:" : "ws:";
   const endpoint = new URL(`${protocol}//${host}`);
   endpoint.port = String(port);
   endpoint.pathname = normalizeFirefoxDoctorPath(

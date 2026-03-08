@@ -101,7 +101,7 @@ test("parseFirefoxBidiServerInfo converts Firefox server metadata into an endpoi
         ws_port: 9321,
       }),
     ),
-    "http://127.0.0.1:9321",
+    "ws://127.0.0.1:9321",
   );
 });
 
@@ -132,7 +132,7 @@ test("resolveFirefoxDoctorEndpoint reads Firefox server info from the launched p
       userDataDir: profileDir,
       fallbackPort: "9222",
     }),
-    "http://127.0.0.1:9555",
+    "ws://127.0.0.1:9555",
   );
 });
 
