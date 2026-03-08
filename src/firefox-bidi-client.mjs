@@ -251,6 +251,14 @@ function isRootPathname(pathname) {
   return pathname === "" || pathname === "/";
 }
 
+function isAbortError(error) {
+  return (
+    error?.name === "AbortError" ||
+    error?.name === "TimeoutError" ||
+    error?.code === "ABORT_ERR"
+  );
+}
+
 function toHttpEndpointUrl(endpointUrl) {
   const url = new URL(endpointUrl);
   if (url.protocol === "ws:") {
@@ -342,6 +350,7 @@ export class FirefoxBidiSessionManager {
     this.websocketFactory =
       options.websocketFactory ?? ((url) => new WebSocket(url));
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.connectionTimeoutMs = options.connectionTimeoutMs ?? 2_000;
     this.pending = new Map();
     this.nextMessageId = 1;
     this.websocket = null;
@@ -380,14 +389,35 @@ export class FirefoxBidiSessionManager {
 
     await new Promise((resolve, reject) => {
       let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        this.websocket?.close?.();
+        reject(
+          new Error(
+            `Timed out connecting to Firefox BiDi at ${endpoint.webSocketUrl}`,
+          ),
+        );
+      }, this.connectionTimeoutMs);
+      timer.unref?.();
+
+      const settle = (callback) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        callback();
+      };
 
       this.websocket.addEventListener(
         "open",
         () => {
-          if (!settled) {
-            settled = true;
-            resolve();
-          }
+          settle(resolve);
         },
         { once: true },
       );
@@ -395,12 +425,11 @@ export class FirefoxBidiSessionManager {
       this.websocket.addEventListener(
         "error",
         () => {
-          if (!settled) {
-            settled = true;
+          settle(() => {
             reject(
               new Error(`Failed to connect to ${this.config.firefoxBidiWsUrl}`),
             );
-          }
+          });
         },
         { once: true },
       );
@@ -415,12 +444,11 @@ export class FirefoxBidiSessionManager {
         this.browserSessionId = null;
         this.capabilities = null;
         this.sessions.clear();
-        if (!settled) {
-          settled = true;
+        settle(() => {
           reject(
             new Error("Firefox BiDi connection closed before it connected"),
           );
-        }
+        });
       });
     });
 
@@ -461,19 +489,34 @@ export class FirefoxBidiSessionManager {
 
   async createWebDriverSession(endpointUrl) {
     const sessionUrl = joinUrlPath(toHttpEndpointUrl(endpointUrl), "/session");
-    const response = await this.fetchImpl(sessionUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        capabilities: {
-          alwaysMatch: {
-            webSocketUrl: true,
-          },
+    let response;
+    try {
+      response = await this.fetchImpl(sessionUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          capabilities: {
+            alwaysMatch: {
+              webSocketUrl: true,
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(this.connectionTimeoutMs),
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new Error(
+          `Timed out creating Firefox WebDriver session at ${sessionUrl}`,
+          {
+            cause: error,
+          },
+        );
+      }
+
+      throw error;
+    }
 
     if (!response.ok) {
       throw new Error(
