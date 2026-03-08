@@ -9,7 +9,7 @@ It is designed for a local trust boundary:
 ## What You Get
 
 - A stdio MCP server for local desktop and terminal clients
-- Browser discovery and attach/detach for Chromium-family browsers and Firefox
+- Browser discovery and attach/detach for Chrome, Edge, other Chromium-family browsers, and Firefox
 - Inspection tools for DOM lookup, richer element details, console messages, network requests, screenshots, tab listing, and buffered events
 - Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
 - Optional JavaScript evaluation behind an explicit environment flag
@@ -74,6 +74,15 @@ npx -y mcp-browser-dev-tools@beta serve
 ```
 
 `serve` stays attached to stdio because MCP clients talk to it over standard input and output. Run it in its own terminal or let your MCP client spawn it directly.
+
+If you want one broker to handle Chromium and Firefox at the same time, run it in `auto` mode and point each adapter at its own endpoint:
+
+```bash
+MCP_BROWSER_FAMILY=auto \
+CDP_BASE_URL=http://127.0.0.1:9222 \
+FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9333 \
+npx -y mcp-browser-dev-tools@beta serve
+```
 
 If you already have a browser listening on `http://127.0.0.1:9222`, `doctor` is enough to confirm that the broker can reach it:
 
@@ -175,12 +184,31 @@ Cursor reads MCP servers from `mcp.json`:
 
 ### Common Variants
 
+Auto mode with both browsers attached to one MCP server:
+
+```json
+{
+  "MCP_BROWSER_FAMILY": "auto",
+  "CDP_BASE_URL": "http://127.0.0.1:9222",
+  "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9333"
+}
+```
+
 Firefox:
 
 ```json
 {
   "MCP_BROWSER_FAMILY": "firefox",
   "FIREFOX_BIDI_WS_URL": "ws://127.0.0.1:9222"
+}
+```
+
+Microsoft Edge:
+
+```json
+{
+  "MCP_BROWSER_FAMILY": "edge",
+  "CDP_BASE_URL": "http://127.0.0.1:9222"
 }
 ```
 
@@ -223,9 +251,9 @@ mbdt relay --wsl
 
 ## Configuration
 
-- `MCP_BROWSER_FAMILY` defaults to `chromium`; set `firefox` for Firefox BiDi
+- `MCP_BROWSER_FAMILY` defaults to `chromium`; set `edge` for Microsoft Edge, `firefox` for Firefox BiDi, or `auto` to multiplex both adapters
 - `CDP_BASE_URL` defaults to `http://127.0.0.1:9222`
-- `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when pointed at the root Firefox remote debugging port, the broker first requests `webSocketUrl` from `POST /session` and then connects to the returned BiDi session socket
+- `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when pointed at the root Firefox remote debugging port, the broker connects to the `/session` websocket and creates a BiDi session there
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
@@ -238,9 +266,12 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
 
 ## Exposed Tools
 
-- `browser_status`
+- `browser_status` returns broker metadata too: `serverName` and `serverVersion`
+  In `auto` mode it also includes per-browser adapter status under `browsers`
 - `list_tabs`
+  In `auto` mode each `targetId` is namespaced as `chromium:<id>` or `firefox:<id>`
 - `list_sessions`
+  In `auto` mode each `sessionId` is namespaced the same way
 - `attach_tab`
 - `detach_tab`
 - `get_page_state`

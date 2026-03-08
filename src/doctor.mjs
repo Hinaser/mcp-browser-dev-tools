@@ -4,6 +4,21 @@ import { createBrowserAdapter } from "./browser-adapter.mjs";
 import { loadConfig } from "./config.mjs";
 import { detectInstalledBrowsers } from "./browser-launcher.mjs";
 
+function reportEndpoints(config) {
+  if (config.browserFamily === "firefox") {
+    return config.firefoxBidiWsUrl;
+  }
+
+  if (config.browserFamily === "auto") {
+    return {
+      chromium: config.cdpBaseUrl,
+      firefox: config.firefoxBidiWsUrl,
+    };
+  }
+
+  return config.cdpBaseUrl;
+}
+
 async function probeUrl(url) {
   try {
     const response = await fetch(url);
@@ -37,10 +52,7 @@ export async function collectDoctorReport({
       platform: process.platform,
       release: os.release(),
       browserFamily: config.browserFamily,
-      endpoint:
-        config.browserFamily === "firefox"
-          ? config.firefoxBidiWsUrl
-          : config.cdpBaseUrl,
+      endpoint: reportEndpoints(config),
       display: {
         DISPLAY: env.DISPLAY || null,
         WAYLAND_DISPLAY: env.WAYLAND_DISPLAY || null,
@@ -56,14 +68,22 @@ export async function collectDoctorReport({
 }
 
 export function renderDoctorReport(report) {
+  const endpointLines =
+    typeof report.endpoint === "string"
+      ? [`browser endpoint: ${report.endpoint}`]
+      : Object.entries(report.endpoint).map(
+          ([browserFamily, endpoint]) =>
+            `${browserFamily} endpoint: ${endpoint}`,
+        );
   const lines = [
     `platform: ${report.platform}`,
     `release: ${report.release}`,
     `browser family: ${report.browserFamily}`,
-    `browser endpoint: ${report.endpoint}`,
+    ...endpointLines,
     `DISPLAY: ${report.display.DISPLAY ?? "-"}`,
     `WAYLAND_DISPLAY: ${report.display.WAYLAND_DISPLAY ?? "-"}`,
     `chromium executable: ${report.installedBrowsers.chromium ?? "not found"}`,
+    `edge executable: ${report.installedBrowsers.edge ?? "not found"}`,
     `firefox executable: ${report.installedBrowsers.firefox ?? "not found"}`,
     `adapter available: ${report.browserStatus.available}`,
   ];

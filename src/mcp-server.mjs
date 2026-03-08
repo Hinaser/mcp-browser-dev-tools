@@ -201,7 +201,11 @@ export class McpBrowserDevToolsServer {
               "Report whether the configured browser endpoint is reachable and how many active sessions are attached.",
             inputSchema: emptyObjectSchema(),
           },
-          handler: async () => this.browserAdapter.getBrowserStatus(),
+          handler: async () => ({
+            serverName: SERVER_NAME,
+            serverVersion: SERVER_VERSION,
+            ...(await this.browserAdapter.getBrowserStatus()),
+          }),
         },
       ],
       [

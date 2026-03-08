@@ -3,6 +3,7 @@ export const DEFAULT_FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222";
 export const DEFAULT_EVENT_BUFFER_SIZE = 200;
 export const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 export const DEFAULT_BROWSER_FAMILY = "chromium";
+export const CDP_BROWSER_FAMILIES = ["chromium", "edge"];
 
 export function isLoopbackHost(value) {
   return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(value);
@@ -46,7 +47,12 @@ export function isLoopbackOrigin(value) {
 
 export function parseBrowserFamily(value) {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === "firefox" || normalized === "chromium") {
+  if (
+    normalized === "firefox" ||
+    normalized === "chromium" ||
+    normalized === "edge" ||
+    normalized === "auto"
+  ) {
     return normalized;
   }
 
@@ -58,15 +64,24 @@ export function loadConfig(env = process.env) {
   const allowRemoteEndpoints = allowsRemoteEndpoints(env);
   const cdpBaseUrl = normalizeBaseUrl(env.CDP_BASE_URL);
   const firefoxBidiWsUrl = normalizeWebSocketUrl(env.FIREFOX_BIDI_WS_URL);
-  const selectedEndpoint =
-    browserFamily === "firefox" ? firefoxBidiWsUrl : cdpBaseUrl;
+  const endpointsToValidate =
+    browserFamily === "firefox"
+      ? [["FIREFOX_BIDI_WS_URL", firefoxBidiWsUrl]]
+      : browserFamily === "auto"
+        ? [
+            ["CDP_BASE_URL", cdpBaseUrl],
+            ["FIREFOX_BIDI_WS_URL", firefoxBidiWsUrl],
+          ]
+        : [["CDP_BASE_URL", cdpBaseUrl]];
 
-  if (!allowRemoteEndpoints && !isLoopbackOrigin(selectedEndpoint)) {
-    throw new Error(
-      `${
-        browserFamily === "firefox" ? "FIREFOX_BIDI_WS_URL" : "CDP_BASE_URL"
-      } must point to a loopback host unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1`,
-    );
+  if (!allowRemoteEndpoints) {
+    for (const [name, endpoint] of endpointsToValidate) {
+      if (!isLoopbackOrigin(endpoint)) {
+        throw new Error(
+          `${name} must point to a loopback host unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1`,
+        );
+      }
+    }
   }
 
   return {

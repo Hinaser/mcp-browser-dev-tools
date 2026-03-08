@@ -55,7 +55,9 @@ test("isLoopbackHost accepts loopback hostnames only", () => {
 
 test("parseBrowserFamily falls back to chromium", () => {
   assert.equal(parseBrowserFamily("chromium"), "chromium");
+  assert.equal(parseBrowserFamily("edge"), "edge");
   assert.equal(parseBrowserFamily("firefox"), "firefox");
+  assert.equal(parseBrowserFamily("auto"), "auto");
   assert.equal(parseBrowserFamily("webkit"), DEFAULT_BROWSER_FAMILY);
 });
 
@@ -114,6 +116,38 @@ test("loadConfig accepts Firefox BiDi endpoints when explicitly enabled", () => 
   assert.equal(config.firefoxBidiWsUrl, "ws://192.0.2.10:9222");
   assert.equal(config.allowRemoteEndpoints, true);
   assert.equal(config.allowRemoteCdp, true);
+});
+
+test("loadConfig accepts auto mode and keeps both endpoints", () => {
+  const config = loadConfig({
+    MCP_BROWSER_FAMILY: "auto",
+    CDP_BASE_URL: "http://127.0.0.1:9222",
+    FIREFOX_BIDI_WS_URL: "ws://127.0.0.1:9333",
+  });
+
+  assert.equal(config.browserFamily, "auto");
+  assert.equal(config.cdpBaseUrl, "http://127.0.0.1:9222");
+  assert.equal(config.firefoxBidiWsUrl, "ws://127.0.0.1:9333");
+});
+
+test("loadConfig validates both endpoints in auto mode", () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        MCP_BROWSER_FAMILY: "auto",
+        CDP_BASE_URL: "http://192.0.2.10:9222",
+      }),
+    /CDP_BASE_URL must point to a loopback host/,
+  );
+
+  assert.throws(
+    () =>
+      loadConfig({
+        MCP_BROWSER_FAMILY: "auto",
+        FIREFOX_BIDI_WS_URL: "ws://192.0.2.11:9222",
+      }),
+    /FIREFOX_BIDI_WS_URL must point to a loopback host/,
+  );
 });
 
 test("loadConfig still accepts the legacy remote endpoint flag", () => {

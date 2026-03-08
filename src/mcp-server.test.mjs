@@ -199,6 +199,33 @@ test("tools/call executes a tool and returns structured content", async () => {
   assert.match(response.result.content[0].text, /session-2/);
 });
 
+test("browser_status includes broker version metadata", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 36,
+    method: "tools/call",
+    params: {
+      name: "browser_status",
+      arguments: {},
+    },
+  });
+
+  assert.equal(
+    response.result.structuredContent.serverName,
+    "mcp-browser-dev-tools",
+  );
+  assert.equal(
+    response.result.structuredContent.serverVersion,
+    PACKAGE_VERSION,
+  );
+  assert.equal(response.result.structuredContent.available, true);
+});
+
 test("inspect_element delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
