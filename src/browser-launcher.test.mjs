@@ -66,3 +66,21 @@ test("buildBrowserLaunchArgs builds Firefox args", () => {
     ["--remote-debugging-port=9222", "http://127.0.0.1:3000"],
   );
 });
+
+test("buildBrowserLaunchArgs uses a dedicated Firefox profile when requested", () => {
+  assert.deepEqual(
+    buildBrowserLaunchArgs({
+      family: "firefox",
+      url: "http://127.0.0.1:3000",
+      remoteDebuggingPort: "9222",
+      userDataDir: "/tmp/profile",
+    }),
+    [
+      "-new-instance",
+      "-profile",
+      "/tmp/profile",
+      "--remote-debugging-port=9222",
+      "http://127.0.0.1:3000",
+    ],
+  );
+});

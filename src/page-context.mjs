@@ -214,6 +214,21 @@ export function buildPageContextExpression(
       );
     }
 
+    function summarizeLocator(locator) {
+      if (!locator || typeof locator !== "object") {
+        return null;
+      }
+
+      const summary = {};
+      for (const key of ["locator", "strategy", "query", "role", "name", "error"]) {
+        if (locator[key] !== undefined) {
+          summary[key] = locator[key];
+        }
+      }
+
+      return summary;
+    }
+
     function describeElement(element, locator) {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
@@ -221,7 +236,7 @@ export function buildPageContextExpression(
       const accessibleName = getAccessibleName(element);
 
       return {
-        locator,
+        locator: summarizeLocator(locator),
         tagName: element.tagName,
         id: element.getAttribute("id"),
         className: element.getAttribute("class"),
@@ -413,7 +428,7 @@ export function buildPageContextExpression(
           browserFamily: payload.browserFamily,
           selector: rawLocator,
           found: false,
-          locator: resolved,
+          locator: summarizeLocator(resolved),
           error: resolved.error,
         };
       }
@@ -423,7 +438,7 @@ export function buildPageContextExpression(
           browserFamily: payload.browserFamily,
           selector: rawLocator,
           found: false,
-          locator: resolved,
+          locator: summarizeLocator(resolved),
         };
       }
 

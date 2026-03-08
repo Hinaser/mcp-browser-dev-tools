@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -68,7 +69,7 @@ function printUsage() {
       "  --family <name>      chromium or firefox",
       "  --port <port>        remote debugging port",
       "  --address <host>     remote debugging address for Chromium",
-      "  --user-data-dir <p>  optional browser profile directory",
+      "  --user-data-dir <p>  optional Chromium user data dir or Firefox profile dir",
       "  --wait-ms <ms>       wait for the debug endpoint and print doctor output",
       "  --no-doctor          skip the post-launch doctor check",
       "",
@@ -156,16 +157,21 @@ async function runOpen(positional, options) {
       : new URL(config.cdpBaseUrl).port || "9222";
   const resolvedPort =
     typeof options.port === "string" ? options.port : defaultPort;
+  const userDataDir =
+    typeof options["user-data-dir"] === "string"
+      ? options["user-data-dir"]
+      : undefined;
+
+  if (family === "firefox" && userDataDir) {
+    await mkdir(userDataDir, { recursive: true });
+  }
 
   const args = buildBrowserLaunchArgs({
     family,
     url,
     remoteDebuggingPort: resolvedPort,
     remoteDebuggingAddress: requestedAddress || undefined,
-    userDataDir:
-      family === "chromium" && typeof options["user-data-dir"] === "string"
-        ? options["user-data-dir"]
-        : undefined,
+    userDataDir,
   });
 
   const child = spawn(executable, args, {
