@@ -23,8 +23,6 @@ It is designed for a local trust boundary:
 
 ## Install
 
-If you are trying the prerelease from npm, replace `mcp-browser-dev-tools` below with `mcp-browser-dev-tools@beta`.
-
 The published package name stays `mcp-browser-dev-tools`. The preferred installed CLI command is `mbdt`.
 
 One-off execution with `npx`:
@@ -58,19 +56,19 @@ Quick Chromium flow:
 ```bash
 # Launch a local browser with remote debugging enabled.
 # open waits for the debug endpoint and prints the doctor summary automatically.
-npx -y mcp-browser-dev-tools@beta open about:blank --family chromium
+npx -y mcp-browser-dev-tools open about:blank --family chromium
 ```
 
 If you want to verify a specific app URL too:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta doctor --url http://127.0.0.1:3000
+npx -y mcp-browser-dev-tools doctor --url http://127.0.0.1:3000
 ```
 
 Then start the MCP server in a dedicated terminal:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta serve
+npx -y mcp-browser-dev-tools serve
 ```
 
 `serve` stays attached to stdio because MCP clients talk to it over standard input and output. Run it in its own terminal or let your MCP client spawn it directly.
@@ -81,7 +79,7 @@ If you want one broker to handle Chromium and Firefox at the same time, run it i
 MCP_BROWSER_FAMILY=auto \
 CDP_BASE_URL=http://127.0.0.1:9223 \
 FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
-npx -y mcp-browser-dev-tools@beta serve
+npx -y mcp-browser-dev-tools serve
 ```
 
 Use distinct ports in `auto` mode. A practical local split is Firefox on `9222` and Chrome or Edge on `9223`.
@@ -89,7 +87,7 @@ Use distinct ports in `auto` mode. A practical local split is Firefox on `9222` 
 If you already have a browser listening on `http://127.0.0.1:9222`, `doctor` is enough to confirm that the broker can reach it:
 
 ```bash
-CDP_BASE_URL=http://127.0.0.1:9222 npx -y mcp-browser-dev-tools@beta doctor
+CDP_BASE_URL=http://127.0.0.1:9222 npx -y mcp-browser-dev-tools doctor
 ```
 
 If you need to bridge Windows Chrome into WSL without changing WSL networking mode, run the relay on Windows and point WSL at the relay port instead. The full procedure is in [docs/setup.md](docs/setup.md).
@@ -99,7 +97,7 @@ If you need to bridge Windows Chrome into WSL without changing WSL networking mo
 Use the same server command across MCP clients:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta serve
+npx -y mcp-browser-dev-tools serve
 ```
 
 If you installed the package already, the shorter equivalent is:
@@ -117,7 +115,7 @@ codex mcp add browser-devtools \
   --env MCP_BROWSER_FAMILY=auto \
   --env CDP_BASE_URL=http://127.0.0.1:9223 \
   --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools@beta serve
+  -- npx -y mcp-browser-dev-tools serve
 ```
 
 Equivalent `~/.codex/config.toml` entry:
@@ -125,7 +123,7 @@ Equivalent `~/.codex/config.toml` entry:
 ```toml
 [mcp_servers.browser-devtools]
 command = "npx"
-args = ["-y", "mcp-browser-dev-tools@beta", "serve"]
+args = ["-y", "mcp-browser-dev-tools", "serve"]
 
 [mcp_servers.browser-devtools.env]
 MCP_BROWSER_FAMILY = "auto"
@@ -164,13 +162,13 @@ claude mcp add browser-devtools --scope user \
   --env MCP_BROWSER_FAMILY=auto \
   --env CDP_BASE_URL=http://127.0.0.1:9223 \
   --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools@beta serve
+  -- npx -y mcp-browser-dev-tools serve
 ```
 
 On native Windows, wrap `npx` with `cmd /c`:
 
 ```powershell
-claude mcp add browser-devtools --scope user --env MCP_BROWSER_FAMILY=auto --env CDP_BASE_URL=http://127.0.0.1:9223 --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 -- cmd /c npx -y mcp-browser-dev-tools@beta serve
+claude mcp add browser-devtools --scope user --env MCP_BROWSER_FAMILY=auto --env CDP_BASE_URL=http://127.0.0.1:9223 --env FIREFOX_BIDI_WS_URL=ws://127.0.0.1:9222 -- cmd /c npx -y mcp-browser-dev-tools serve
 ```
 
 Equivalent `.mcp.json` shape:
@@ -180,7 +178,7 @@ Equivalent `.mcp.json` shape:
   "mcpServers": {
     "browser-devtools": {
       "command": "npx",
-      "args": ["-y", "mcp-browser-dev-tools@beta", "serve"],
+      "args": ["-y", "mcp-browser-dev-tools", "serve"],
       "env": {
         "MCP_BROWSER_FAMILY": "auto",
         "CDP_BASE_URL": "http://127.0.0.1:9223",

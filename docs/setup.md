@@ -2,10 +2,10 @@
 
 This guide is for manually verifying that `mcp-browser-dev-tools` can reach a browser debugging endpoint before you wire it into an MCP client.
 
-Use the prerelease package name while the project is still beta:
+Use the published package directly:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta --help
+npx -y mcp-browser-dev-tools --help
 ```
 
 If you install the package globally or project-locally, use `mbdt` as the CLI command.
@@ -15,19 +15,19 @@ If you install the package globally or project-locally, use `mbdt` as the CLI co
 Chrome and Edge often ignore `--remote-debugging-port` when an existing browser process is reused. The safest path is to use a dedicated profile directory. If the browser still reuses an existing session, close the browser normally and retry.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 For Firefox:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open about:blank --family firefox --user-data-dir "$env:TEMP\mcp-browser-dev-tools-firefox"
+npx -y mcp-browser-dev-tools open about:blank --family firefox --user-data-dir "$env:TEMP\mcp-browser-dev-tools-firefox"
 ```
 
 For Edge in `auto` mode alongside Firefox, use a separate CDP port:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open about:blank --family edge --port 9223 --user-data-dir "$env:TEMP\mcp-browser-dev-tools-edge"
+npx -y mcp-browser-dev-tools open about:blank --family edge --port 9223 --user-data-dir "$env:TEMP\mcp-browser-dev-tools-edge"
 ```
 
 What you want to see:
@@ -38,7 +38,7 @@ What you want to see:
 If you also want to verify your app endpoint:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta doctor --url http://localhost:3000
+npx -y mcp-browser-dev-tools doctor --url http://localhost:3000
 ```
 
 If `open` fails to report `adapter available: true`, use the raw endpoint check as troubleshooting:
@@ -71,7 +71,7 @@ For Codex, running the broker on Windows is simpler than relaying browser socket
 Use PowerShell on Windows, or call it from WSL through `powershell.exe` if you prefer.
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
 ```
 
 ### Launch Firefox Or Edge On Windows
@@ -79,13 +79,13 @@ npx -y mcp-browser-dev-tools@beta open about:blank --family chromium --user-data
 Firefox:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open http://localhost:3000 --family firefox --user-data-dir "$env:TEMP\mcp-browser-dev-tools-firefox"
+npx -y mcp-browser-dev-tools open http://localhost:3000 --family firefox --user-data-dir "$env:TEMP\mcp-browser-dev-tools-firefox"
 ```
 
 Edge with a dedicated CDP port:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta open http://localhost:3000 --family edge --port 9223 --user-data-dir "$env:TEMP\mcp-browser-dev-tools-edge"
+npx -y mcp-browser-dev-tools open http://localhost:3000 --family edge --port 9223 --user-data-dir "$env:TEMP\mcp-browser-dev-tools-edge"
 ```
 
 If you use `MCP_BROWSER_FAMILY=auto`, keep Firefox on `9222` and use `9223` for Chrome or Edge.
@@ -95,7 +95,7 @@ If you use `MCP_BROWSER_FAMILY=auto`, keep Firefox on `9222` and use `9223` for 
 In a second Windows terminal:
 
 ```powershell
-npx -y mcp-browser-dev-tools@beta relay --wsl
+npx -y mcp-browser-dev-tools relay --wsl
 ```
 
 Expected output:
@@ -116,7 +116,7 @@ WINDOWS_HOST=$(ip route show | awk '/default/ { print $3; exit }')
 curl "http://${WINDOWS_HOST}:9223/json/version"
 MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1 \
 CDP_BASE_URL="http://${WINDOWS_HOST}:9223" \
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools doctor --url https://google.com
 ```
 
 What you want to see:
@@ -149,7 +149,7 @@ After restarting WSL, use loopback directly:
 
 ```bash
 curl http://127.0.0.1:9222/json/version
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools doctor --url https://google.com
 ```
 
 Mirrored mode changes WSL networking globally. The relay is narrower in scope.
@@ -195,8 +195,8 @@ After updating `config.toml`, restart Codex so it respawns the MCP server with t
 If Chrome or Chromium is installed on Linux, the built-in `open` flow is usually enough:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$HOME/.cache/mcp-browser-dev-tools-profile"
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools open https://google.com --family chromium --user-data-dir "$HOME/.cache/mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools doctor --url https://google.com
 ```
 
 ## macOS
@@ -204,8 +204,8 @@ npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
 Use the same flow as Linux, but with a macOS-installed Chromium-family browser:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta open https://google.com --family chromium --user-data-dir "$HOME/Library/Caches/mcp-browser-dev-tools-profile"
-npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
+npx -y mcp-browser-dev-tools open https://google.com --family chromium --user-data-dir "$HOME/Library/Caches/mcp-browser-dev-tools-profile"
+npx -y mcp-browser-dev-tools doctor --url https://google.com
 ```
 
 ## After The Smoke Test
@@ -213,7 +213,7 @@ npx -y mcp-browser-dev-tools@beta doctor --url https://google.com
 Once `doctor` shows `adapter available: true`, point your MCP client at a stdio server command:
 
 ```bash
-npx -y mcp-browser-dev-tools@beta serve
+npx -y mcp-browser-dev-tools serve
 ```
 
 If you already installed the package, use:
@@ -230,7 +230,7 @@ Codex:
 codex mcp add browser-devtools \
   --env MCP_BROWSER_FAMILY=chromium \
   --env CDP_BASE_URL=http://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools@beta serve
+  -- npx -y mcp-browser-dev-tools serve
 ```
 
 Claude Code:
@@ -239,7 +239,7 @@ Claude Code:
 claude mcp add browser-devtools --scope user \
   --env MCP_BROWSER_FAMILY=chromium \
   --env CDP_BASE_URL=http://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools@beta serve
+  -- npx -y mcp-browser-dev-tools serve
 ```
 
 Cursor:
@@ -249,7 +249,7 @@ Cursor:
   "mcpServers": {
     "browser-devtools": {
       "command": "npx",
-      "args": ["-y", "mcp-browser-dev-tools@beta", "serve"]
+      "args": ["-y", "mcp-browser-dev-tools", "serve"]
     }
   }
 }
