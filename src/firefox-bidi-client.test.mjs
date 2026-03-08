@@ -159,8 +159,6 @@ test("ensureConnected bootstraps a Firefox WebDriver session from the root endpo
   }
 
   let capturedWebSocketUrl = null;
-  let capturedFetchUrl = null;
-  let capturedFetchBody = null;
 
   const manager = new FirefoxBidiSessionManager(
     {
@@ -172,47 +170,27 @@ test("ensureConnected bootstraps a Firefox WebDriver session from the root endpo
         capturedWebSocketUrl = url;
         return new FakeSocket();
       },
-      fetchImpl: async (url, options = {}) => {
-        capturedFetchUrl = String(url);
-        capturedFetchBody = JSON.parse(options.body);
-        return {
-          ok: true,
-          async json() {
-            return {
-              value: {
-                sessionId: "webdriver-session-1",
-                capabilities: {
-                  browserName: "firefox",
-                  webSocketUrl:
-                    "ws://127.0.0.1:9222/session/webdriver-session-1",
-                },
-              },
-            };
-          },
-        };
-      },
     },
   );
+  manager.send = async (method) => {
+    assert.equal(method, "session.new");
+    return {
+      sessionId: "webdriver-session-1",
+      capabilities: {
+        browserName: "firefox",
+        webSocketUrl: "ws://127.0.0.1:9222/session/webdriver-session-1",
+      },
+    };
+  };
 
   await manager.ensureConnected();
 
-  assert.equal(capturedFetchUrl, "http://127.0.0.1:9222/session");
-  assert.deepEqual(capturedFetchBody, {
-    capabilities: {
-      alwaysMatch: {
-        webSocketUrl: true,
-      },
-    },
-  });
-  assert.equal(
-    capturedWebSocketUrl,
-    "ws://127.0.0.1:9222/session/webdriver-session-1",
-  );
+  assert.equal(capturedWebSocketUrl, "ws://127.0.0.1:9222/session");
   assert.equal(manager.browserSessionId, "webdriver-session-1");
   assert.equal(manager.capabilities.browserName, "firefox");
 });
 
-test("closeAll deletes WebDriver-backed Firefox sessions and closes the websocket", async () => {
+test("closeAll ends the Firefox session and closes the websocket", async () => {
   class FakeSocket extends EventTarget {
     constructor() {
       super();
@@ -235,42 +213,45 @@ test("closeAll deletes WebDriver-backed Firefox sessions and closes the websocke
   }
 
   const websocket = new FakeSocket();
-  const requests = [];
-  const manager = new FirefoxBidiSessionManager(
-    {
-      firefoxBidiWsUrl: "ws://127.0.0.1:9222",
-      eventBufferSize: 10,
-    },
-    {
-      fetchImpl: async (url, options = {}) => {
-        requests.push({
-          url: String(url),
-          method: options.method ?? "GET",
-        });
-        return { ok: true };
-      },
-    },
-  );
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222",
+    eventBufferSize: 10,
+  });
 
   manager.websocket = websocket;
   manager.browserSessionId = "webdriver-session-1";
-  manager.deleteSessionUrl =
-    "http://127.0.0.1:9222/session/webdriver-session-1";
+  const sentMethods = [];
+  manager.send = async (method) => {
+    sentMethods.push(method);
+    return {};
+  };
 
   await manager.closeAll();
 
-  assert.deepEqual(requests, [
-    {
-      url: "http://127.0.0.1:9222/session/webdriver-session-1",
-      method: "DELETE",
-    },
-  ]);
+  assert.deepEqual(sentMethods, ["session.end"]);
   assert.equal(websocket.closeCount, 1);
   assert.equal(manager.websocket, null);
   assert.equal(manager.browserSessionId, null);
 });
 
-test("getBrowserStatus times out if Firefox WebDriver session creation stalls", async () => {
+test("getBrowserStatus times out if the Firefox /session websocket never opens", async () => {
+  class HangingSocket extends EventTarget {
+    constructor() {
+      super();
+      this.readyState = 0;
+      this.closeCount = 0;
+    }
+
+    send() {}
+
+    close() {
+      this.closeCount += 1;
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+
+  const websocket = new HangingSocket();
   const manager = new FirefoxBidiSessionManager(
     {
       firefoxBidiWsUrl: "ws://127.0.0.1:9222",
@@ -278,25 +259,15 @@ test("getBrowserStatus times out if Firefox WebDriver session creation stalls", 
     },
     {
       connectionTimeoutMs: 20,
-      fetchImpl: (_url, options = {}) =>
-        new Promise((_resolve, reject) => {
-          options.signal?.addEventListener(
-            "abort",
-            () => {
-              const error = new Error("aborted");
-              error.name = "AbortError";
-              reject(error);
-            },
-            { once: true },
-          );
-        }),
+      websocketFactory: () => websocket,
     },
   );
 
   const status = await manager.getBrowserStatus();
 
   assert.equal(status.available, false);
-  assert.match(status.error, /Timed out creating Firefox WebDriver session/);
+  assert.match(status.error, /Timed out connecting to Firefox BiDi/);
+  assert.equal(websocket.closeCount, 1);
 });
 
 test("getBrowserStatus times out if the Firefox websocket never opens", async () => {

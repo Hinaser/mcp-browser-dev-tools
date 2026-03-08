@@ -239,10 +239,6 @@ function normalizeRequestedDepth(depth) {
   return Number.isInteger(depth) && depth > 0 ? depth : 2;
 }
 
-function isWebSocketProtocol(protocol) {
-  return protocol === "ws:" || protocol === "wss:";
-}
-
 function isHttpProtocol(protocol) {
   return protocol === "http:" || protocol === "https:";
 }
@@ -251,20 +247,12 @@ function isRootPathname(pathname) {
   return pathname === "" || pathname === "/";
 }
 
-function isAbortError(error) {
-  return (
-    error?.name === "AbortError" ||
-    error?.name === "TimeoutError" ||
-    error?.code === "ABORT_ERR"
-  );
-}
-
-function toHttpEndpointUrl(endpointUrl) {
+function toWebSocketEndpointUrl(endpointUrl) {
   const url = new URL(endpointUrl);
-  if (url.protocol === "ws:") {
-    url.protocol = "http:";
-  } else if (url.protocol === "wss:") {
-    url.protocol = "https:";
+  if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  } else if (url.protocol === "https:") {
+    url.protocol = "wss:";
   }
 
   return url;
@@ -349,7 +337,6 @@ export class FirefoxBidiSessionManager {
     this.sessions = new Map();
     this.websocketFactory =
       options.websocketFactory ?? ((url) => new WebSocket(url));
-    this.fetchImpl = options.fetchImpl ?? fetch;
     this.connectionTimeoutMs = options.connectionTimeoutMs ?? 2_000;
     this.pending = new Map();
     this.nextMessageId = 1;
@@ -358,7 +345,6 @@ export class FirefoxBidiSessionManager {
     this.capabilities = null;
     this.connectPromise = null;
     this.resolvedWebSocketUrl = null;
-    this.deleteSessionUrl = null;
   }
 
   async ensureConnected() {
@@ -384,7 +370,6 @@ export class FirefoxBidiSessionManager {
   async openConnection() {
     const endpoint = await this.resolveConnectionEndpoint();
     this.resolvedWebSocketUrl = endpoint.webSocketUrl;
-    this.deleteSessionUrl = endpoint.deleteSessionUrl ?? null;
     this.websocket = this.websocketFactory(endpoint.webSocketUrl);
 
     await new Promise((resolve, reject) => {
@@ -470,78 +455,32 @@ export class FirefoxBidiSessionManager {
 
   async resolveConnectionEndpoint() {
     const configuredUrl = new URL(this.config.firefoxBidiWsUrl);
-    if (
-      isHttpProtocol(configuredUrl.protocol) ||
-      (isWebSocketProtocol(configuredUrl.protocol) &&
-        isRootPathname(configuredUrl.pathname))
-    ) {
-      return this.createWebDriverSession(configuredUrl);
+
+    if (isHttpProtocol(configuredUrl.protocol)) {
+      return {
+        webSocketUrl: joinUrlPath(
+          toWebSocketEndpointUrl(configuredUrl),
+          "/session",
+        ).toString(),
+        requiresSessionNew: true,
+        sessionId: null,
+        capabilities: null,
+      };
+    }
+
+    if (isRootPathname(configuredUrl.pathname)) {
+      configuredUrl.pathname = "/session";
     }
 
     return {
       webSocketUrl: configuredUrl.toString(),
-      requiresSessionNew: true,
-      sessionId: null,
+      requiresSessionNew: configuredUrl.pathname === "/session",
+      sessionId:
+        configuredUrl.pathname === "/session"
+          ? null
+          : configuredUrl.pathname.split("/").at(-1) ||
+            configuredUrl.toString(),
       capabilities: null,
-      deleteSessionUrl: null,
-    };
-  }
-
-  async createWebDriverSession(endpointUrl) {
-    const sessionUrl = joinUrlPath(toHttpEndpointUrl(endpointUrl), "/session");
-    let response;
-    try {
-      response = await this.fetchImpl(sessionUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          capabilities: {
-            alwaysMatch: {
-              webSocketUrl: true,
-            },
-          },
-        }),
-        signal: AbortSignal.timeout(this.connectionTimeoutMs),
-      });
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw new Error(
-          `Timed out creating Firefox WebDriver session at ${sessionUrl}`,
-          {
-            cause: error,
-          },
-        );
-      }
-
-      throw error;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create Firefox WebDriver session at ${sessionUrl}: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const payload = await response.json();
-    const value = payload?.value ?? payload;
-    const sessionId = value?.sessionId ?? null;
-    const capabilities = value?.capabilities ?? {};
-    const webSocketUrl = capabilities?.webSocketUrl ?? null;
-
-    if (!sessionId || !webSocketUrl) {
-      throw new Error(
-        `Firefox WebDriver session at ${sessionUrl} did not return a webSocketUrl`,
-      );
-    }
-
-    return {
-      webSocketUrl,
-      requiresSessionNew: false,
-      sessionId,
-      capabilities,
-      deleteSessionUrl: joinUrlPath(sessionUrl, sessionId).toString(),
     };
   }
 
@@ -568,14 +507,6 @@ export class FirefoxBidiSessionManager {
 
   async closeBrowserSession() {
     if (!this.browserSessionId) {
-      return;
-    }
-
-    if (this.deleteSessionUrl) {
-      await this.fetchImpl(this.deleteSessionUrl, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(2_000),
-      }).catch(() => {});
       return;
     }
 
@@ -1119,6 +1050,5 @@ export class FirefoxBidiSessionManager {
     this.browserSessionId = null;
     this.capabilities = null;
     this.resolvedWebSocketUrl = null;
-    this.deleteSessionUrl = null;
   }
 }
