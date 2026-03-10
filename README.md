@@ -1,5 +1,9 @@
 # mcp-browser-dev-tools
 
+[![npm version](https://img.shields.io/npm/v/mcp-browser-dev-tools?label=npm)](https://www.npmjs.com/package/mcp-browser-dev-tools)
+[![npm beta](https://img.shields.io/npm/v/mcp-browser-dev-tools/beta?label=beta)](https://www.npmjs.com/package/mcp-browser-dev-tools)
+[![npm downloads](https://img.shields.io/npm/dm/mcp-browser-dev-tools)](https://www.npmjs.com/package/mcp-browser-dev-tools)
+
 `mcp-browser-dev-tools` is a local MCP server that lets AI clients inspect browser state through Chromium DevTools Protocol or Firefox WebDriver BiDi.
 
 It is designed for a local trust boundary:
