@@ -17,6 +17,12 @@ release history retroactively.
 - cross-browser comparison tools for bounded page state and selector checks
 - richer network export formats such as HAR-style summaries
 
+## [0.0.2-beta.1] - 2026-03-11
+
+### Changed
+
+- add npm version, beta, and download badges to the README header
+
 ## [0.0.2-beta.0] - 2026-03-11
 
 ### Added
