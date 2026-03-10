@@ -18,6 +18,20 @@ function createFakeManager() {
     listSessions() {
       return [{ sessionId: "session-1", targetId: "tab-1" }];
     },
+    async createTab(url = "about:blank", options = {}) {
+      return {
+        targetId: "tab-2",
+        url,
+        browserFamily: options.browserFamily ?? "chromium",
+      };
+    },
+    async closeTarget(targetId) {
+      return {
+        targetId,
+        closed: true,
+        detachedSessions: [{ sessionId: "session-1" }],
+      };
+    },
     async attachToTarget(targetId) {
       return { sessionId: "session-2", targetId };
     },
@@ -29,6 +43,14 @@ function createFakeManager() {
         sessionId,
         url: "https://example.com/dashboard",
         viewport: { width: 1280, height: 720 },
+        readyState: "complete",
+      };
+    },
+    async waitFor(sessionId, options) {
+      return {
+        sessionId,
+        matched: true,
+        condition: options,
       };
     },
     async navigate(sessionId, url, options) {
@@ -165,7 +187,10 @@ test("tools/list exposes the broker tools", async () => {
 
   const toolNames = response.result.tools.map((tool) => tool.name);
   assert.ok(toolNames.includes("list_tabs"));
+  assert.ok(toolNames.includes("new_tab"));
+  assert.ok(toolNames.includes("close_tab"));
   assert.ok(toolNames.includes("get_page_state"));
+  assert.ok(toolNames.includes("wait_for"));
   assert.ok(toolNames.includes("navigate"));
   assert.ok(toolNames.includes("click"));
   assert.ok(toolNames.includes("type"));
@@ -224,6 +249,81 @@ test("browser_status includes broker version metadata", async () => {
     PACKAGE_VERSION,
   );
   assert.equal(response.result.structuredContent.available, true);
+});
+
+test("new_tab delegates to the browser adapter", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 37,
+    method: "tools/call",
+    params: {
+      name: "new_tab",
+      arguments: {
+        url: "https://example.com/new",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.targetId, "tab-2");
+  assert.equal(
+    response.result.structuredContent.url,
+    "https://example.com/new",
+  );
+});
+
+test("close_tab delegates to the browser adapter", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 38,
+    method: "tools/call",
+    params: {
+      name: "close_tab",
+      arguments: {
+        targetId: "tab-1",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.closed, true);
+  assert.deepEqual(response.result.structuredContent.detachedSessions, [
+    { sessionId: "session-1" },
+  ]);
+});
+
+test("wait_for delegates to the browser adapter", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 40,
+    method: "tools/call",
+    params: {
+      name: "wait_for",
+      arguments: {
+        sessionId: "session-1",
+        selector: "#app",
+        state: "visible",
+        timeoutMs: 1000,
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.matched, true);
+  assert.equal(response.result.structuredContent.condition.selector, "#app");
+  assert.equal(response.result.structuredContent.condition.state, "visible");
 });
 
 test("inspect_element delegates to the browser adapter", async () => {
@@ -397,6 +497,28 @@ test("select requires either value or label", async () => {
   assert.match(response.error.message, /requires either value or label/);
 });
 
+test("wait_for requires at least one condition", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 52,
+    method: "tools/call",
+    params: {
+      name: "wait_for",
+      arguments: {
+        sessionId: "session-1",
+      },
+    },
+  });
+
+  assert.equal(response.error.code, -32000);
+  assert.match(response.error.message, /requires at least one/);
+});
+
 test("Firefox tool schemas only advertise screenshot formats the adapter supports", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({ MCP_BROWSER_FAMILY: "firefox" }),
@@ -417,4 +539,27 @@ test("Firefox tool schemas only advertise screenshot formats the adapter support
     "png",
     "jpeg",
   ]);
+});
+
+test("auto mode requires browserFamily when creating a new tab", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 39,
+    method: "tools/list",
+  });
+
+  const newTabTool = response.result.tools.find(
+    (tool) => tool.name === "new_tab",
+  );
+
+  assert.deepEqual(newTabTool.inputSchema.properties.browserFamily.enum, [
+    "chromium",
+    "firefox",
+  ]);
+  assert.deepEqual(newTabTool.inputSchema.required, ["browserFamily"]);
 });

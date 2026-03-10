@@ -2,6 +2,7 @@ import {
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { waitForPageCondition } from "./wait-for.mjs";
 import { buildPageContextExpression } from "./page-context.mjs";
 
 function toErrorMessage(error) {
@@ -17,6 +18,19 @@ function normalizeTarget(target) {
     attached: Boolean(target.attached),
     webSocketDebuggerUrl: target.webSocketDebuggerUrl,
   };
+}
+
+function inferTitle(url) {
+  if (!url) {
+    return "New Tab";
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname || url;
+  } catch {
+    return url;
+  }
 }
 
 function cdpBrowserFamily(config) {
@@ -891,6 +905,92 @@ export class CdpSessionManager {
     return parseJson(response);
   }
 
+  async sendBrowserCommand(method, params = {}) {
+    const info = await this.fetchJson("/json/version");
+    if (!info.webSocketDebuggerUrl) {
+      throw new Error("Browser endpoint does not expose a debugger websocket");
+    }
+
+    const websocket = new WebSocket(info.webSocketDebuggerUrl);
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        websocket.removeEventListener("open", handleOpen);
+        websocket.removeEventListener("message", handleMessage);
+        websocket.removeEventListener("error", handleError);
+        websocket.removeEventListener("close", handleClose);
+      };
+
+      const finish = (callback) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        cleanup();
+        callback();
+
+        if (websocket.readyState < WebSocket.CLOSING) {
+          websocket.close();
+        }
+      };
+
+      const handleOpen = () => {
+        try {
+          websocket.send(
+            JSON.stringify({
+              id: 1,
+              method,
+              params,
+            }),
+          );
+        } catch (error) {
+          finish(() => reject(error));
+        }
+      };
+
+      const handleMessage = async (event) => {
+        const raw = await readWebSocketData(event.data);
+        const message = JSON.parse(raw);
+        if (message.id !== 1) {
+          return;
+        }
+
+        if (message.error) {
+          finish(() =>
+            reject(
+              new Error(
+                `${message.error.message} (code ${message.error.code})`,
+              ),
+            ),
+          );
+          return;
+        }
+
+        finish(() => resolve(message.result ?? {}));
+      };
+
+      const handleError = () => {
+        finish(() =>
+          reject(
+            new Error(`Failed to connect to ${info.webSocketDebuggerUrl}`),
+          ),
+        );
+      };
+
+      const handleClose = () => {
+        finish(() => reject(new Error("Browser debugger websocket closed")));
+      };
+
+      websocket.addEventListener("open", handleOpen, { once: true });
+      websocket.addEventListener("message", handleMessage);
+      websocket.addEventListener("error", handleError, { once: true });
+      websocket.addEventListener("close", handleClose, { once: true });
+    });
+  }
+
   async getBrowserStatus() {
     try {
       const info = await this.fetchJson("/json/version");
@@ -923,6 +1023,33 @@ export class CdpSessionManager {
     return Array.from(this.sessions.values(), (session) =>
       session.getSummary(),
     );
+  }
+
+  async createTab(url = "about:blank") {
+    const targetUrl =
+      typeof url === "string" && url.trim() ? url.trim() : "about:blank";
+    const result = await this.sendBrowserCommand("Target.createTarget", {
+      url: targetUrl,
+    });
+    const targetId = result.targetId;
+    if (!targetId) {
+      throw new Error("Browser did not return a target id for the new tab");
+    }
+    const target = (await this.listTargets()).find(
+      (candidate) => candidate.targetId === targetId,
+    );
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      ...(target ?? {
+        targetId,
+        type: "page",
+        title: inferTitle(targetUrl),
+        url: targetUrl,
+        attached: false,
+        webSocketDebuggerUrl: null,
+      }),
+    };
   }
 
   async attachToTarget(targetId) {
@@ -963,6 +1090,30 @@ export class CdpSessionManager {
     };
   }
 
+  async closeTarget(targetId) {
+    const result = await this.sendBrowserCommand("Target.closeTarget", {
+      targetId,
+    });
+    if (result.success === false) {
+      throw new Error(`Failed to close target ${targetId}`);
+    }
+
+    const detachedSessions = Array.from(this.sessions.values())
+      .filter((session) => session.target.targetId === targetId)
+      .map((session) => {
+        session.markClosed?.();
+        this.sessions.delete(session.id);
+        return { sessionId: session.id };
+      });
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      closed: true,
+      targetId,
+      detachedSessions,
+    };
+  }
+
   async evaluate(sessionId, expression, options) {
     return this.getSession(sessionId).evaluate(expression, options);
   }
@@ -973,6 +1124,14 @@ export class CdpSessionManager {
 
   async getPageState(sessionId) {
     return this.getSession(sessionId).getPageState();
+  }
+
+  async waitFor(sessionId, options = {}) {
+    return waitForPageCondition({
+      getPageState: () => this.getPageState(sessionId),
+      inspectElement: (selector) => this.inspectElement(sessionId, selector),
+      options,
+    });
   }
 
   async navigate(sessionId, url, options) {

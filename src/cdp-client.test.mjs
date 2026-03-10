@@ -52,3 +52,101 @@ test("CdpSessionManager attachToTarget propagates config into session summaries"
     CdpSession.prototype.connect = originalConnect;
   }
 });
+
+test("CdpSessionManager createTab returns the created target metadata", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+
+  manager.sendBrowserCommand = async (method, params) => {
+    assert.equal(method, "Target.createTarget");
+    assert.equal(params.url, "https://example.com/docs");
+    return { targetId: "target-2" };
+  };
+  manager.listTargets = async () => [
+    {
+      targetId: "target-2",
+      type: "page",
+      title: "Docs",
+      url: "https://example.com/docs",
+      attached: false,
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-2",
+    },
+  ];
+
+  const target = await manager.createTab("https://example.com/docs");
+
+  assert.equal(target.browserFamily, "chromium");
+  assert.equal(target.targetId, "target-2");
+  assert.equal(target.title, "Docs");
+});
+
+test("CdpSessionManager closeTarget removes attached sessions for the closed tab", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+
+  const affectedSession = {
+    id: "session-1",
+    target: { targetId: "target-1" },
+    markClosedCalled: false,
+    markClosed() {
+      this.markClosedCalled = true;
+    },
+  };
+  manager.sessions.set(affectedSession.id, affectedSession);
+  manager.sessions.set("session-2", {
+    id: "session-2",
+    target: { targetId: "target-2" },
+    markClosed() {},
+  });
+
+  manager.sendBrowserCommand = async (method, params) => {
+    assert.equal(method, "Target.closeTarget");
+    assert.equal(params.targetId, "target-1");
+    return { success: true };
+  };
+
+  const result = await manager.closeTarget("target-1");
+
+  assert.equal(result.closed, true);
+  assert.deepEqual(result.detachedSessions, [{ sessionId: "session-1" }]);
+  assert.equal(affectedSession.markClosedCalled, true);
+  assert.equal(manager.sessions.has("session-1"), false);
+  assert.equal(manager.sessions.has("session-2"), true);
+});
+
+test("CdpSessionManager waitFor resolves when the selector becomes visible", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+
+  let attempt = 0;
+  manager.inspectElement = async (_sessionId, selector) => {
+    attempt += 1;
+    return {
+      browserFamily: "chromium",
+      selector,
+      found: attempt >= 2,
+      node: attempt >= 2 ? { visible: true } : null,
+    };
+  };
+
+  const result = await manager.waitFor("session-1", {
+    selector: "#app",
+    state: "visible",
+    timeoutMs: 50,
+    pollIntervalMs: 1,
+  });
+
+  assert.equal(result.matched, true);
+  assert.equal(result.element.selector, "#app");
+  assert.equal(result.element.found, true);
+  assert.equal(result.attempts, 2);
+});

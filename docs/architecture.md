@@ -43,10 +43,13 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 
 - `browser_status`
 - `list_tabs`
+- `new_tab`
+- `close_tab`
 - `list_sessions`
 - `attach_tab`
 - `detach_tab`
 - `get_page_state`
+- `wait_for`
 - `navigate`
 - `reload`
 - `click`

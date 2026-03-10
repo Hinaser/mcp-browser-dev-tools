@@ -10,16 +10,17 @@ This repository is structured as an npm CLI package with the package name `mcp-b
 
 ## Release Checklist
 
-1. Update `version` in [`package.json`](package.json).
-2. Run `corepack enable` if pnpm is not already available.
-3. Run `pnpm install --frozen-lockfile`.
-4. Run `pnpm test`.
-5. Run `pnpm run pack:check`.
-6. Inspect the tarball contents and confirm only the intended runtime files are included.
-7. Smoke test the packaged CLI locally if you changed commands or packaging behavior.
-8. Publish with `npm publish`.
-9. For prereleases such as `0.0.1-beta.0`, publish with the matching dist-tag such as `npm publish --tag beta`.
-10. For a scoped public package, use `npm publish --access public` and include the prerelease tag when needed.
+1. Update [`CHANGELOG.md`](CHANGELOG.md) for the release.
+2. Update `version` in [`package.json`](package.json).
+3. Run `corepack enable` if pnpm is not already available.
+4. Run `pnpm install --frozen-lockfile`.
+5. Run `pnpm test`.
+6. Run `pnpm run pack:check`.
+7. Inspect the tarball contents and confirm only the intended runtime files are included.
+8. Smoke test the packaged CLI locally if you changed commands or packaging behavior.
+9. Publish with `npm publish`.
+10. For prereleases such as `0.0.1-beta.0`, publish with the matching dist-tag such as `npm publish --tag beta`.
+11. For a scoped public package, use `npm publish --access public` and include the prerelease tag when needed.
 
 ## Notes
 
