@@ -15,9 +15,10 @@ It is designed for a local trust boundary:
 - A stdio MCP server for local desktop and terminal clients
 - Browser discovery and attach/detach for Chrome, Edge, other Chromium-family browsers, and Firefox
 - Tab lifecycle tools to create and close browser tabs through MCP
-- Inspection tools for DOM lookup, richer element details, console messages, network requests, screenshots, tab listing, and buffered events
+- Inspection tools for DOM lookup, richer element details, cookies, storage, console messages, network requests, HAR-like exports, screenshots, tab listing, and buffered events
 - Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
 - Wait conditions for selector visibility, URL changes, and document ready state
+- One-shot debug bundle capture for page state, storage summary, recent console, recent network, and screenshots
 - Optional JavaScript evaluation behind an explicit environment flag
 - Helper commands to check browser connectivity, launch a debug-enabled browser, and relay CDP traffic across a local machine boundary
 
@@ -316,6 +317,14 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
 - `attach_tab`
 - `detach_tab`
 - `get_page_state`
+- `compare_page_state`
+- `compare_selector`
+- `get_cookies`
+- `get_storage`
+- `capture_debug_report`
+- `capture_session_snapshot`
+- `restore_session_snapshot`
+- `get_har`
 - `wait_for`
 - `navigate`
 - `reload`
@@ -351,6 +360,16 @@ Interaction and inspection tools accept these locator forms:
 ### Screenshot Output
 
 `take_screenshot` returns base64 image data plus metadata such as `mimeType`, `byteLength`, and `scope`. Pass `selector` to capture a single element instead of the full page.
+
+### Session Snapshots
+
+- `get_cookies` returns bounded page-visible cookies from the attached page context
+- `get_storage` returns bounded `localStorage` and `sessionStorage` entries and can filter to one storage area
+- `capture_debug_report` bundles page state, cookie/storage summaries, recent console messages, recent network requests, and an optional screenshot
+- `capture_session_snapshot` exports bounded page-visible cookies plus local and session storage for later reuse
+- `restore_session_snapshot` restores a captured snapshot onto the current origin and can optionally clear storage first
+- `get_har` exports buffered network activity in a bounded HAR-like JSON structure
+- `compare_page_state` and `compare_selector` compare bounded state across two attached sessions, which is especially useful in `auto` mode
 
 ## Browser Notes
 

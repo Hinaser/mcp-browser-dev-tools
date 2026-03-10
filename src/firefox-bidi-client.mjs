@@ -1,4 +1,5 @@
 import {
+  exportHarLikeSummary,
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
@@ -1062,6 +1063,84 @@ export class FirefoxBidiSessionManager {
 
   getNetworkRequests(sessionId, limit) {
     return this.getSession(sessionId).getNetworkRequests(limit);
+  }
+
+  async getCookies(sessionId) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "cookie_snapshot",
+    });
+  }
+
+  async getStorage(sessionId) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "storage_snapshot",
+    });
+  }
+
+  async captureDebugReport(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    const consoleLimit =
+      Number.isInteger(options.consoleLimit) && options.consoleLimit > 0
+        ? options.consoleLimit
+        : 20;
+    const networkLimit =
+      Number.isInteger(options.networkLimit) && options.networkLimit > 0
+        ? options.networkLimit
+        : 20;
+    const includeScreenshot = options.includeScreenshot !== false;
+    const screenshotFormat = options.screenshotFormat ?? "png";
+    const snapshot = await this.runPageAction(session, {
+      action: "debug_report",
+    });
+
+    return {
+      browserFamily: "firefox",
+      capturedAt: new Date().toISOString(),
+      page: {
+        ...(await this.getPageState(sessionId)),
+      },
+      cookies: snapshot.cookies,
+      storage: snapshot.storage,
+      console: session.getConsoleMessages(consoleLimit),
+      network: session.getNetworkRequests(networkLimit),
+      screenshot: includeScreenshot
+        ? await this.takeScreenshot(sessionId, screenshotFormat)
+        : null,
+    };
+  }
+
+  getHar(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    return exportHarLikeSummary(session.bufferedEvents, {
+      limit: options.limit ?? 50,
+      page: {
+        title: session.target.title,
+        url: session.target.url,
+      },
+    });
+  }
+
+  async captureSessionSnapshot(sessionId) {
+    return {
+      browserFamily: "firefox",
+      capturedAt: new Date().toISOString(),
+      page: await this.getPageState(sessionId),
+      ...(await this.getCookies(sessionId)),
+      ...(await this.getStorage(sessionId)),
+    };
+  }
+
+  async restoreSessionSnapshot(sessionId, snapshot, options = {}) {
+    const result = await this.runPageAction(this.getSession(sessionId), {
+      action: "restore_snapshot",
+      snapshot,
+      clearStorage: options.clearStorage === true,
+    });
+
+    return {
+      ...result,
+      page: await this.getPageState(sessionId),
+    };
   }
 
   async inspectElement(sessionId, selector) {

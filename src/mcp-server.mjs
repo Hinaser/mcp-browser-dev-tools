@@ -211,6 +211,87 @@ function waitForInputSchema() {
   };
 }
 
+function compareSessionsSchema(properties, required) {
+  return {
+    type: "object",
+    properties: {
+      sessionIdA: {
+        type: "string",
+      },
+      sessionIdB: {
+        type: "string",
+      },
+      ...properties,
+    },
+    required: ["sessionIdA", "sessionIdB", ...required],
+    additionalProperties: false,
+  };
+}
+
+function storageInputSchema() {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+      },
+      area: {
+        type: "string",
+        enum: ["all", "localStorage", "sessionStorage"],
+      },
+    },
+    required: ["sessionId"],
+    additionalProperties: false,
+  };
+}
+
+function captureDebugReportInputSchema(browserFamily) {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+      },
+      consoleLimit: {
+        type: "integer",
+        minimum: 1,
+      },
+      networkLimit: {
+        type: "integer",
+        minimum: 1,
+      },
+      includeScreenshot: {
+        type: "boolean",
+      },
+      screenshotFormat: {
+        type: "string",
+        enum: screenshotFormatsFor(browserFamily),
+      },
+    },
+    required: ["sessionId"],
+    additionalProperties: false,
+  };
+}
+
+function restoreSessionSnapshotInputSchema() {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+      },
+      snapshot: {
+        type: "string",
+      },
+      clearStorage: {
+        type: "boolean",
+      },
+    },
+    required: ["sessionId", "snapshot"],
+    additionalProperties: false,
+  };
+}
+
 function newTabInputSchema(browserFamily) {
   const properties = {
     url: {
@@ -232,6 +313,51 @@ function newTabInputSchema(browserFamily) {
     properties,
     required,
     additionalProperties: false,
+  };
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function compareField(left, right) {
+  return {
+    equal: sameValue(left, right),
+    a: left,
+    b: right,
+  };
+}
+
+function summarizeComparablePageState(page = {}) {
+  return {
+    browserFamily: page.browserFamily ?? null,
+    url: page.url ?? null,
+    title: page.title ?? null,
+    readyState: page.readyState ?? null,
+    visibilityState: page.visibilityState ?? null,
+    viewport: page.viewport ?? null,
+    scroll: page.scroll ?? null,
+  };
+}
+
+function summarizeComparableElement(result = {}) {
+  if (!result.found || !result.node) {
+    return {
+      found: false,
+      selector: result.selector ?? null,
+      error: result.error ?? null,
+    };
+  }
+
+  return {
+    found: true,
+    selector: result.selector ?? null,
+    tagName: result.node.tagName ?? null,
+    accessibleName: result.node.accessibleName ?? null,
+    role: result.node.role ?? null,
+    visible: result.node.visible ?? null,
+    disabled: result.node.disabled ?? null,
+    textContent: result.node.textContent ?? null,
   };
 }
 
@@ -400,6 +526,111 @@ export class McpBrowserDevToolsServer {
         },
       ],
       [
+        "compare_page_state",
+        {
+          definition: {
+            name: "compare_page_state",
+            description:
+              "Compare bounded page state across two attached sessions, useful for cross-browser checks in auto mode.",
+            inputSchema: compareSessionsSchema({}, []),
+          },
+          handler: async (args) => {
+            const [pageA, pageB] = await Promise.all([
+              this.browserAdapter.getPageState(args.sessionIdA),
+              this.browserAdapter.getPageState(args.sessionIdB),
+            ]);
+            const left = summarizeComparablePageState(pageA);
+            const right = summarizeComparablePageState(pageB);
+            const fields = {
+              browserFamily: compareField(
+                left.browserFamily,
+                right.browserFamily,
+              ),
+              url: compareField(left.url, right.url),
+              title: compareField(left.title, right.title),
+              readyState: compareField(left.readyState, right.readyState),
+              visibilityState: compareField(
+                left.visibilityState,
+                right.visibilityState,
+              ),
+              viewport: compareField(left.viewport, right.viewport),
+              scroll: compareField(left.scroll, right.scroll),
+            };
+
+            return {
+              matches: Object.values(fields).every((field) => field.equal),
+              a: left,
+              b: right,
+              fields,
+            };
+          },
+        },
+      ],
+      [
+        "compare_selector",
+        {
+          definition: {
+            name: "compare_selector",
+            description:
+              "Compare a selector across two attached sessions using a bounded element summary.",
+            inputSchema: compareSessionsSchema(
+              {
+                selector: {
+                  type: "string",
+                },
+              },
+              ["selector"],
+            ),
+          },
+          handler: async (args) => {
+            const [elementA, elementB] = await Promise.all([
+              this.browserAdapter.inspectElement(
+                args.sessionIdA,
+                args.selector,
+              ),
+              this.browserAdapter.inspectElement(
+                args.sessionIdB,
+                args.selector,
+              ),
+            ]);
+            const left = summarizeComparableElement(elementA);
+            const right = summarizeComparableElement(elementB);
+            const fields = {
+              found: compareField(left.found, right.found),
+              tagName: compareField(
+                left.tagName ?? null,
+                right.tagName ?? null,
+              ),
+              accessibleName: compareField(
+                left.accessibleName ?? null,
+                right.accessibleName ?? null,
+              ),
+              role: compareField(left.role ?? null, right.role ?? null),
+              visible: compareField(
+                left.visible ?? null,
+                right.visible ?? null,
+              ),
+              disabled: compareField(
+                left.disabled ?? null,
+                right.disabled ?? null,
+              ),
+              textContent: compareField(
+                left.textContent ?? null,
+                right.textContent ?? null,
+              ),
+            };
+
+            return {
+              selector: args.selector,
+              matches: Object.values(fields).every((field) => field.equal),
+              a: left,
+              b: right,
+              fields,
+            };
+          },
+        },
+      ],
+      [
         "wait_for",
         {
           definition: {
@@ -434,6 +665,126 @@ export class McpBrowserDevToolsServer {
               pollIntervalMs: args.pollIntervalMs,
             });
           },
+        },
+      ],
+      [
+        "get_cookies",
+        {
+          definition: {
+            name: "get_cookies",
+            description:
+              "Read bounded page-visible cookies for the attached session.",
+            inputSchema: sessionSchema({}, []),
+          },
+          handler: async (args) =>
+            this.browserAdapter.getCookies(args.sessionId),
+        },
+      ],
+      [
+        "get_storage",
+        {
+          definition: {
+            name: "get_storage",
+            description:
+              "Read bounded localStorage and sessionStorage entries for the attached session.",
+            inputSchema: storageInputSchema(),
+          },
+          handler: async (args) => {
+            const result = await this.browserAdapter.getStorage(args.sessionId);
+            if (!args.area || args.area === "all") {
+              return result;
+            }
+
+            return {
+              browserFamily: result.browserFamily,
+              storage: {
+                [args.area]: result.storage?.[args.area] ?? null,
+              },
+            };
+          },
+        },
+      ],
+      [
+        "capture_debug_report",
+        {
+          definition: {
+            name: "capture_debug_report",
+            description:
+              "Capture a bounded debug bundle with page state, cookies/storage summary, recent console, recent network, and an optional screenshot.",
+            inputSchema: captureDebugReportInputSchema(
+              this.config.browserFamily,
+            ),
+          },
+          handler: async (args) =>
+            this.browserAdapter.captureDebugReport(args.sessionId, {
+              consoleLimit: args.consoleLimit,
+              networkLimit: args.networkLimit,
+              includeScreenshot: args.includeScreenshot,
+              screenshotFormat: args.screenshotFormat,
+            }),
+        },
+      ],
+      [
+        "capture_session_snapshot",
+        {
+          definition: {
+            name: "capture_session_snapshot",
+            description:
+              "Capture a bounded session snapshot with page state, cookies, and web storage for later bounded restore on the same origin.",
+            inputSchema: sessionSchema({}, []),
+          },
+          handler: async (args) =>
+            this.browserAdapter.captureSessionSnapshot(args.sessionId),
+        },
+      ],
+      [
+        "restore_session_snapshot",
+        {
+          definition: {
+            name: "restore_session_snapshot",
+            description:
+              "Restore a bounded session snapshot into the currently attached page context. Restores only page-visible cookies plus localStorage/sessionStorage on the current origin.",
+            inputSchema: restoreSessionSnapshotInputSchema(),
+          },
+          handler: async (args) => {
+            let snapshot;
+            try {
+              snapshot = JSON.parse(args.snapshot);
+            } catch {
+              throw new Error(
+                "restore_session_snapshot snapshot must be valid JSON",
+              );
+            }
+
+            if (!snapshot || typeof snapshot !== "object") {
+              throw new Error(
+                "restore_session_snapshot snapshot must decode to an object",
+              );
+            }
+
+            return this.browserAdapter.restoreSessionSnapshot(
+              args.sessionId,
+              snapshot,
+              {
+                clearStorage: args.clearStorage,
+              },
+            );
+          },
+        },
+      ],
+      [
+        "get_har",
+        {
+          definition: {
+            name: "get_har",
+            description:
+              "Export a bounded HAR-like summary from buffered network activity for an attached session.",
+            inputSchema: sessionWithLimitSchema(),
+          },
+          handler: async (args) =>
+            this.browserAdapter.getHar(args.sessionId, {
+              limit: args.limit ?? 50,
+            }),
         },
       ],
       [

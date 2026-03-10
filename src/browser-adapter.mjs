@@ -214,6 +214,33 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "getPageState");
   }
 
+  getCookies(sessionId) {
+    return this.delegateSession(sessionId, "getCookies");
+  }
+
+  getStorage(sessionId) {
+    return this.delegateSession(sessionId, "getStorage");
+  }
+
+  captureDebugReport(sessionId, options) {
+    return this.delegateSession(sessionId, "captureDebugReport", [options]);
+  }
+
+  getHar(sessionId, options) {
+    return this.delegateSession(sessionId, "getHar", [options]);
+  }
+
+  captureSessionSnapshot(sessionId) {
+    return this.delegateSession(sessionId, "captureSessionSnapshot");
+  }
+
+  restoreSessionSnapshot(sessionId, snapshot, options) {
+    return this.delegateSession(sessionId, "restoreSessionSnapshot", [
+      snapshot,
+      options,
+    ]);
+  }
+
   waitFor(sessionId, options) {
     return this.delegateSession(sessionId, "waitFor", [options]);
   }

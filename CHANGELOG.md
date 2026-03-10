@@ -8,14 +8,17 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `get_cookies` and `get_storage` MCP tools for bounded session-scoped cookie and storage inspection
+- `capture_debug_report` for one-shot page state, storage summary, console, network, and screenshot capture
+- `get_har` for bounded HAR-like exports from buffered session network activity
+- `compare_page_state` and `compare_selector` for bounded cross-session and cross-browser checks
+- `capture_session_snapshot` and `restore_session_snapshot` for bounded same-origin cookie and storage restore workflows
+
 ### Future Plan
 
-- cookies and storage inspection tools
 - auto-discovery of loopback browser debug endpoints
-- one-shot debug bundle capture for screenshot, console, network, and page state
-- session snapshot export and bounded restore workflows
-- cross-browser comparison tools for bounded page state and selector checks
-- richer network export formats such as HAR-style summaries
 
 ## [0.0.2-beta.1] - 2026-03-11
 

@@ -1,4 +1,5 @@
 import {
+  exportHarLikeSummary,
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
@@ -669,6 +670,82 @@ export class CdpSession {
     return summarizeNetworkRequests(this.bufferedEvents, limit);
   }
 
+  async getCookies() {
+    return this.runPageAction({
+      action: "cookie_snapshot",
+    });
+  }
+
+  async getStorage() {
+    return this.runPageAction({
+      action: "storage_snapshot",
+    });
+  }
+
+  async captureDebugReport(options = {}) {
+    const consoleLimit =
+      Number.isInteger(options.consoleLimit) && options.consoleLimit > 0
+        ? options.consoleLimit
+        : 20;
+    const networkLimit =
+      Number.isInteger(options.networkLimit) && options.networkLimit > 0
+        ? options.networkLimit
+        : 20;
+    const includeScreenshot = options.includeScreenshot !== false;
+    const screenshotFormat = options.screenshotFormat ?? "png";
+    const snapshot = await this.runPageAction({
+      action: "debug_report",
+    });
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      capturedAt: new Date().toISOString(),
+      page: {
+        ...(await this.getPageState()),
+      },
+      cookies: snapshot.cookies,
+      storage: snapshot.storage,
+      console: this.getConsoleMessages(consoleLimit),
+      network: this.getNetworkRequests(networkLimit),
+      screenshot: includeScreenshot
+        ? await this.takeScreenshot(screenshotFormat)
+        : null,
+    };
+  }
+
+  getHar(options = {}) {
+    return exportHarLikeSummary(this.bufferedEvents, {
+      limit: options.limit ?? 50,
+      page: {
+        title: this.target.title,
+        url: this.target.url,
+      },
+    });
+  }
+
+  async captureSessionSnapshot() {
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      capturedAt: new Date().toISOString(),
+      page: await this.getPageState(),
+      ...(await this.getCookies()),
+      ...(await this.getStorage()),
+    };
+  }
+
+  async restoreSessionSnapshot(snapshot, options = {}) {
+    const result = await this.runPageAction({
+      action: "restore_snapshot",
+      snapshot,
+      clearStorage: options.clearStorage === true,
+    });
+
+    return {
+      ...result,
+      page: await this.getPageState(),
+    };
+  }
+
   async inspectElement(selector) {
     return this.runPageAction({
       action: "inspect",
@@ -1180,6 +1257,30 @@ export class CdpSessionManager {
 
   getNetworkRequests(sessionId, limit) {
     return this.getSession(sessionId).getNetworkRequests(limit);
+  }
+
+  async getCookies(sessionId) {
+    return this.getSession(sessionId).getCookies();
+  }
+
+  async getStorage(sessionId) {
+    return this.getSession(sessionId).getStorage();
+  }
+
+  async captureDebugReport(sessionId, options = {}) {
+    return this.getSession(sessionId).captureDebugReport(options);
+  }
+
+  getHar(sessionId, options = {}) {
+    return this.getSession(sessionId).getHar(options);
+  }
+
+  async captureSessionSnapshot(sessionId) {
+    return this.getSession(sessionId).captureSessionSnapshot();
+  }
+
+  async restoreSessionSnapshot(sessionId, snapshot, options = {}) {
+    return this.getSession(sessionId).restoreSessionSnapshot(snapshot, options);
   }
 
   async inspectElement(sessionId, selector) {

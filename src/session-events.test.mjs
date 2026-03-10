@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  exportHarLikeSummary,
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
@@ -124,4 +125,49 @@ test("summarizeNetworkRequests keeps performance snapshot metadata", () => {
       errorText: null,
     },
   ]);
+});
+
+test("exportHarLikeSummary converts summarized requests into a HAR-like payload", () => {
+  const har = exportHarLikeSummary(
+    [
+      {
+        kind: "network",
+        phase: "request",
+        completed: false,
+        requestId: "req-1",
+        method: "GET",
+        url: "https://example.com/app.js",
+        resourceType: "Script",
+        timestamp: "2026-03-11T00:00:00.000Z",
+      },
+      {
+        kind: "network",
+        phase: "response",
+        completed: true,
+        failed: false,
+        requestId: "req-1",
+        status: 200,
+        statusText: "OK",
+        mimeType: "text/javascript",
+        encodedBodySize: 128,
+        decodedBodySize: 512,
+        transferSize: 256,
+        timestamp: "2026-03-11T00:00:01.000Z",
+      },
+    ],
+    {
+      limit: 10,
+      page: {
+        title: "Example",
+        url: "https://example.com",
+      },
+    },
+  );
+
+  assert.equal(har.log.version, "1.2");
+  assert.equal(har.log.pages.length, 1);
+  assert.equal(har.log.entries.length, 1);
+  assert.equal(har.log.entries[0].request.url, "https://example.com/app.js");
+  assert.equal(har.log.entries[0].response.status, 200);
+  assert.equal(har.log.entries[0]._requestId, "req-1");
 });

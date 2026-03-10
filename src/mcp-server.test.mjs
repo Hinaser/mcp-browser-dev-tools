@@ -63,6 +63,102 @@ function createFakeManager() {
         ignoreCache: options.ignoreCache ?? false,
       };
     },
+    async getCookies(sessionId) {
+      return {
+        sessionId,
+        cookies: {
+          totalEntries: 1,
+          returnedEntries: 1,
+          truncated: false,
+          entries: [{ name: "sid", value: "abc123" }],
+          source: "document.cookie",
+        },
+      };
+    },
+    async getStorage(sessionId) {
+      return {
+        sessionId,
+        storage: {
+          localStorage: {
+            type: "localStorage",
+            totalEntries: 1,
+            returnedEntries: 1,
+            truncated: false,
+            entries: [{ key: "theme", value: "light" }],
+          },
+          sessionStorage: {
+            type: "sessionStorage",
+            totalEntries: 0,
+            returnedEntries: 0,
+            truncated: false,
+            entries: [],
+          },
+        },
+      };
+    },
+    async captureDebugReport(sessionId, options) {
+      return {
+        sessionId,
+        capturedAt: "2026-03-11T00:00:00.000Z",
+        page: {
+          url: "https://example.com/dashboard",
+          title: "Dashboard",
+        },
+        cookies: {
+          totalEntries: 1,
+          sampleNames: ["sid"],
+        },
+        storage: {
+          localStorage: {
+            totalEntries: 1,
+            sampleKeys: ["theme"],
+          },
+        },
+        console: [{ kind: "console", text: "hello" }],
+        network: [{ requestId: "req-1", url: "https://example.com/api" }],
+        screenshot:
+          options.includeScreenshot === false ? null : { format: "png" },
+      };
+    },
+    async captureSessionSnapshot(sessionId) {
+      return {
+        sessionId,
+        capturedAt: "2026-03-11T00:00:00.000Z",
+        page: {
+          url: "https://example.com/dashboard",
+          title: "Dashboard",
+        },
+        cookies: {
+          entries: [{ name: "sid", value: "abc123" }],
+        },
+        storage: {
+          localStorage: {
+            entries: [{ key: "theme", value: "light" }],
+          },
+          sessionStorage: {
+            entries: [],
+          },
+        },
+      };
+    },
+    async restoreSessionSnapshot(sessionId, snapshot, options) {
+      return {
+        sessionId,
+        restoredAt: "2026-03-11T00:00:00.000Z",
+        snapshot,
+        clearStorage: options.clearStorage ?? false,
+      };
+    },
+    getHar(sessionId, options) {
+      return {
+        sessionId,
+        limit: options.limit,
+        log: {
+          version: "1.2",
+          entries: [],
+        },
+      };
+    },
     async click(sessionId, selector) {
       return { sessionId, selector, clicked: true };
     },
@@ -190,6 +286,14 @@ test("tools/list exposes the broker tools", async () => {
   assert.ok(toolNames.includes("new_tab"));
   assert.ok(toolNames.includes("close_tab"));
   assert.ok(toolNames.includes("get_page_state"));
+  assert.ok(toolNames.includes("compare_page_state"));
+  assert.ok(toolNames.includes("compare_selector"));
+  assert.ok(toolNames.includes("get_cookies"));
+  assert.ok(toolNames.includes("get_storage"));
+  assert.ok(toolNames.includes("capture_debug_report"));
+  assert.ok(toolNames.includes("capture_session_snapshot"));
+  assert.ok(toolNames.includes("restore_session_snapshot"));
+  assert.ok(toolNames.includes("get_har"));
   assert.ok(toolNames.includes("wait_for"));
   assert.ok(toolNames.includes("navigate"));
   assert.ok(toolNames.includes("click"));
@@ -472,6 +576,119 @@ test("tool calls validate arguments against the declared schema", async () => {
 
   assert.equal(response.error.code, -32000);
   assert.match(response.error.message, /arguments\.limit must be an integer/);
+});
+
+test("get_storage filters the requested storage area", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 44,
+    method: "tools/call",
+    params: {
+      name: "get_storage",
+      arguments: {
+        sessionId: "session-1",
+        area: "localStorage",
+      },
+    },
+  });
+
+  assert.deepEqual(response.result.structuredContent.storage, {
+    localStorage: {
+      type: "localStorage",
+      totalEntries: 1,
+      returnedEntries: 1,
+      truncated: false,
+      entries: [{ key: "theme", value: "light" }],
+    },
+  });
+});
+
+test("compare_page_state compares bounded page fields across sessions", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 45,
+    method: "tools/call",
+    params: {
+      name: "compare_page_state",
+      arguments: {
+        sessionIdA: "session-1",
+        sessionIdB: "session-2",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.matches, true);
+  assert.equal(response.result.structuredContent.fields.url.equal, true);
+});
+
+test("compare_selector compares bounded element fields across sessions", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 46,
+    method: "tools/call",
+    params: {
+      name: "compare_selector",
+      arguments: {
+        sessionIdA: "session-1",
+        sessionIdB: "session-2",
+        selector: "#app",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.selector, "#app");
+  assert.equal(response.result.structuredContent.matches, true);
+  assert.equal(response.result.structuredContent.fields.found.equal, true);
+});
+
+test("restore_session_snapshot parses snapshot JSON before delegating", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 47,
+    method: "tools/call",
+    params: {
+      name: "restore_session_snapshot",
+      arguments: {
+        sessionId: "session-1",
+        snapshot: JSON.stringify({
+          page: { url: "https://example.com/dashboard" },
+          storage: {
+            localStorage: {
+              entries: [{ key: "theme", value: "dark" }],
+            },
+          },
+        }),
+        clearStorage: true,
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.clearStorage, true);
+  assert.equal(
+    response.result.structuredContent.snapshot.storage.localStorage.entries[0]
+      .value,
+    "dark",
+  );
 });
 
 test("select requires either value or label", async () => {

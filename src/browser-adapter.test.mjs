@@ -73,6 +73,54 @@ function createFakeAdapter(browserFamily) {
         condition: options,
       };
     },
+    async getCookies(sessionId) {
+      return {
+        sessionId,
+        browserFamily,
+        cookies: { totalEntries: 1, entries: [{ name: "sid" }] },
+      };
+    },
+    async getStorage(sessionId) {
+      return {
+        sessionId,
+        browserFamily,
+        storage: {
+          localStorage: { totalEntries: 1 },
+          sessionStorage: { totalEntries: 0 },
+        },
+      };
+    },
+    async captureDebugReport(sessionId, options) {
+      return {
+        sessionId,
+        browserFamily,
+        options,
+        page: { url: `https://${browserFamily}.example.com` },
+      };
+    },
+    async captureSessionSnapshot(sessionId) {
+      return {
+        sessionId,
+        browserFamily,
+        page: { url: `https://${browserFamily}.example.com` },
+      };
+    },
+    async restoreSessionSnapshot(sessionId, snapshot, options) {
+      return {
+        sessionId,
+        browserFamily,
+        snapshot,
+        options,
+      };
+    },
+    getHar(sessionId, options) {
+      return {
+        sessionId,
+        browserFamily,
+        options,
+        log: { version: "1.2", entries: [] },
+      };
+    },
     async closeAll() {},
   };
 }
@@ -153,6 +201,39 @@ test("MultiBrowserAdapter prefixes target and session identifiers", async () => 
   });
   assert.equal(waitResult.sessionId, "firefox:firefox-session");
   assert.equal(waitResult.condition.selector, "#app");
+
+  const cookies = await adapter.getCookies("chromium:chromium-session");
+  assert.equal(cookies.sessionId, "chromium:chromium-session");
+  assert.equal(cookies.browserFamily, "chromium");
+
+  const storage = await adapter.getStorage("firefox:firefox-session");
+  assert.equal(storage.sessionId, "firefox:firefox-session");
+  assert.equal(storage.browserFamily, "firefox");
+
+  const report = await adapter.captureDebugReport("chromium:chromium-session", {
+    includeScreenshot: false,
+  });
+  assert.equal(report.sessionId, "chromium:chromium-session");
+  assert.equal(report.options.includeScreenshot, false);
+
+  const snapshot = await adapter.captureSessionSnapshot(
+    "chromium:chromium-session",
+  );
+  assert.equal(snapshot.sessionId, "chromium:chromium-session");
+
+  const restored = await adapter.restoreSessionSnapshot(
+    "firefox:firefox-session",
+    { page: { url: "https://example.com" } },
+    { clearStorage: true },
+  );
+  assert.equal(restored.sessionId, "firefox:firefox-session");
+  assert.equal(restored.options.clearStorage, true);
+
+  const har = await adapter.getHar("firefox:firefox-session", {
+    limit: 10,
+  });
+  assert.equal(har.sessionId, "firefox:firefox-session");
+  assert.equal(har.options.limit, 10);
 
   const created = await adapter.createTab("https://example.com/new", {
     browserFamily: "firefox",

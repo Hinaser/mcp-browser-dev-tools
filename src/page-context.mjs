@@ -325,6 +325,122 @@ export function buildPageContextExpression(
       };
     }
 
+    function parseDocumentCookies() {
+      const COOKIE_LIMIT = 100;
+      const NAME_LIMIT = 120;
+      const VALUE_LIMIT = 300;
+      const cookieText =
+        typeof document.cookie === "string" ? document.cookie.trim() : "";
+
+      if (!cookieText) {
+        return {
+          totalEntries: 0,
+          returnedEntries: 0,
+          truncated: false,
+          entries: [],
+          source: "document.cookie",
+        };
+      }
+
+      const rawEntries = cookieText
+        .split(";")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      const entries = rawEntries.slice(0, COOKIE_LIMIT).map((entry) => {
+        const separatorIndex = entry.indexOf("=");
+        const name =
+          separatorIndex === -1 ? entry : entry.slice(0, separatorIndex);
+        const value =
+          separatorIndex === -1 ? "" : entry.slice(separatorIndex + 1);
+        return {
+          name: clipText(name, NAME_LIMIT),
+          value: clipText(value, VALUE_LIMIT),
+        };
+      });
+
+      return {
+        totalEntries: rawEntries.length,
+        returnedEntries: entries.length,
+        truncated: rawEntries.length > COOKIE_LIMIT,
+        entries,
+        source: "document.cookie",
+      };
+    }
+
+    function snapshotStorage(storage, type) {
+      const STORAGE_LIMIT = 100;
+      const KEY_LIMIT = 200;
+      const VALUE_LIMIT = 300;
+
+      try {
+        const totalEntries = storage.length;
+        const entries = [];
+        const limit = Math.min(totalEntries, STORAGE_LIMIT);
+
+        for (let index = 0; index < limit; index += 1) {
+          const key = storage.key(index);
+          if (key === null) {
+            continue;
+          }
+
+          entries.push({
+            key: clipText(key, KEY_LIMIT),
+            value: clipText(storage.getItem(key), VALUE_LIMIT),
+          });
+        }
+
+        return {
+          type,
+          totalEntries,
+          returnedEntries: entries.length,
+          truncated: totalEntries > STORAGE_LIMIT,
+          entries,
+        };
+      } catch (error) {
+        return {
+          type,
+          totalEntries: 0,
+          returnedEntries: 0,
+          truncated: false,
+          entries: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    function summarizeStorage(storage, type) {
+      const SAMPLE_LIMIT = 20;
+      const KEY_LIMIT = 80;
+
+      try {
+        const totalEntries = storage.length;
+        const sampleKeys = [];
+        const limit = Math.min(totalEntries, SAMPLE_LIMIT);
+
+        for (let index = 0; index < limit; index += 1) {
+          const key = storage.key(index);
+          if (key !== null) {
+            sampleKeys.push(clipText(key, KEY_LIMIT));
+          }
+        }
+
+        return {
+          type,
+          totalEntries,
+          sampleKeys,
+          truncated: totalEntries > SAMPLE_LIMIT,
+        };
+      } catch (error) {
+        return {
+          type,
+          totalEntries: 0,
+          sampleKeys: [],
+          truncated: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
     function resolveLocator(rawLocator) {
       const locator = typeof rawLocator === "string" ? rawLocator.trim() : "";
       if (!locator) {
@@ -720,6 +836,107 @@ export function buildPageContextExpression(
           return {
             browserFamily: payload.browserFamily,
             entries,
+          };
+        }
+        case "cookie_snapshot":
+          return {
+            browserFamily: payload.browserFamily,
+            cookies: parseDocumentCookies(),
+          };
+        case "storage_snapshot":
+          return {
+            browserFamily: payload.browserFamily,
+            storage: {
+              localStorage: snapshotStorage(localStorage, "localStorage"),
+              sessionStorage: snapshotStorage(sessionStorage, "sessionStorage"),
+            },
+          };
+        case "debug_report": {
+          const cookies = parseDocumentCookies();
+          return {
+            browserFamily: payload.browserFamily,
+            page: describePage(),
+            cookies: {
+              totalEntries: cookies.totalEntries,
+              returnedEntries: cookies.returnedEntries,
+              truncated: cookies.truncated,
+              sampleNames: cookies.entries.map((entry) => entry.name),
+            },
+            storage: {
+              localStorage: summarizeStorage(localStorage, "localStorage"),
+              sessionStorage: summarizeStorage(sessionStorage, "sessionStorage"),
+            },
+          };
+        }
+        case "restore_snapshot": {
+          const snapshot = payload.snapshot ?? {};
+          const clearStorage = payload.clearStorage === true;
+          const snapshotUrl = snapshot.page?.url ?? null;
+          const snapshotOrigin = snapshotUrl ? new URL(snapshotUrl).origin : null;
+          const currentOrigin = location.origin;
+
+          if (snapshotOrigin && snapshotOrigin !== currentOrigin) {
+            throw new Error(
+              "Snapshot origin " +
+                snapshotOrigin +
+                " does not match current origin " +
+                currentOrigin,
+            );
+          }
+
+          const restoreEntries = (storage, entries) => {
+            const safeEntries = Array.isArray(entries) ? entries.slice(0, 100) : [];
+            if (clearStorage) {
+              storage.clear();
+            }
+
+            for (const entry of safeEntries) {
+              if (!entry || typeof entry.key !== "string") {
+                continue;
+              }
+
+              storage.setItem(entry.key, typeof entry.value === "string" ? entry.value : "");
+            }
+
+            return safeEntries.length;
+          };
+
+          const restoreCookies = (entries) => {
+            const safeEntries = Array.isArray(entries) ? entries.slice(0, 100) : [];
+            for (const entry of safeEntries) {
+              if (!entry || typeof entry.name !== "string") {
+                continue;
+              }
+
+              const encodedName = encodeURIComponent(entry.name);
+              const encodedValue = encodeURIComponent(
+                typeof entry.value === "string" ? entry.value : "",
+              );
+              document.cookie =
+                encodedName + "=" + encodedValue + "; path=/; SameSite=Lax";
+            }
+
+            return safeEntries.length;
+          };
+
+          return {
+            browserFamily: payload.browserFamily,
+            restoredAt: new Date().toISOString(),
+            clearStorage,
+            snapshotOrigin: snapshotOrigin ?? currentOrigin,
+            currentOrigin,
+            restored: {
+              cookies: restoreCookies(snapshot.cookies?.entries),
+              localStorage: restoreEntries(
+                localStorage,
+                snapshot.storage?.localStorage?.entries,
+              ),
+              sessionStorage: restoreEntries(
+                sessionStorage,
+                snapshot.storage?.sessionStorage?.entries,
+              ),
+            },
+            page: describePage(),
           };
         }
         default:
