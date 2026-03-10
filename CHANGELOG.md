@@ -17,7 +17,7 @@ release history retroactively.
 - cross-browser comparison tools for bounded page state and selector checks
 - richer network export formats such as HAR-style summaries
 
-## [0.0.2] - 2026-03-11
+## [0.0.2-beta.0] - 2026-03-11
 
 ### Added
 
