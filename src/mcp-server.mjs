@@ -173,6 +173,44 @@ function waitUntilProperty() {
   };
 }
 
+function waitForInputSchema() {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+      },
+      selector: {
+        type: "string",
+      },
+      state: {
+        type: "string",
+        enum: ["present", "visible", "hidden"],
+      },
+      url: {
+        type: "string",
+      },
+      urlIncludes: {
+        type: "string",
+      },
+      readyState: {
+        type: "string",
+        enum: ["interactive", "complete"],
+      },
+      timeoutMs: {
+        type: "integer",
+        minimum: 1,
+      },
+      pollIntervalMs: {
+        type: "integer",
+        minimum: 1,
+      },
+    },
+    required: ["sessionId"],
+    additionalProperties: false,
+  };
+}
+
 function newTabInputSchema(browserFamily) {
   const properties = {
     url: {
@@ -359,6 +397,43 @@ export class McpBrowserDevToolsServer {
           },
           handler: async (args) =>
             this.browserAdapter.getPageState(args.sessionId),
+        },
+      ],
+      [
+        "wait_for",
+        {
+          definition: {
+            name: "wait_for",
+            description:
+              "Wait for page state such as selector visibility, URL, or ready state on an attached session.",
+            inputSchema: waitForInputSchema(),
+          },
+          handler: async (args) => {
+            if (
+              !args.selector &&
+              !args.url &&
+              !args.urlIncludes &&
+              !args.readyState
+            ) {
+              throw new Error(
+                "wait_for requires at least one of selector, url, urlIncludes, or readyState",
+              );
+            }
+
+            if (!args.selector && args.state !== undefined) {
+              throw new Error("wait_for state requires selector");
+            }
+
+            return this.browserAdapter.waitFor(args.sessionId, {
+              selector: args.selector,
+              state: args.state,
+              url: args.url,
+              urlIncludes: args.urlIncludes,
+              readyState: args.readyState,
+              timeoutMs: args.timeoutMs,
+              pollIntervalMs: args.pollIntervalMs,
+            });
+          },
         },
       ],
       [

@@ -65,6 +65,14 @@ function createFakeAdapter(browserFamily) {
         browserFamily,
       };
     },
+    async waitFor(sessionId, options) {
+      return {
+        sessionId,
+        browserFamily,
+        matched: true,
+        condition: options,
+      };
+    },
     async closeAll() {},
   };
 }
@@ -139,6 +147,12 @@ test("MultiBrowserAdapter prefixes target and session identifiers", async () => 
   const page = await adapter.getPageState("chromium:chromium-session");
   assert.equal(page.sessionId, "chromium:chromium-session");
   assert.equal(page.targetId, "chromium:chromium-tab");
+
+  const waitResult = await adapter.waitFor("firefox:firefox-session", {
+    selector: "#app",
+  });
+  assert.equal(waitResult.sessionId, "firefox:firefox-session");
+  assert.equal(waitResult.condition.selector, "#app");
 
   const created = await adapter.createTab("https://example.com/new", {
     browserFamily: "firefox",

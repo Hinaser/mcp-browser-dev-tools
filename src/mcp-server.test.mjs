@@ -43,6 +43,14 @@ function createFakeManager() {
         sessionId,
         url: "https://example.com/dashboard",
         viewport: { width: 1280, height: 720 },
+        readyState: "complete",
+      };
+    },
+    async waitFor(sessionId, options) {
+      return {
+        sessionId,
+        matched: true,
+        condition: options,
       };
     },
     async navigate(sessionId, url, options) {
@@ -182,6 +190,7 @@ test("tools/list exposes the broker tools", async () => {
   assert.ok(toolNames.includes("new_tab"));
   assert.ok(toolNames.includes("close_tab"));
   assert.ok(toolNames.includes("get_page_state"));
+  assert.ok(toolNames.includes("wait_for"));
   assert.ok(toolNames.includes("navigate"));
   assert.ok(toolNames.includes("click"));
   assert.ok(toolNames.includes("type"));
@@ -289,6 +298,32 @@ test("close_tab delegates to the browser adapter", async () => {
   assert.deepEqual(response.result.structuredContent.detachedSessions, [
     { sessionId: "session-1" },
   ]);
+});
+
+test("wait_for delegates to the browser adapter", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 40,
+    method: "tools/call",
+    params: {
+      name: "wait_for",
+      arguments: {
+        sessionId: "session-1",
+        selector: "#app",
+        state: "visible",
+        timeoutMs: 1000,
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.matched, true);
+  assert.equal(response.result.structuredContent.condition.selector, "#app");
+  assert.equal(response.result.structuredContent.condition.state, "visible");
 });
 
 test("inspect_element delegates to the browser adapter", async () => {
@@ -460,6 +495,28 @@ test("select requires either value or label", async () => {
 
   assert.equal(response.error.code, -32000);
   assert.match(response.error.message, /requires either value or label/);
+});
+
+test("wait_for requires at least one condition", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 52,
+    method: "tools/call",
+    params: {
+      name: "wait_for",
+      arguments: {
+        sessionId: "session-1",
+      },
+    },
+  });
+
+  assert.equal(response.error.code, -32000);
+  assert.match(response.error.message, /requires at least one/);
 });
 
 test("Firefox tool schemas only advertise screenshot formats the adapter supports", async () => {

@@ -119,3 +119,34 @@ test("CdpSessionManager closeTarget removes attached sessions for the closed tab
   assert.equal(manager.sessions.has("session-1"), false);
   assert.equal(manager.sessions.has("session-2"), true);
 });
+
+test("CdpSessionManager waitFor resolves when the selector becomes visible", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+
+  let attempt = 0;
+  manager.inspectElement = async (_sessionId, selector) => {
+    attempt += 1;
+    return {
+      browserFamily: "chromium",
+      selector,
+      found: attempt >= 2,
+      node: attempt >= 2 ? { visible: true } : null,
+    };
+  };
+
+  const result = await manager.waitFor("session-1", {
+    selector: "#app",
+    state: "visible",
+    timeoutMs: 50,
+    pollIntervalMs: 1,
+  });
+
+  assert.equal(result.matched, true);
+  assert.equal(result.element.selector, "#app");
+  assert.equal(result.element.found, true);
+  assert.equal(result.attempts, 2);
+});

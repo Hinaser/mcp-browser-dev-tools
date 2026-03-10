@@ -214,6 +214,10 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "getPageState");
   }
 
+  waitFor(sessionId, options) {
+    return this.delegateSession(sessionId, "waitFor", [options]);
+  }
+
   navigate(sessionId, url, options) {
     return this.delegateSession(sessionId, "navigate", [url, options]);
   }

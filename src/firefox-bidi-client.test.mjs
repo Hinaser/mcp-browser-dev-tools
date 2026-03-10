@@ -180,6 +180,33 @@ test("closeTarget removes attached Firefox sessions for the closed context", asy
   assert.equal(manager.sessions.has("session-1"), false);
 });
 
+test("FirefoxBidiSessionManager waitFor resolves when readyState reaches complete", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+
+  let attempt = 0;
+  manager.getPageState = async () => {
+    attempt += 1;
+    return {
+      browserFamily: "firefox",
+      url: "https://example.com/app",
+      readyState: attempt >= 2 ? "complete" : "interactive",
+    };
+  };
+
+  const result = await manager.waitFor("session-1", {
+    readyState: "complete",
+    timeoutMs: 50,
+    pollIntervalMs: 1,
+  });
+
+  assert.equal(result.matched, true);
+  assert.equal(result.page.readyState, "complete");
+  assert.equal(result.attempts, 2);
+});
+
 test("ensureConnected rejects if the websocket closes before opening", async () => {
   class FakeSocket extends EventTarget {
     constructor() {

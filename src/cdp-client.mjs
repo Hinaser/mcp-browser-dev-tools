@@ -2,6 +2,7 @@ import {
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { waitForPageCondition } from "./wait-for.mjs";
 import { buildPageContextExpression } from "./page-context.mjs";
 
 function toErrorMessage(error) {
@@ -1123,6 +1124,14 @@ export class CdpSessionManager {
 
   async getPageState(sessionId) {
     return this.getSession(sessionId).getPageState();
+  }
+
+  async waitFor(sessionId, options = {}) {
+    return waitForPageCondition({
+      getPageState: () => this.getPageState(sessionId),
+      inspectElement: (selector) => this.inspectElement(sessionId, selector),
+      options,
+    });
   }
 
   async navigate(sessionId, url, options) {

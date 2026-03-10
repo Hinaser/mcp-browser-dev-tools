@@ -1,6 +1,6 @@
 {
   "name": "mcp-browser-dev-tools",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
   "author": "Hinaser <rindo.hinase@gmail.com>",
   "license": "MIT",
@@ -38,6 +38,7 @@
     "src/session-events.mjs",
     "src/server.mjs",
     "src/tcp-relay.mjs",
+    "src/wait-for.mjs",
     "README.md"
   ],
   "bin": {

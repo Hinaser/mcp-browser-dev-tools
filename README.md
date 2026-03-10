@@ -13,6 +13,7 @@ It is designed for a local trust boundary:
 - Tab lifecycle tools to create and close browser tabs through MCP
 - Inspection tools for DOM lookup, richer element details, console messages, network requests, screenshots, tab listing, and buffered events
 - Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
+- Wait conditions for selector visibility, URL changes, and document ready state
 - Optional JavaScript evaluation behind an explicit environment flag
 - Helper commands to check browser connectivity, launch a debug-enabled browser, and relay CDP traffic across a local machine boundary
 
@@ -311,6 +312,7 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
 - `attach_tab`
 - `detach_tab`
 - `get_page_state`
+- `wait_for`
 - `navigate`
 - `reload`
 - `click`
