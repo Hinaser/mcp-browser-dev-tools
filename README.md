@@ -10,6 +10,7 @@ It is designed for a local trust boundary:
 
 - A stdio MCP server for local desktop and terminal clients
 - Browser discovery and attach/detach for Chrome, Edge, other Chromium-family browsers, and Firefox
+- Tab lifecycle tools to create and close browser tabs through MCP
 - Inspection tools for DOM lookup, richer element details, console messages, network requests, screenshots, tab listing, and buffered events
 - Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
 - Optional JavaScript evaluation behind an explicit environment flag
@@ -286,6 +287,8 @@ mbdt relay --wsl
 - `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when pointed at the root Firefox remote debugging port, the broker connects to the `/session` websocket and creates a BiDi session there
 - in `auto` mode, assign CDP and Firefox different ports so both browsers can run at once
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
+- `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
+- `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
 - `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
 - `MCP_BROWSER_ALLOW_REMOTE_CDP=1` is still accepted as a legacy alias
@@ -301,6 +304,8 @@ The `relay` command defaults to `127.0.0.1:9223 -> 127.0.0.1:9222`. Non-loopback
   In `auto` mode it also includes per-browser adapter status under `browsers`
 - `list_tabs`
   In `auto` mode each `targetId` is namespaced as `chromium:<id>` or `firefox:<id>`
+- `new_tab`
+- `close_tab`
 - `list_sessions`
   In `auto` mode each `sessionId` is namespaced the same way
 - `attach_tab`
@@ -355,7 +360,7 @@ Playwright is still the stronger choice for deterministic browser automation and
 `mcp-browser-dev-tools` solves a different problem:
 
 - it is MCP-native, so AI clients call a bounded tool surface instead of generating and executing Playwright scripts
-- it attaches to an already-open browser tab and inspects the current session state, cookies, login state, extensions, console, and network history
+- it can inspect an already-open browser tab or create a fresh one, then inspect the current session state, cookies, login state, extensions, console, and network history
 - it is designed for local AI debugging workflows, including loopback-only defaults, opt-in evaluation, and the Windows-to-WSL relay path
 - it presents one MCP interface across Chromium CDP and Firefox BiDi instead of requiring the AI client to know browser protocol details
 
@@ -366,6 +371,7 @@ Use Playwright when you want reproducible automation. Use this project when you 
 - `attach_tab` now seeds network history from the Performance API so already-loaded pages still show useful requests
 - console buffers include source URL, line and column where the browser reports them, plus stack frames when available
 - `get_page_state` reports the current URL, title, viewport, and scroll position without enabling `evaluate_js`
+- broker diagnostics write to `stderr` so `stdout` stays reserved for MCP protocol traffic
 
 ## Safety Defaults
 

@@ -3,6 +3,8 @@ import os from "node:os";
 import process from "node:process";
 
 import { isLoopbackHost, isTruthyFlag } from "./config.mjs";
+import { createLogger } from "./logger.mjs";
+import { PACKAGE_NAME } from "./package-info.mjs";
 
 export const DEFAULT_RELAY_LISTEN_HOST = "127.0.0.1";
 export const DEFAULT_RELAY_LISTEN_PORT = 9223;
@@ -129,6 +131,10 @@ export async function startTcpRelay({
   targetHost,
   targetPort,
   errorOutput = process.stderr,
+  logger = createLogger({
+    output: errorOutput,
+    name: PACKAGE_NAME,
+  }),
 } = {}) {
   const openSockets = new Set();
 
@@ -154,7 +160,7 @@ export async function startTcpRelay({
     });
 
     upstreamSocket.on("error", (error) => {
-      errorOutput.write(`[relay] target connection failed: ${error.message}\n`);
+      logger.error(`relay target connection failed: ${error.message}`);
       clientSocket.destroy();
     });
 

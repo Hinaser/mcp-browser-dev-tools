@@ -10,8 +10,9 @@ import {
   buildBrowserLaunchArgs,
   findBrowserExecutable,
 } from "./browser-launcher.mjs";
-import { isLoopbackHost, loadConfig } from "./config.mjs";
+import { isLoopbackHost, loadConfig, loadLoggingConfig } from "./config.mjs";
 import { collectDoctorReport, renderDoctorReport } from "./doctor.mjs";
+import { createLogger } from "./logger.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 import { resolveRelayOptions, startTcpRelay } from "./tcp-relay.mjs";
 
@@ -325,11 +326,20 @@ async function runOpen(positional, options) {
 }
 
 async function runRelay(options) {
+  const logging = loadLoggingConfig(process.env);
+  const logger = createLogger({
+    level: logging.logLevel,
+    output: process.stderr,
+    name: PACKAGE_NAME,
+  });
   const relayOptions = resolveRelayOptions(options);
-  const relay = await startTcpRelay(relayOptions);
+  const relay = await startTcpRelay({
+    ...relayOptions,
+    logger,
+  });
 
   const close = async (signal) => {
-    process.stderr.write(`[relay] shutting down after ${signal}\n`);
+    logger.info(`relay shutting down after ${signal}`);
     await relay.close();
   };
 

@@ -620,6 +620,46 @@ export class FirefoxBidiSessionManager {
     );
   }
 
+  async createTab(url = "about:blank") {
+    await this.ensureConnected();
+    const targetUrl =
+      typeof url === "string" && url.trim() ? url.trim() : "about:blank";
+    const result = await this.send("browsingContext.create", {
+      type: "tab",
+    });
+    const targetId = result.context;
+    if (!targetId) {
+      throw new Error(
+        "Firefox did not return a browsing context id for the new tab",
+      );
+    }
+
+    if (targetUrl !== "about:blank") {
+      await this.send("browsingContext.navigate", {
+        context: targetId,
+        url: targetUrl,
+        wait: "complete",
+      });
+    }
+
+    const target = (await this.listTargets()).find(
+      (candidate) => candidate.targetId === targetId,
+    );
+
+    return {
+      browserFamily: "firefox",
+      ...(target ?? {
+        targetId,
+        type: "page",
+        title: inferTitle(targetUrl),
+        url: targetUrl,
+        attached: false,
+        userContext: null,
+        clientWindow: null,
+      }),
+    };
+  }
+
   getSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -671,6 +711,28 @@ export class FirefoxBidiSessionManager {
     return {
       detached: true,
       sessionId,
+    };
+  }
+
+  async closeTarget(targetId) {
+    await this.ensureConnected();
+    await this.send("browsingContext.close", {
+      context: targetId,
+    });
+
+    const detachedSessions = Array.from(this.sessions.values())
+      .filter((session) => session.target.targetId === targetId)
+      .map((session) => {
+        session.closed = true;
+        this.sessions.delete(session.id);
+        return { sessionId: session.id };
+      });
+
+    return {
+      browserFamily: "firefox",
+      closed: true,
+      targetId,
+      detachedSessions,
     };
   }
 

@@ -1,5 +1,6 @@
 import { createBrowserAdapter } from "./browser-adapter.mjs";
 import { loadConfig } from "./config.mjs";
+import { createLogger } from "./logger.mjs";
 import { McpBrowserDevToolsServer } from "./mcp-server.mjs";
 import { PACKAGE_NAME } from "./package-info.mjs";
 
@@ -10,6 +11,11 @@ export function createBrowserDevToolsApp({
   errorOutput = process.stderr,
 } = {}) {
   const config = loadConfig(env);
+  const logger = createLogger({
+    level: config.logLevel,
+    output: errorOutput,
+    name: PACKAGE_NAME,
+  });
   const browserAdapter = createBrowserAdapter(config);
   const server = new McpBrowserDevToolsServer({
     config,
@@ -17,6 +23,7 @@ export function createBrowserDevToolsApp({
     input,
     output,
     errorOutput,
+    logger,
   });
 
   let closing = false;
@@ -27,7 +34,7 @@ export function createBrowserDevToolsApp({
     }
 
     closing = true;
-    errorOutput.write(`[${PACKAGE_NAME}] shutting down after ${signal}\n`);
+    logger.info(`shutting down after ${signal}`);
     await browserAdapter.closeAll();
   }
 
@@ -47,6 +54,7 @@ export function createBrowserDevToolsApp({
 
   return {
     config,
+    logger,
     browserAdapter,
     server,
     start,

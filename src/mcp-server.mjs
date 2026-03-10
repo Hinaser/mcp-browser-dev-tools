@@ -1,9 +1,9 @@
 import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
+import { createLogger } from "./logger.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 
 const SERVER_NAME = PACKAGE_NAME;
 const SERVER_VERSION = PACKAGE_VERSION;
-const DEBUG_STDIO_ENABLED = process.env.MCP_BROWSER_DEBUG_STDIO === "1";
 
 function formatChunkPreview(chunk, limit = 160) {
   const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -173,6 +173,30 @@ function waitUntilProperty() {
   };
 }
 
+function newTabInputSchema(browserFamily) {
+  const properties = {
+    url: {
+      type: "string",
+    },
+  };
+  const required = [];
+
+  if (browserFamily === "auto") {
+    properties.browserFamily = {
+      type: "string",
+      enum: ["chromium", "firefox"],
+    };
+    required.push("browserFamily");
+  }
+
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
 export class McpBrowserDevToolsServer {
   constructor({
     config,
@@ -180,12 +204,18 @@ export class McpBrowserDevToolsServer {
     input = process.stdin,
     output = process.stdout,
     errorOutput = process.stderr,
+    logger = createLogger({
+      level: config.logLevel,
+      output: errorOutput,
+      name: SERVER_NAME,
+    }),
   }) {
     this.config = config;
     this.browserAdapter = browserAdapter;
     this.input = input;
     this.output = output;
     this.errorOutput = errorOutput;
+    this.logger = logger;
     this.messageBuffer = new MessageBuffer();
     this.tools = this.createTools();
   }
@@ -234,6 +264,43 @@ export class McpBrowserDevToolsServer {
           handler: async () => ({
             sessions: this.browserAdapter.listSessions(),
           }),
+        },
+      ],
+      [
+        "new_tab",
+        {
+          definition: {
+            name: "new_tab",
+            description:
+              "Create a new browser tab and return the resulting target metadata.",
+            inputSchema: newTabInputSchema(this.config.browserFamily),
+          },
+          handler: async (args) =>
+            this.browserAdapter.createTab(args.url, {
+              browserFamily: args.browserFamily,
+            }),
+        },
+      ],
+      [
+        "close_tab",
+        {
+          definition: {
+            name: "close_tab",
+            description:
+              "Close a browser tab by target id. Any attached session for that tab will disconnect.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                targetId: {
+                  type: "string",
+                },
+              },
+              required: ["targetId"],
+              additionalProperties: false,
+            },
+          },
+          handler: async (args) =>
+            this.browserAdapter.closeTarget(args.targetId),
         },
       ],
       [
@@ -748,9 +815,11 @@ export class McpBrowserDevToolsServer {
 
     this.input.on("data", (chunk) => {
       sawInput = true;
-      if (DEBUG_STDIO_ENABLED) {
-        this.log(
+      if (this.config.debugStdio) {
+        this.logger.log(
+          "debug",
           `stdin chunk bytes=${chunk.length} preview="${formatChunkPreview(chunk)}"`,
+          { force: true },
         );
       }
 
@@ -758,7 +827,7 @@ export class McpBrowserDevToolsServer {
       try {
         messages = this.messageBuffer.push(chunk);
       } catch (error) {
-        this.log(`failed to parse incoming message: ${error.message}`);
+        this.logger.error(`failed to parse incoming message: ${error.message}`);
         return;
       }
 
@@ -767,13 +836,17 @@ export class McpBrowserDevToolsServer {
       }
     });
 
-    if (DEBUG_STDIO_ENABLED) {
+    if (this.config.debugStdio) {
       this.input.on("end", () => {
-        this.log(`stdin ended after_input=${sawInput}`);
+        this.logger.log("debug", `stdin ended after_input=${sawInput}`, {
+          force: true,
+        });
       });
 
       this.input.on("close", () => {
-        this.log(`stdin closed after_input=${sawInput}`);
+        this.logger.log("debug", `stdin closed after_input=${sawInput}`, {
+          force: true,
+        });
       });
     }
 
@@ -781,13 +854,9 @@ export class McpBrowserDevToolsServer {
       this.input.resume();
     }
 
-    this.log(
+    this.logger.info(
       `listening on stdio for MCP messages; browser=${this.config.browserFamily}`,
     );
-  }
-
-  log(message) {
-    this.errorOutput.write(`[${SERVER_NAME}] ${message}\n`);
   }
 
   async dispatch(message) {

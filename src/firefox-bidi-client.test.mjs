@@ -107,6 +107,79 @@ test("getDocument normalizes depth before embedding it in the Firefox expression
   assert.equal(document.requestedDepth, 2);
 });
 
+test("createTab returns the created Firefox browsing context", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+
+  manager.ensureConnected = async () => {};
+  manager.send = async (method, params) => {
+    if (method === "browsingContext.create") {
+      assert.deepEqual(params, { type: "tab" });
+      return { context: "ctx-2" };
+    }
+
+    if (method === "browsingContext.navigate") {
+      assert.equal(params.context, "ctx-2");
+      assert.equal(params.url, "https://example.com/docs");
+      assert.equal(params.wait, "complete");
+      return { navigation: "nav-1" };
+    }
+
+    throw new Error(`Unexpected method: ${method}`);
+  };
+  manager.listTargets = async () => [
+    {
+      targetId: "ctx-2",
+      type: "page",
+      title: "example.com",
+      url: "https://example.com/docs",
+      attached: false,
+      userContext: null,
+      clientWindow: null,
+    },
+  ];
+
+  const target = await manager.createTab("https://example.com/docs");
+
+  assert.equal(target.browserFamily, "firefox");
+  assert.equal(target.targetId, "ctx-2");
+  assert.equal(target.url, "https://example.com/docs");
+});
+
+test("closeTarget removes attached Firefox sessions for the closed context", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+
+  manager.ensureConnected = async () => {};
+  manager.send = async (method, params) => {
+    assert.equal(method, "browsingContext.close");
+    assert.deepEqual(params, { context: "ctx-1" });
+    return {};
+  };
+
+  manager.sessions.set("session-1", {
+    id: "session-1",
+    target: { targetId: "ctx-1" },
+    closed: false,
+  });
+  manager.sessions.set("session-2", {
+    id: "session-2",
+    target: { targetId: "ctx-2" },
+    closed: false,
+  });
+
+  const result = await manager.closeTarget("ctx-1");
+
+  assert.equal(result.closed, true);
+  assert.deepEqual(result.detachedSessions, [{ sessionId: "session-1" }]);
+  assert.equal(manager.sessions.get("session-2").closed, false);
+  assert.equal(manager.sessions.has("session-1"), false);
+});
+
 test("ensureConnected rejects if the websocket closes before opening", async () => {
   class FakeSocket extends EventTarget {
     constructor() {

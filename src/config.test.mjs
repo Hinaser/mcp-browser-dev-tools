@@ -6,11 +6,14 @@ import {
   DEFAULT_CDP_BASE_URL,
   DEFAULT_EVENT_BUFFER_SIZE,
   DEFAULT_FIREFOX_BIDI_WS_URL,
+  DEFAULT_LOG_LEVEL,
   isLoopbackHost,
   isLoopbackOrigin,
   loadConfig,
+  loadLoggingConfig,
   normalizeWebSocketUrl,
   parseBrowserFamily,
+  parseLogLevel,
   normalizeBaseUrl,
   parsePositiveInteger,
 } from "./config.mjs";
@@ -61,6 +64,14 @@ test("parseBrowserFamily falls back to chromium", () => {
   assert.equal(parseBrowserFamily("webkit"), DEFAULT_BROWSER_FAMILY);
 });
 
+test("parseLogLevel falls back to error", () => {
+  assert.equal(parseLogLevel("error"), "error");
+  assert.equal(parseLogLevel("warn"), "warn");
+  assert.equal(parseLogLevel("info"), "info");
+  assert.equal(parseLogLevel("debug"), "debug");
+  assert.equal(parseLogLevel("trace"), DEFAULT_LOG_LEVEL);
+});
+
 test("loadConfig applies defaults", () => {
   assert.deepEqual(loadConfig({}), {
     browserFamily: "chromium",
@@ -70,8 +81,23 @@ test("loadConfig applies defaults", () => {
     allowRemoteCdp: false,
     enableEvaluate: false,
     eventBufferSize: DEFAULT_EVENT_BUFFER_SIZE,
+    logLevel: DEFAULT_LOG_LEVEL,
+    debugStdio: false,
     protocolVersion: "2024-11-05",
   });
+});
+
+test("loadLoggingConfig reads logger-related environment flags", () => {
+  assert.deepEqual(
+    loadLoggingConfig({
+      MCP_BROWSER_LOG_LEVEL: "debug",
+      MCP_BROWSER_DEBUG_STDIO: "1",
+    }),
+    {
+      logLevel: "debug",
+      debugStdio: true,
+    },
+  );
 });
 
 test("loadConfig rejects non-loopback CDP endpoints by default", () => {

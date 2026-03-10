@@ -14,14 +14,17 @@ export {
   DEFAULT_CDP_BASE_URL,
   DEFAULT_EVENT_BUFFER_SIZE,
   DEFAULT_FIREFOX_BIDI_WS_URL,
+  DEFAULT_LOG_LEVEL,
   DEFAULT_PROTOCOL_VERSION,
   isLoopbackHost,
   isLoopbackOrigin,
   isTruthyFlag,
   loadConfig,
+  loadLoggingConfig,
   normalizeBaseUrl,
   normalizeWebSocketUrl,
   parseBrowserFamily,
+  parseLogLevel,
   parsePositiveInteger,
 } from "./config.mjs";
 export { collectDoctorReport, renderDoctorReport } from "./doctor.mjs";

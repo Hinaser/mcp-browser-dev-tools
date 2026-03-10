@@ -161,6 +161,32 @@ export class MultiBrowserAdapter {
     );
   }
 
+  async createTab(url, options = {}) {
+    const browserFamily = options.browserFamily;
+    if (!browserFamily) {
+      throw new Error(
+        "browserFamily is required when multiple browsers are configured",
+      );
+    }
+
+    const result = await this.getAdapter(browserFamily).createTab(url);
+    return {
+      ...mapPrefixedFields(result, browserFamily),
+      browserFamily,
+    };
+  }
+
+  async closeTarget(targetId) {
+    const { browserFamily, localId } = resolvePrefixedId(targetId, "targetId");
+    return {
+      ...mapPrefixedFields(
+        await this.getAdapter(browserFamily).closeTarget(localId),
+        browserFamily,
+      ),
+      browserFamily,
+    };
+  }
+
   async delegateSession(sessionId, methodName, args = []) {
     const { browserFamily, localId } = resolvePrefixedId(
       sessionId,

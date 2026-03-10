@@ -3,6 +3,7 @@ export const DEFAULT_FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222";
 export const DEFAULT_EVENT_BUFFER_SIZE = 200;
 export const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 export const DEFAULT_BROWSER_FAMILY = "chromium";
+export const DEFAULT_LOG_LEVEL = "error";
 export const CDP_BROWSER_FAMILIES = ["chromium", "edge"];
 
 export function isLoopbackHost(value) {
@@ -59,11 +60,33 @@ export function parseBrowserFamily(value) {
   return DEFAULT_BROWSER_FAMILY;
 }
 
+export function parseLogLevel(value) {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "error" ||
+    normalized === "warn" ||
+    normalized === "info" ||
+    normalized === "debug"
+  ) {
+    return normalized;
+  }
+
+  return DEFAULT_LOG_LEVEL;
+}
+
+export function loadLoggingConfig(env = process.env) {
+  return {
+    logLevel: parseLogLevel(env.MCP_BROWSER_LOG_LEVEL),
+    debugStdio: isTruthyFlag(env.MCP_BROWSER_DEBUG_STDIO),
+  };
+}
+
 export function loadConfig(env = process.env) {
   const browserFamily = parseBrowserFamily(env.MCP_BROWSER_FAMILY);
   const allowRemoteEndpoints = allowsRemoteEndpoints(env);
   const cdpBaseUrl = normalizeBaseUrl(env.CDP_BASE_URL);
   const firefoxBidiWsUrl = normalizeWebSocketUrl(env.FIREFOX_BIDI_WS_URL);
+  const logging = loadLoggingConfig(env);
   const endpointsToValidate =
     browserFamily === "firefox"
       ? [["FIREFOX_BIDI_WS_URL", firefoxBidiWsUrl]]
@@ -95,6 +118,8 @@ export function loadConfig(env = process.env) {
       env.MCP_BROWSER_EVENT_BUFFER_SIZE,
       DEFAULT_EVENT_BUFFER_SIZE,
     ),
+    logLevel: logging.logLevel,
+    debugStdio: logging.debugStdio,
     protocolVersion:
       env.MCP_PROTOCOL_VERSION?.trim() || DEFAULT_PROTOCOL_VERSION,
   };
