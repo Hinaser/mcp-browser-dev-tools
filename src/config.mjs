@@ -114,6 +114,9 @@ export function loadConfig(env = process.env) {
     allowRemoteEndpoints,
     allowRemoteCdp: allowRemoteEndpoints,
     enableEvaluate: isTruthyFlag(env.MCP_BROWSER_ENABLE_EVAL),
+    enableUnsafeLaunchArgs: isTruthyFlag(
+      env.MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS,
+    ),
     eventBufferSize: parsePositiveInteger(
       env.MCP_BROWSER_EVENT_BUFFER_SIZE,
       DEFAULT_EVENT_BUFFER_SIZE,

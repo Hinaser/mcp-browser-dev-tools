@@ -87,6 +87,8 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 
 `evaluate_js` exists behind `MCP_BROWSER_ENABLE_EVAL=1` because it changes the trust model from inspection to execution.
 
+Unsafe browser launch flags exist behind `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`. That gate only exposes an `unsafeArgs` array on browser-launch tools; it does not enable `evaluate_js`, and it still rejects broker-managed flags that would replace the debug port, address, or profile settings.
+
 ## Protocol Mapping
 
 ### Chromium

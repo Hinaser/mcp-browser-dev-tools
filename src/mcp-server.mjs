@@ -320,7 +320,16 @@ function newTabInputSchema(browserFamily) {
   };
 }
 
-function launchBrowserInputSchema(browserFamily) {
+function unsafeArgsProperty() {
+  return {
+    type: "array",
+    items: {
+      type: "string",
+    },
+  };
+}
+
+function launchBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
   const properties = {
     url: {
       type: "string",
@@ -347,6 +356,9 @@ function launchBrowserInputSchema(browserFamily) {
       type: "boolean",
     },
   };
+  if (enableUnsafeLaunchArgs) {
+    properties.unsafeArgs = unsafeArgsProperty();
+  }
   const required = browserFamily === "auto" ? ["browserFamily"] : [];
 
   return {
@@ -357,41 +369,46 @@ function launchBrowserInputSchema(browserFamily) {
   };
 }
 
-function ensureBrowserInputSchema(browserFamily) {
+function ensureBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
+  const properties = {
+    browserFamily: {
+      type: "string",
+      enum: supportedLaunchFamilies(browserFamily),
+    },
+    url: {
+      type: "string",
+    },
+    createTab: {
+      type: "boolean",
+    },
+    launchIfMissing: {
+      type: "boolean",
+    },
+    port: {
+      type: "integer",
+      minimum: 1,
+    },
+    address: {
+      type: "string",
+    },
+    userDataDir: {
+      type: "string",
+    },
+    waitMs: {
+      type: "integer",
+      minimum: 0,
+    },
+    skipDoctor: {
+      type: "boolean",
+    },
+  };
+  if (enableUnsafeLaunchArgs) {
+    properties.unsafeArgs = unsafeArgsProperty();
+  }
+
   return {
     type: "object",
-    properties: {
-      browserFamily: {
-        type: "string",
-        enum: supportedLaunchFamilies(browserFamily),
-      },
-      url: {
-        type: "string",
-      },
-      createTab: {
-        type: "boolean",
-      },
-      launchIfMissing: {
-        type: "boolean",
-      },
-      port: {
-        type: "integer",
-        minimum: 1,
-      },
-      address: {
-        type: "string",
-      },
-      userDataDir: {
-        type: "string",
-      },
-      waitMs: {
-        type: "integer",
-        minimum: 0,
-      },
-      skipDoctor: {
-        type: "boolean",
-      },
-    },
+    properties,
     required: browserFamily === "auto" ? ["browserFamily"] : [],
     additionalProperties: false,
   };
@@ -534,7 +551,10 @@ export class McpBrowserDevToolsServer {
             name: "launch_browser",
             description:
               "Launch a local debug-enabled browser process that matches the current broker configuration and return launch details plus an optional doctor report.",
-            inputSchema: launchBrowserInputSchema(this.config.browserFamily),
+            inputSchema: launchBrowserInputSchema(
+              this.config.browserFamily,
+              this.config.enableUnsafeLaunchArgs,
+            ),
           },
           handler: async (args) =>
             this.launchBrowser({
@@ -544,6 +564,7 @@ export class McpBrowserDevToolsServer {
               port: args.port,
               address: args.address,
               userDataDir: args.userDataDir,
+              unsafeArgs: args.unsafeArgs,
               waitMs: args.waitMs,
               skipDoctor: args.skipDoctor,
             }),
@@ -556,7 +577,10 @@ export class McpBrowserDevToolsServer {
             name: "ensure_browser",
             description:
               "Ensure a compatible browser is reachable through the current broker. If needed, launch one locally and optionally open a tab for the requested URL.",
-            inputSchema: ensureBrowserInputSchema(this.config.browserFamily),
+            inputSchema: ensureBrowserInputSchema(
+              this.config.browserFamily,
+              this.config.enableUnsafeLaunchArgs,
+            ),
           },
           handler: async (args) => {
             const browserFamily = requestedBrowserFamily(
@@ -590,6 +614,7 @@ export class McpBrowserDevToolsServer {
                 port: args.port,
                 address: args.address,
                 userDataDir: args.userDataDir,
+                unsafeArgs: args.unsafeArgs,
                 waitMs: args.waitMs,
                 skipDoctor: args.skipDoctor,
               });

@@ -80,6 +80,7 @@ test("loadConfig applies defaults", () => {
     allowRemoteEndpoints: false,
     allowRemoteCdp: false,
     enableEvaluate: false,
+    enableUnsafeLaunchArgs: false,
     eventBufferSize: DEFAULT_EVENT_BUFFER_SIZE,
     logLevel: DEFAULT_LOG_LEVEL,
     debugStdio: false,
@@ -118,6 +119,14 @@ test("loadConfig allows non-loopback CDP endpoints when explicitly enabled", () 
   assert.equal(config.allowRemoteEndpoints, true);
   assert.equal(config.allowRemoteCdp, true);
   assert.equal(config.enableEvaluate, true);
+});
+
+test("loadConfig reads the unsafe launch args gate", () => {
+  const config = loadConfig({
+    MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
+  });
+
+  assert.equal(config.enableUnsafeLaunchArgs, true);
 });
 
 test("loadConfig rejects non-loopback Firefox BiDi endpoints by default", () => {

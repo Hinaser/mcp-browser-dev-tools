@@ -73,6 +73,16 @@ function normalizeStringValue(value) {
   return trimmed ? trimmed : null;
 }
 
+const MANAGED_UNSAFE_LAUNCH_ARG_PREFIXES = [
+  "--remote-debugging-address",
+  "--remote-debugging-port",
+  "--remote-debugging-pipe",
+  "--user-data-dir",
+  "--profile",
+  "-profile",
+  "-new-instance",
+];
+
 function normalizeIntegerValue(value, optionName, { minimum = 1 } = {}) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -85,6 +95,46 @@ function normalizeIntegerValue(value, optionName, { minimum = 1 } = {}) {
   }
 
   return String(parsed);
+}
+
+function normalizeUnsafeLaunchArgs(unsafeArgs) {
+  if (unsafeArgs === undefined || unsafeArgs === null) {
+    return [];
+  }
+
+  if (!Array.isArray(unsafeArgs)) {
+    throw new Error("unsafeArgs must be an array of strings");
+  }
+
+  return unsafeArgs.map((value, index) => {
+    if (typeof value !== "string") {
+      throw new Error(`unsafeArgs[${index}] must be a string`);
+    }
+
+    const normalized = value.trim();
+    if (!normalized) {
+      throw new Error(`unsafeArgs[${index}] must not be empty`);
+    }
+
+    if (!normalized.startsWith("-")) {
+      throw new Error(
+        `unsafeArgs[${index}] must be a browser flag starting with "-"`,
+      );
+    }
+
+    const lowered = normalized.toLowerCase();
+    if (
+      MANAGED_UNSAFE_LAUNCH_ARG_PREFIXES.some(
+        (prefix) => lowered === prefix || lowered.startsWith(`${prefix}=`),
+      )
+    ) {
+      throw new Error(
+        `unsafeArgs[${index}] conflicts with broker-managed launch options`,
+      );
+    }
+
+    return normalized;
+  });
 }
 
 function resolveDefaultPort(config, family) {
@@ -368,6 +418,7 @@ export async function launchBrowser(
     port,
     address,
     userDataDir,
+    unsafeArgs,
     waitMs = 5_000,
     skipDoctor = false,
     env = process.env,
@@ -389,8 +440,15 @@ export async function launchBrowser(
   const resolvedPort =
     normalizeIntegerValue(port, "port", { minimum: 1 }) ??
     resolveDefaultPort(config, family);
+  const normalizedUnsafeArgs = normalizeUnsafeLaunchArgs(unsafeArgs);
   const requestedAddress =
     family === "firefox" ? null : normalizeStringValue(address);
+
+  if (normalizedUnsafeArgs.length > 0 && !config.enableUnsafeLaunchArgs) {
+    throw new Error(
+      "unsafeArgs requires MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1",
+    );
+  }
 
   if (
     requestedAddress &&
@@ -433,6 +491,7 @@ export async function launchBrowser(
     remoteDebuggingPort: resolvedPort,
     remoteDebuggingAddress: launchAddress ?? undefined,
     userDataDir: normalizedUserDataDir,
+    unsafeArgs: normalizedUnsafeArgs,
   });
 
   const child = spawnProcess(executable, args, {
@@ -454,6 +513,7 @@ export async function launchBrowser(
         ? `ws://127.0.0.1:${resolvedPort}`
         : `http://${endpointAddress}:${resolvedPort}`,
     userDataDir: normalizedUserDataDir ?? null,
+    unsafeArgs: normalizedUnsafeArgs,
     profileStrategy,
     existingBrowserProcess,
     doctorReport: null,

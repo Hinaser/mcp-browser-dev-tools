@@ -1,7 +1,6 @@
 # mcp-browser-dev-tools
 
 [![npm version](https://img.shields.io/npm/v/mcp-browser-dev-tools?label=npm)](https://www.npmjs.com/package/mcp-browser-dev-tools)
-[![npm beta](https://img.shields.io/npm/v/mcp-browser-dev-tools/beta?label=beta)](https://www.npmjs.com/package/mcp-browser-dev-tools)
 [![npm downloads](https://img.shields.io/npm/dm/mcp-browser-dev-tools)](https://www.npmjs.com/package/mcp-browser-dev-tools)
 
 `mcp-browser-dev-tools` is a local MCP server that lets AI clients inspect browser state through Chromium DevTools Protocol or Firefox WebDriver BiDi.
@@ -208,6 +207,14 @@ Enable `evaluate_js`:
 }
 ```
 
+Enable unsafe browser launch args for `launch_browser` and `ensure_browser`:
+
+```json
+{
+  "MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS": "1"
+}
+```
+
 If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-wsl-relay` in the configured args instead of manually wiring `relay`. If you use Windows Firefox from WSL, or `auto` mode with both Windows Firefox and Windows Chrome or Edge, run the broker on Windows instead. Full examples are in [docs/setup.md](docs/setup.md).
 
 ## Advanced Environment Options
@@ -220,6 +227,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
 - `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
+- `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1` exposes the `unsafeArgs` launch option on `launch_browser` and `ensure_browser`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
 - `MCP_BROWSER_ALLOW_REMOTE_CDP=1` is still accepted as a legacy alias
 - `MCP_BROWSER_WINDOWS_NODE` optionally overrides the Windows `node` executable used by `serve --bootstrap-wsl-relay`
@@ -234,10 +242,12 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
   Ensures a compatible browser is reachable, launches one if needed, and can open a tab for the requested URL in a single MCP call
   In `auto` mode, pass `browserFamily`
   For Chrome or Edge launches, `userDataDir` is optional; if omitted, the broker auto-creates a temporary profile when an already-running browser process makes that necessary
+  When `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`, this tool also accepts `unsafeArgs` as an array of browser flags. Broker-managed launch flags such as the debug port and profile path still cannot be overridden.
 - `launch_browser`
   Launches a local debug-enabled browser that matches the current broker configuration and can return an inline doctor report
   In `auto` mode, pass `browserFamily`
   For Chrome or Edge launches, `userDataDir` is optional; if omitted, the broker auto-creates a temporary profile when an already-running browser process makes that necessary
+  When `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`, this tool also accepts `unsafeArgs` as an array of browser flags. Broker-managed launch flags such as the debug port and profile path still cannot be overridden.
 - `list_tabs`
   In `auto` mode each `targetId` is namespaced as `chromium:<id>` or `firefox:<id>`
 - `new_tab`
@@ -274,6 +284,8 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `get_events`
 
 `evaluate_js` is intentionally disabled by default. Enable it only when you want the broker to allow page-side code execution.
+
+Unsafe browser launch flags are also disabled by default. If you enable `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`, pass only full flag strings such as `--remote-allow-origins=http://localhost:9222`. This does not enable `evaluate_js`, and it still does not let callers replace broker-managed launch flags like `--remote-debugging-port` or `--user-data-dir`.
 
 For tools that take `sessionId`, call `attach_tab` first and reuse the returned session.
 

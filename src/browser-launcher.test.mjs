@@ -91,6 +91,22 @@ test("buildBrowserLaunchArgs builds Edge args like Chromium", () => {
   );
 });
 
+test("buildBrowserLaunchArgs appends unsafe flags before the target URL", () => {
+  assert.deepEqual(
+    buildBrowserLaunchArgs({
+      family: "chromium",
+      url: "http://127.0.0.1:3000",
+      remoteDebuggingPort: "9222",
+      unsafeArgs: ["--remote-allow-origins=http://localhost:9222"],
+    }),
+    [
+      "--remote-debugging-port=9222",
+      "--remote-allow-origins=http://localhost:9222",
+      "http://127.0.0.1:3000",
+    ],
+  );
+});
+
 test("buildBrowserLaunchArgs builds Firefox args", () => {
   assert.deepEqual(
     buildBrowserLaunchArgs({

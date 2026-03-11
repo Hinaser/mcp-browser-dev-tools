@@ -174,6 +174,7 @@ export function buildBrowserLaunchArgs({
   remoteDebuggingPort,
   remoteDebuggingAddress,
   userDataDir,
+  unsafeArgs = [],
 }) {
   if (!url) {
     throw new Error("A target URL is required");
@@ -187,6 +188,7 @@ export function buildBrowserLaunchArgs({
     if (remoteDebuggingPort) {
       args.push(`--remote-debugging-port=${remoteDebuggingPort}`);
     }
+    args.push(...unsafeArgs);
     args.push(url);
     return args;
   }
@@ -200,6 +202,7 @@ export function buildBrowserLaunchArgs({
   if (userDataDir) {
     args.push(`--user-data-dir=${userDataDir}`);
   }
+  args.push(...unsafeArgs);
   args.push(url);
   return args;
 }
