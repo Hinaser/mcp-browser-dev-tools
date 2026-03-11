@@ -1,6 +1,6 @@
 {
   "name": "mcp-browser-dev-tools",
-  "version": "0.0.2-beta.1",
+  "version": "0.0.2",
   "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
   "author": "Hinaser <rindo.hinase@gmail.com>",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "src/app.mjs",
     "src/browser-adapter.mjs",
     "src/browser-launcher.mjs",
+    "src/browser-launch-service.mjs",
     "src/cdp-client.mjs",
     "src/cli.mjs",
     "src/config.mjs",
@@ -35,6 +36,7 @@
     "src/mcp-server.mjs",
     "src/page-context.mjs",
     "src/package-info.mjs",
+    "src/serve-bootstrap.mjs",
     "src/session-events.mjs",
     "src/server.mjs",
     "src/tcp-relay.mjs",

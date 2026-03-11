@@ -8,6 +8,11 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-03-11
+
+This stable release rolls up the `0.0.2-beta.0` and `0.0.2-beta.1`
+prerelease changes below and adds the following final changes.
+
 ### Added
 
 - `get_cookies` and `get_storage` MCP tools for bounded session-scoped cookie and storage inspection
@@ -15,10 +20,15 @@ release history retroactively.
 - `get_har` for bounded HAR-like exports from buffered session network activity
 - `compare_page_state` and `compare_selector` for bounded cross-session and cross-browser checks
 - `capture_session_snapshot` and `restore_session_snapshot` for bounded same-origin cookie and storage restore workflows
+- loopback auto-discovery for default CDP and Firefox BiDi endpoints across ports `9222` through `9226`
+- `launch_browser` MCP tool so agents can start a compatible local debug-enabled browser through the broker
+- `ensure_browser` MCP tool so agents can make browser startup and initial tab creation a single workflow step
+- `serve --bootstrap-wsl-relay` so a WSL broker can start the Windows-side CDP relay automatically before adapter startup
 
-### Future Plan
+### Changed
 
-- auto-discovery of loopback browser debug endpoints
+- `MCP_BROWSER_FAMILY` now defaults to `auto` so agents can choose the browser family at runtime instead of starting in Chromium-only mode
+- Chromium-family launches now auto-create a temporary profile when an already-running browser process would otherwise swallow the new debug flags
 
 ## [0.0.2-beta.1] - 2026-03-11
 

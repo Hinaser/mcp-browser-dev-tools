@@ -1,5 +1,9 @@
 import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
 import { createLogger } from "./logger.mjs";
+import {
+  launchBrowser as launchLocalBrowser,
+  supportedLaunchFamilies,
+} from "./browser-launch-service.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 
 const SERVER_NAME = PACKAGE_NAME;
@@ -316,6 +320,111 @@ function newTabInputSchema(browserFamily) {
   };
 }
 
+function launchBrowserInputSchema(browserFamily) {
+  const properties = {
+    url: {
+      type: "string",
+    },
+    browserFamily: {
+      type: "string",
+      enum: supportedLaunchFamilies(browserFamily),
+    },
+    port: {
+      type: "integer",
+      minimum: 1,
+    },
+    address: {
+      type: "string",
+    },
+    userDataDir: {
+      type: "string",
+    },
+    waitMs: {
+      type: "integer",
+      minimum: 0,
+    },
+    skipDoctor: {
+      type: "boolean",
+    },
+  };
+  const required = browserFamily === "auto" ? ["browserFamily"] : [];
+
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
+function ensureBrowserInputSchema(browserFamily) {
+  return {
+    type: "object",
+    properties: {
+      browserFamily: {
+        type: "string",
+        enum: supportedLaunchFamilies(browserFamily),
+      },
+      url: {
+        type: "string",
+      },
+      createTab: {
+        type: "boolean",
+      },
+      launchIfMissing: {
+        type: "boolean",
+      },
+      port: {
+        type: "integer",
+        minimum: 1,
+      },
+      address: {
+        type: "string",
+      },
+      userDataDir: {
+        type: "string",
+      },
+      waitMs: {
+        type: "integer",
+        minimum: 0,
+      },
+      skipDoctor: {
+        type: "boolean",
+      },
+    },
+    required: browserFamily === "auto" ? ["browserFamily"] : [],
+    additionalProperties: false,
+  };
+}
+
+function requestedBrowserFamily(configuredFamily, requestedFamily) {
+  if (requestedFamily) {
+    return requestedFamily;
+  }
+
+  return configuredFamily === "auto" ? null : configuredFamily;
+}
+
+function isRequestedBrowserAvailable(
+  status,
+  configuredFamily,
+  requestedFamily,
+) {
+  if (configuredFamily !== "auto" || !requestedFamily) {
+    return Boolean(status?.available);
+  }
+
+  return Boolean(status?.browsers?.[requestedFamily]?.available);
+}
+
+function shouldCreateBrowserTab(args) {
+  if (args.createTab !== undefined) {
+    return args.createTab;
+  }
+
+  return typeof args.url === "string" && args.url.trim() !== "";
+}
+
 function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -365,6 +474,7 @@ export class McpBrowserDevToolsServer {
   constructor({
     config,
     browserAdapter,
+    launchBrowser = launchLocalBrowser,
     input = process.stdin,
     output = process.stdout,
     errorOutput = process.stderr,
@@ -376,6 +486,7 @@ export class McpBrowserDevToolsServer {
   }) {
     this.config = config;
     this.browserAdapter = browserAdapter;
+    this.launchBrowser = launchBrowser;
     this.input = input;
     this.output = output;
     this.errorOutput = errorOutput;
@@ -414,6 +525,97 @@ export class McpBrowserDevToolsServer {
           handler: async () => ({
             tabs: await this.browserAdapter.listTargets(),
           }),
+        },
+      ],
+      [
+        "launch_browser",
+        {
+          definition: {
+            name: "launch_browser",
+            description:
+              "Launch a local debug-enabled browser process that matches the current broker configuration and return launch details plus an optional doctor report.",
+            inputSchema: launchBrowserInputSchema(this.config.browserFamily),
+          },
+          handler: async (args) =>
+            this.launchBrowser({
+              config: this.config,
+              browserFamily: args.browserFamily,
+              url: args.url,
+              port: args.port,
+              address: args.address,
+              userDataDir: args.userDataDir,
+              waitMs: args.waitMs,
+              skipDoctor: args.skipDoctor,
+            }),
+        },
+      ],
+      [
+        "ensure_browser",
+        {
+          definition: {
+            name: "ensure_browser",
+            description:
+              "Ensure a compatible browser is reachable through the current broker. If needed, launch one locally and optionally open a tab for the requested URL.",
+            inputSchema: ensureBrowserInputSchema(this.config.browserFamily),
+          },
+          handler: async (args) => {
+            const browserFamily = requestedBrowserFamily(
+              this.config.browserFamily,
+              args.browserFamily,
+            );
+            const currentStatus = await this.browserAdapter.getBrowserStatus();
+            const available = isRequestedBrowserAvailable(
+              currentStatus,
+              this.config.browserFamily,
+              browserFamily,
+            );
+            let launch = null;
+            let status = currentStatus;
+
+            if (!available) {
+              if (args.launchIfMissing === false) {
+                return {
+                  browserFamily,
+                  available: false,
+                  launched: false,
+                  status,
+                  tab: null,
+                };
+              }
+
+              launch = await this.launchBrowser({
+                config: this.config,
+                browserFamily,
+                url: args.url,
+                port: args.port,
+                address: args.address,
+                userDataDir: args.userDataDir,
+                waitMs: args.waitMs,
+                skipDoctor: args.skipDoctor,
+              });
+              status = await this.browserAdapter.getBrowserStatus();
+            }
+
+            let tab = null;
+            if (shouldCreateBrowserTab(args)) {
+              tab = await this.browserAdapter.createTab(args.url, {
+                browserFamily,
+              });
+            }
+
+            return {
+              browserFamily,
+              available: isRequestedBrowserAvailable(
+                status,
+                this.config.browserFamily,
+                browserFamily,
+              ),
+              launched: Boolean(launch),
+              launch,
+              status,
+              tab,
+            };
+          },
         },
       ],
       [

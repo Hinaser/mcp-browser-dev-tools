@@ -12,12 +12,16 @@ The package is intentionally local-first. The browser protocol stays on the mach
 
 ### CLI
 
-The CLI provides three user-facing entrypoints:
+The CLI provides four user-facing entrypoints:
 
 - `serve` for the MCP server
+  It can also bootstrap the Windows-side WSL relay before adapter startup when requested
 - `doctor` for environment and endpoint checks
 - `open` for launching a local browser with debugging enabled
+  It shares the same launch path used by the MCP-side browser launch tools
 - `relay` for forwarding TCP traffic across a local machine boundary such as Windows Chrome to WSL
+
+In normal end-user flows, the only CLI surface that should be visible is the configured MCP server command. The other entrypoints mainly exist for manual verification, troubleshooting, and standalone local use.
 
 ### MCP Broker
 
@@ -37,11 +41,18 @@ Both adapters also share a page-context helper that implements locator parsing a
 
 In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity. Edge also uses the CDP-backed `chromium:` namespace in `auto` mode because it shares the same adapter family.
 
+### Launch And Bootstrap Helpers
+
+- `browser-launch-service.mjs` is shared by the `open` CLI path and the `launch_browser` and `ensure_browser` MCP tools
+- `serve-bootstrap.mjs` optionally starts a Windows-side relay before the broker creates adapters in WSL
+
 ## Tool Design
 
 The broker exposes stable, task-oriented MCP tools instead of raw protocol methods:
 
 - `browser_status`
+- `ensure_browser`
+- `launch_browser`
 - `list_tabs`
 - `new_tab`
 - `close_tab`
@@ -49,6 +60,14 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - `attach_tab`
 - `detach_tab`
 - `get_page_state`
+- `compare_page_state`
+- `compare_selector`
+- `get_cookies`
+- `get_storage`
+- `capture_debug_report`
+- `capture_session_snapshot`
+- `restore_session_snapshot`
+- `get_har`
 - `wait_for`
 - `navigate`
 - `reload`
@@ -74,6 +93,7 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 
 - Browser metadata comes from `/json/version`
 - Page targets come from `/json/list`
+- When `CDP_BASE_URL` stays at the default loopback endpoint, the broker probes ports `9222` through `9226` before selecting a browser websocket
 - Each attached tab gets its own debugger websocket
 - The session enables `Page`, `Runtime`, `DOM`, `Log`, and `Network`
 - Navigation and viewport overrides map to `Page.navigate`, `Page.reload`, and `Emulation.setDeviceMetricsOverride`
@@ -82,6 +102,7 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 ### Firefox
 
 - The broker opens one BiDi websocket to the configured endpoint
+- When `FIREFOX_BIDI_WS_URL` stays at the default loopback endpoint, the broker probes ports `9222` through `9226` before opening the BiDi websocket
 - `browsingContext.getTree` provides page targets
 - `session.subscribe` attaches event streams per context
 - `script.evaluate` provides shared locator and action behavior

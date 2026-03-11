@@ -283,6 +283,8 @@ test("tools/list exposes the broker tools", async () => {
 
   const toolNames = response.result.tools.map((tool) => tool.name);
   assert.ok(toolNames.includes("list_tabs"));
+  assert.ok(toolNames.includes("launch_browser"));
+  assert.ok(toolNames.includes("ensure_browser"));
   assert.ok(toolNames.includes("new_tab"));
   assert.ok(toolNames.includes("close_tab"));
   assert.ok(toolNames.includes("get_page_state"));
@@ -355,6 +357,163 @@ test("browser_status includes broker version metadata", async () => {
   assert.equal(response.result.structuredContent.available, true);
 });
 
+test("launch_browser delegates to the launch service", async () => {
+  let capturedArgs = null;
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+    launchBrowser: async (args) => {
+      capturedArgs = args;
+      return {
+        browserFamily: "chromium",
+        url: args.url ?? "about:blank",
+        executable: "/usr/bin/chromium",
+        args: ["--remote-debugging-port=9222", "about:blank"],
+        pid: 1234,
+        endpoint: "http://127.0.0.1:9222",
+        doctorReport: {
+          browserStatus: {
+            available: true,
+          },
+        },
+      };
+    },
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 53,
+    method: "tools/call",
+    params: {
+      name: "launch_browser",
+      arguments: {
+        browserFamily: "chromium",
+        url: "https://example.com/app",
+        waitMs: 2000,
+      },
+    },
+  });
+
+  assert.equal(capturedArgs.url, "https://example.com/app");
+  assert.equal(capturedArgs.browserFamily, "chromium");
+  assert.equal(capturedArgs.waitMs, 2000);
+  assert.equal(response.result.structuredContent.pid, 1234);
+  assert.equal(
+    response.result.structuredContent.endpoint,
+    "http://127.0.0.1:9222",
+  );
+});
+
+test("ensure_browser opens a tab when a compatible browser is already available", async () => {
+  let capturedCreateTab = null;
+  const browserAdapter = createFakeManager();
+  browserAdapter.getBrowserStatus = async () => ({
+    available: true,
+    browserFamily: "auto",
+    browsers: {
+      chromium: { available: true },
+      firefox: { available: false },
+    },
+  });
+  browserAdapter.createTab = async (url, options = {}) => {
+    capturedCreateTab = { url, options };
+    return {
+      targetId: "tab-3",
+      url,
+      browserFamily: options.browserFamily ?? "chromium",
+    };
+  };
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter,
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 55,
+    method: "tools/call",
+    params: {
+      name: "ensure_browser",
+      arguments: {
+        browserFamily: "chromium",
+        url: "https://example.com/dashboard",
+      },
+    },
+  });
+
+  assert.equal(response.result.structuredContent.available, true);
+  assert.equal(response.result.structuredContent.launched, false);
+  assert.equal(response.result.structuredContent.tab.targetId, "tab-3");
+  assert.deepEqual(capturedCreateTab, {
+    url: "https://example.com/dashboard",
+    options: {
+      browserFamily: "chromium",
+    },
+  });
+});
+
+test("ensure_browser launches a browser when none is reachable", async () => {
+  let launchCalls = 0;
+  let statusCalls = 0;
+  const browserAdapter = createFakeManager();
+  browserAdapter.getBrowserStatus = async () => {
+    statusCalls += 1;
+    return {
+      available: statusCalls >= 2,
+      browserFamily: "auto",
+      browsers:
+        statusCalls >= 2
+          ? {
+              chromium: { available: true },
+              firefox: { available: false },
+            }
+          : {
+              chromium: { available: false },
+              firefox: { available: false },
+            },
+    };
+  };
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter,
+    launchBrowser: async (args) => {
+      launchCalls += 1;
+      return {
+        browserFamily: args.browserFamily ?? "chromium",
+        endpoint: "http://127.0.0.1:9222",
+        doctorReport: {
+          browserStatus: {
+            available: true,
+          },
+        },
+      };
+    },
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 56,
+    method: "tools/call",
+    params: {
+      name: "ensure_browser",
+      arguments: {
+        browserFamily: "chromium",
+        launchIfMissing: true,
+        createTab: false,
+      },
+    },
+  });
+
+  assert.equal(launchCalls, 1);
+  assert.equal(response.result.structuredContent.available, true);
+  assert.equal(response.result.structuredContent.launched, true);
+  assert.equal(
+    response.result.structuredContent.launch.endpoint,
+    "http://127.0.0.1:9222",
+  );
+  assert.equal(response.result.structuredContent.tab, null);
+});
+
 test("new_tab delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
@@ -368,6 +527,7 @@ test("new_tab delegates to the browser adapter", async () => {
     params: {
       name: "new_tab",
       arguments: {
+        browserFamily: "chromium",
         url: "https://example.com/new",
       },
     },
@@ -779,4 +939,50 @@ test("auto mode requires browserFamily when creating a new tab", async () => {
     "firefox",
   ]);
   assert.deepEqual(newTabTool.inputSchema.required, ["browserFamily"]);
+});
+
+test("auto mode requires browserFamily when launching a browser", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 54,
+    method: "tools/list",
+  });
+
+  const launchBrowserTool = response.result.tools.find(
+    (tool) => tool.name === "launch_browser",
+  );
+
+  assert.deepEqual(
+    launchBrowserTool.inputSchema.properties.browserFamily.enum,
+    ["chromium", "edge", "firefox"],
+  );
+  assert.deepEqual(launchBrowserTool.inputSchema.required, ["browserFamily"]);
+});
+
+test("auto mode requires browserFamily when ensuring a browser", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 57,
+    method: "tools/list",
+  });
+
+  const ensureBrowserTool = response.result.tools.find(
+    (tool) => tool.name === "ensure_browser",
+  );
+
+  assert.deepEqual(
+    ensureBrowserTool.inputSchema.properties.browserFamily.enum,
+    ["chromium", "edge", "firefox"],
+  );
+  assert.deepEqual(ensureBrowserTool.inputSchema.required, ["browserFamily"]);
 });

@@ -1,6 +1,14 @@
-# Setup Guide
+# Manual Verification And Troubleshooting
 
-This guide is for manually verifying that `mcp-browser-dev-tools` can reach a browser debugging endpoint before you wire it into an MCP client.
+This guide is optional. Most users only need to add `mcp-browser-dev-tools` to their MCP client config and then let the agent drive the browser through `ensure_browser`.
+
+Use this guide when you want to:
+
+- manually verify that the broker can reach a browser debugging endpoint
+- debug browser launch, relay, or WSL wiring issues
+- exercise the standalone CLI commands directly
+
+The agent-first setup lives in [README.md](../README.md).
 
 Use the published package directly:
 
@@ -10,9 +18,16 @@ npx -y mcp-browser-dev-tools --help
 
 If you install the package globally or project-locally, use `mbdt` as the CLI command.
 
+The main manual commands are:
+
+- `open` to launch a local browser with remote debugging enabled
+- `doctor` to verify browser reachability and optional page access
+- `serve` to run the MCP broker directly
+- `relay` to bridge Windows Chrome or Edge back into WSL
+
 ## Windows (PowerShell)
 
-Chrome and Edge often ignore `--remote-debugging-port` when an existing browser process is reused. The safest path is to use a dedicated profile directory. If the browser still reuses an existing session, close the browser normally and retry.
+Chrome and Edge often ignore `--remote-debugging-port` when an existing browser process is reused. The broker now auto-creates a temporary profile for Chromium-family launches when it detects that case, but an explicit dedicated profile directory is still the safest path when you want a stable or reusable profile.
 
 ```powershell
 npx -y mcp-browser-dev-tools open about:blank --family chromium --user-data-dir "$env:TEMP\mcp-browser-dev-tools-profile"
@@ -54,17 +69,17 @@ This is the boundary case that usually needs the most explanation.
 Recommended flow for generic browser access:
 
 1. Launch Chrome or Edge on the Windows side with the normal loopback DevTools endpoint.
-2. Run `relay` on Windows so WSL can reach a boundary port.
+2. Either run `relay` on Windows yourself or let `serve --bootstrap-wsl-relay` do it for you.
 3. Point the WSL MCP server at the relay.
 4. Use mirrored networking only if you prefer changing WSL networking globally.
 
 Recommended flow for Codex in WSL:
 
 1. Launch the browser on Windows.
-2. Run the MCP broker on Windows too.
+2. Either run the MCP broker on Windows, or run it in WSL with `serve --bootstrap-wsl-relay`.
 3. Let Codex talk to that broker over stdio.
 
-For Codex, running the broker on Windows is simpler than relaying browser sockets back into WSL.
+For Codex, a Windows broker is still the simplest choice when Firefox runs on Windows. For Chrome or Edge, `serve --bootstrap-wsl-relay` is the lighter-weight WSL path.
 
 ### Launch Chrome On Windows
 
@@ -106,6 +121,16 @@ for WSL use: CDP_BASE_URL=http://<windows-wsl-host-ip>:9223
 ```
 
 `--wsl` binds the relay to the Windows WSL virtual interface instead of exposing it on every network interface.
+
+### Automatic Relay Bootstrap From WSL
+
+If your broker runs in WSL, the simpler path is to let `serve` start the Windows-side relay automatically:
+
+```bash
+npx -y mcp-browser-dev-tools serve --bootstrap-wsl-relay
+```
+
+That mode is for CDP-backed browsers only. It starts the relay on Windows, rewrites `CDP_BASE_URL` for the broker process, and tears the relay down when the broker exits. Use `--target-port` if the Windows browser listens on a non-default CDP port such as Edge on `9223`, and use `--bridge-port` if you want the WSL-facing relay to listen on a different port. If Windows PowerShell cannot find `node`, set `MCP_BROWSER_WINDOWS_NODE` to the Windows Node executable name or full path first.
 
 ### Verify From WSL Through The Relay
 
@@ -160,7 +185,23 @@ When you run `open` inside WSL, the tool prefers Linux browser executables befor
 
 ### Codex In WSL With A Windows Browser
 
-If Codex runs in WSL but the browser runs on Windows, point Codex at a Windows-side broker instead of running the broker inside WSL.
+If Codex runs in WSL but the browser runs on Windows, choose the broker placement based on browser family:
+
+- For Chrome or Edge on Windows, you can keep the broker in WSL and use `serve --bootstrap-wsl-relay`.
+- For Firefox on Windows, or `auto` mode with both Windows Firefox and Windows Chrome or Edge, run the broker on Windows so it can connect to Windows loopback directly.
+
+Example `~/.codex/config.toml` entry for Chrome or Edge on Windows with a WSL broker and automatic relay bootstrap:
+
+```toml
+[mcp_servers.browser-devtools]
+command = "npx"
+args = ["-y", "mcp-browser-dev-tools", "serve", "--bootstrap-wsl-relay", "--target-port", "9223"]
+
+[mcp_servers.browser-devtools.env]
+MCP_BROWSER_FAMILY = "edge"
+```
+
+That path is for CDP-backed browsers only. If the Windows browser stays on the default CDP port `9222`, omit `--target-port`. Use `--bridge-port` too if you need the WSL-facing relay to listen on a different port.
 
 Example `~/.codex/config.toml` entry for Firefox on Windows:
 
@@ -182,7 +223,7 @@ args = ["-e", "process.env.MCP_BROWSER_FAMILY='auto';process.env.CDP_BASE_URL='h
 
 Replace `<wsl-distro>` and `<repo-wsl-path>` with your own values.
 
-Why this works:
+Why the Windows broker examples work:
 
 - Firefox and Edge keep their loopback debugging sockets on Windows
 - the broker runs on Windows and connects to those sockets directly
@@ -208,7 +249,7 @@ npx -y mcp-browser-dev-tools open https://google.com --family chromium --user-da
 npx -y mcp-browser-dev-tools doctor --url https://google.com
 ```
 
-## After The Smoke Test
+## Manual MCP Client Wiring
 
 Once `doctor` shows `adapter available: true`, point your MCP client at a stdio server command:
 
@@ -227,19 +268,13 @@ The most common client-specific examples are:
 Codex:
 
 ```bash
-codex mcp add browser-devtools \
-  --env MCP_BROWSER_FAMILY=chromium \
-  --env CDP_BASE_URL=http://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools serve
+codex mcp add browser-devtools -- npx -y mcp-browser-dev-tools serve
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add browser-devtools --scope user \
-  --env MCP_BROWSER_FAMILY=chromium \
-  --env CDP_BASE_URL=http://127.0.0.1:9222 \
-  -- npx -y mcp-browser-dev-tools serve
+claude mcp add browser-devtools --scope user -- npx -y mcp-browser-dev-tools serve
 ```
 
 Cursor:
@@ -255,6 +290,6 @@ Cursor:
 }
 ```
 
-For Firefox, switch `MCP_BROWSER_FAMILY` to `firefox` and set `FIREFOX_BIDI_WS_URL`. For Microsoft Edge, switch `MCP_BROWSER_FAMILY` to `edge` and keep using `CDP_BASE_URL`. For `auto` mode, use separate ports for CDP and Firefox. For WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port.
+The default broker mode is `auto`. To pin one browser family, switch `MCP_BROWSER_FAMILY` to `firefox`, `chromium`, or `edge`. For Firefox, also set `FIREFOX_BIDI_WS_URL`. For `auto` mode, use separate ports for CDP and Firefox. For manual WSL relay usage, set `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` and point `CDP_BASE_URL` at the relay port. If you use `serve --bootstrap-wsl-relay`, the broker rewrites `CDP_BASE_URL` and sets the remote-endpoint allowance internally.
 
 `serve` stays attached to stdio, so it should run in its own terminal or be spawned directly by the MCP client. More complete client examples live in [README.md](../README.md).

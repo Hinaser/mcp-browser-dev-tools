@@ -81,7 +81,14 @@ test("runCli prints the package version for top-level --version", async () => {
 
 test("runCli rejects non-loopback remote debugging addresses by default", async () => {
   await assert.rejects(
-    runCli(["open", "https://example.com", "--address", "0.0.0.0"]),
+    runCli([
+      "open",
+      "https://example.com",
+      "--family",
+      "chromium",
+      "--address",
+      "0.0.0.0",
+    ]),
     /MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1/,
   );
 });

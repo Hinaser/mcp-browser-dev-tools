@@ -125,9 +125,9 @@ function createFakeAdapter(browserFamily) {
   };
 }
 
-test("createBrowserAdapter selects the Chromium adapter by default", () => {
+test("createBrowserAdapter selects the multiplex adapter by default", () => {
   const adapter = createBrowserAdapter(loadConfig({}));
-  assert.equal(adapter instanceof CdpSessionManager, true);
+  assert.equal(adapter instanceof MultiBrowserAdapter, true);
 });
 
 test("createBrowserAdapter selects the Firefox BiDi adapter when requested", () => {

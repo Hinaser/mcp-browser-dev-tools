@@ -9,6 +9,7 @@ export function createBrowserDevToolsApp({
   input = process.stdin,
   output = process.stdout,
   errorOutput = process.stderr,
+  extraCloseHandlers = [],
 } = {}) {
   const config = loadConfig(env);
   const logger = createLogger({
@@ -35,7 +36,27 @@ export function createBrowserDevToolsApp({
 
     closing = true;
     logger.info(`shutting down after ${signal}`);
-    await browserAdapter.closeAll();
+    let firstError = null;
+
+    try {
+      await browserAdapter.closeAll();
+    } catch (error) {
+      firstError = error;
+    }
+
+    for (const handler of extraCloseHandlers) {
+      try {
+        await handler(signal);
+      } catch (error) {
+        if (!firstError) {
+          firstError = error;
+        }
+      }
+    }
+
+    if (firstError) {
+      throw firstError;
+    }
   }
 
   function start() {
