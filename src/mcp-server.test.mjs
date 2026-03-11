@@ -404,6 +404,53 @@ test("launch_browser delegates to the launch service", async () => {
   );
 });
 
+test("launch_browser passes unsafeArgs through when enabled", async () => {
+  let capturedArgs = null;
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({
+      MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
+    }),
+    browserAdapter: createFakeManager(),
+    launchBrowser: async (args) => {
+      capturedArgs = args;
+      return {
+        browserFamily: "chromium",
+        url: "about:blank",
+        executable: "/usr/bin/chromium",
+        args: ["--remote-debugging-port=9222", "about:blank"],
+        pid: 1234,
+        endpoint: "http://127.0.0.1:9222",
+        unsafeArgs: args.unsafeArgs ?? [],
+        doctorReport: {
+          browserStatus: {
+            available: true,
+          },
+        },
+      };
+    },
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 153,
+    method: "tools/call",
+    params: {
+      name: "launch_browser",
+      arguments: {
+        browserFamily: "chromium",
+        unsafeArgs: ["--remote-allow-origins=http://localhost:9222"],
+      },
+    },
+  });
+
+  assert.deepEqual(capturedArgs.unsafeArgs, [
+    "--remote-allow-origins=http://localhost:9222",
+  ]);
+  assert.deepEqual(response.result.structuredContent.unsafeArgs, [
+    "--remote-allow-origins=http://localhost:9222",
+  ]);
+});
+
 test("ensure_browser opens a tab when a compatible browser is already available", async () => {
   let capturedCreateTab = null;
   const browserAdapter = createFakeManager();
@@ -962,6 +1009,10 @@ test("auto mode requires browserFamily when launching a browser", async () => {
     ["chromium", "edge", "firefox"],
   );
   assert.deepEqual(launchBrowserTool.inputSchema.required, ["browserFamily"]);
+  assert.equal(
+    Object.hasOwn(launchBrowserTool.inputSchema.properties, "unsafeArgs"),
+    false,
+  );
 });
 
 test("auto mode requires browserFamily when ensuring a browser", async () => {
@@ -985,4 +1036,43 @@ test("auto mode requires browserFamily when ensuring a browser", async () => {
     ["chromium", "edge", "firefox"],
   );
   assert.deepEqual(ensureBrowserTool.inputSchema.required, ["browserFamily"]);
+  assert.equal(
+    Object.hasOwn(ensureBrowserTool.inputSchema.properties, "unsafeArgs"),
+    false,
+  );
+});
+
+test("unsafe launch args are only exposed when explicitly enabled", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({
+      MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
+    }),
+    browserAdapter: createFakeManager(),
+  });
+
+  const response = await server.handleRequest({
+    jsonrpc: "2.0",
+    id: 58,
+    method: "tools/list",
+  });
+
+  const launchBrowserTool = response.result.tools.find(
+    (tool) => tool.name === "launch_browser",
+  );
+  const ensureBrowserTool = response.result.tools.find(
+    (tool) => tool.name === "ensure_browser",
+  );
+
+  assert.deepEqual(launchBrowserTool.inputSchema.properties.unsafeArgs, {
+    type: "array",
+    items: {
+      type: "string",
+    },
+  });
+  assert.deepEqual(ensureBrowserTool.inputSchema.properties.unsafeArgs, {
+    type: "array",
+    items: {
+      type: "string",
+    },
+  });
 });

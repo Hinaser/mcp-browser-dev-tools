@@ -118,6 +118,82 @@ test("launchBrowser skips doctor checks when requested", async () => {
   assert.equal(doctorCalled, false);
 });
 
+test("launchBrowser rejects unsafeArgs unless explicitly enabled", async () => {
+  await assert.rejects(
+    launchBrowser(
+      {
+        config: loadConfig({}),
+        browserFamily: "chromium",
+        unsafeArgs: ["--remote-allow-origins=http://localhost:9222"],
+      },
+      {
+        execFileFn: async () => ({ stdout: "" }),
+        findBrowserExecutableFn: async () => "/usr/bin/chromium",
+      },
+    ),
+    /MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1/,
+  );
+});
+
+test("launchBrowser passes unsafeArgs through when explicitly enabled", async () => {
+  let spawnOptions = null;
+
+  const result = await launchBrowser(
+    {
+      config: loadConfig({
+        MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
+      }),
+      browserFamily: "chromium",
+      unsafeArgs: ["--remote-allow-origins=http://localhost:9222"],
+      waitMs: 0,
+    },
+    {
+      execFileFn: async () => ({ stdout: "" }),
+      findBrowserExecutableFn: async () => "/usr/bin/chromium",
+      spawnProcess: (command, args, options) => {
+        spawnOptions = { command, args, options };
+        return {
+          pid: 88,
+          unref() {},
+        };
+      },
+      collectDoctorReportFn: async () => ({
+        browserStatus: {
+          available: true,
+        },
+      }),
+    },
+  );
+
+  assert.deepEqual(spawnOptions.args, [
+    "--remote-debugging-port=9222",
+    "--remote-allow-origins=http://localhost:9222",
+    "about:blank",
+  ]);
+  assert.deepEqual(result.unsafeArgs, [
+    "--remote-allow-origins=http://localhost:9222",
+  ]);
+});
+
+test("launchBrowser rejects unsafeArgs that conflict with broker-managed flags", async () => {
+  await assert.rejects(
+    launchBrowser(
+      {
+        config: loadConfig({
+          MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
+        }),
+        browserFamily: "chromium",
+        unsafeArgs: ["--remote-debugging-port=9333"],
+      },
+      {
+        execFileFn: async () => ({ stdout: "" }),
+        findBrowserExecutableFn: async () => "/usr/bin/chromium",
+      },
+    ),
+    /conflicts with broker-managed launch options/,
+  );
+});
+
 test("launchBrowser auto-creates a temporary Chromium profile when the browser is already running", async () => {
   let spawnOptions = null;
 

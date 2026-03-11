@@ -8,6 +8,16 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-03-12
+
+### Added
+
+- `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1` to expose an `unsafeArgs` array on `launch_browser` and `ensure_browser` for opt-in browser flag passthrough without allowing broker-managed launch flags to be overridden
+
+### Changed
+
+- remove the npm beta badge from the README header now that the stable release line is current
+
 ## [0.0.2] - 2026-03-11
 
 This stable release rolls up the `0.0.2-beta.0` and `0.0.2-beta.1`
