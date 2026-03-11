@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
-import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { createBrowserDevToolsApp } from "./app.mjs";
-import {
-  buildBrowserLaunchArgs,
-  findBrowserExecutable,
-} from "./browser-launcher.mjs";
-import { isLoopbackHost, loadConfig, loadLoggingConfig } from "./config.mjs";
+import { loadConfig, loadLoggingConfig } from "./config.mjs";
 import { collectDoctorReport, renderDoctorReport } from "./doctor.mjs";
 import { createLogger } from "./logger.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
+import { bootstrapWslRelay } from "./serve-bootstrap.mjs";
 import { resolveRelayOptions, startTcpRelay } from "./tcp-relay.mjs";
+import { launchBrowser } from "./browser-launch-service.mjs";
+
+export {
+  parseFirefoxBidiServerInfo,
+  resolveFirefoxDoctorEndpoint,
+} from "./browser-launch-service.mjs";
 
 export function parseCliArgs(argv) {
   const args = [...argv];
@@ -67,6 +67,11 @@ function printUsage() {
       "  --help               Print usage information",
       "  --version            Print the package version",
       "",
+      "Serve options:",
+      "  --bootstrap-wsl-relay  in WSL, start a Windows-side CDP relay and point the broker at it",
+      "  --bridge-port <port>   relay port exposed back to WSL (defaults to the CDP target port)",
+      "  --target-port <port>   Windows browser CDP target port for the relay",
+      "",
       "Open options:",
       "  --family <name>      chromium, edge, or firefox",
       "  --port <port>        remote debugging port",
@@ -90,109 +95,37 @@ function printVersion() {
   process.stdout.write(`${PACKAGE_VERSION}\n`);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-const FIREFOX_BIDI_SERVER_FILENAME = "WebDriverBiDiServer.json";
-
-function isHttpLikeUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function normalizeFirefoxDoctorHost(value) {
-  const host = typeof value === "string" ? value.trim() : "";
-  if (!host || host === "0.0.0.0" || host === "::" || host === "[::]") {
-    return "127.0.0.1";
-  }
-
-  return host;
-}
-
-function normalizeFirefoxDoctorPath(value) {
-  if (typeof value !== "string") {
-    return "/";
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "/";
-  }
-
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
-export function parseFirefoxBidiServerInfo(contents) {
-  const parsed = JSON.parse(contents);
-  if (!parsed || typeof parsed !== "object") {
-    return null;
-  }
-
-  const directUrl =
-    parsed.webSocketUrl ??
-    parsed.websocketUrl ??
-    parsed.wsUrl ??
-    parsed.ws_url ??
-    null;
-  if (typeof directUrl === "string" && directUrl.trim()) {
-    return directUrl.trim().replace(/\/+$/, "");
-  }
-
-  const port =
-    parsed.ws_port ?? parsed.port ?? parsed.remoteDebuggingPort ?? null;
-  if (!Number.isInteger(port) && !/^\d+$/.test(String(port ?? "").trim())) {
-    return null;
-  }
-
-  const host = normalizeFirefoxDoctorHost(
-    parsed.ws_host ?? parsed.host ?? parsed.hostname ?? "127.0.0.1",
-  );
-  const protocol =
-    parsed.protocol === "https" || parsed.protocol === "wss" ? "wss:" : "ws:";
-  const endpoint = new URL(`${protocol}//${host}`);
-  endpoint.port = String(port);
-  endpoint.pathname = normalizeFirefoxDoctorPath(
-    parsed.path ?? parsed.ws_path ?? "/",
-  );
-  return endpoint.toString().replace(/\/+$/, "");
-}
-
-export async function resolveFirefoxDoctorEndpoint({
-  userDataDir,
-  fallbackPort,
-}) {
-  if (!userDataDir) {
-    return `ws://127.0.0.1:${fallbackPort}`;
-  }
+async function runServe(options = {}) {
+  let relayBootstrap = null;
 
   try {
-    const serverInfo = await readFile(
-      path.join(userDataDir, FIREFOX_BIDI_SERVER_FILENAME),
-      "utf8",
-    );
-    return (
-      parseFirefoxBidiServerInfo(serverInfo) ?? `ws://127.0.0.1:${fallbackPort}`
-    );
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return `ws://127.0.0.1:${fallbackPort}`;
+    let env = process.env;
+    if (options["bootstrap-wsl-relay"] === true) {
+      const config = loadConfig(env);
+      relayBootstrap = await bootstrapWslRelay({
+        config,
+        relayListenPort: options["bridge-port"],
+        relayTargetPort: options["target-port"],
+        env,
+      });
+      env = relayBootstrap.env;
+      process.stderr.write(
+        `bootstrapped WSL relay: ${relayBootstrap.bridge.cdpBaseUrl} -> 127.0.0.1:${relayBootstrap.bridge.targetPort}\n`,
+      );
     }
 
-    return `ws://127.0.0.1:${fallbackPort}`;
+    const app = createBrowserDevToolsApp({
+      env,
+      extraCloseHandlers: relayBootstrap
+        ? [() => relayBootstrap.close()]
+        : undefined,
+    });
+    app.installSignalHandlers();
+    app.start();
+  } catch (error) {
+    await relayBootstrap?.close().catch(() => {});
+    throw error;
   }
-}
-
-async function runServe() {
-  const app = createBrowserDevToolsApp();
-  app.installSignalHandlers();
-  app.start();
 }
 
 async function runDoctor(options) {
@@ -215,112 +148,34 @@ async function runOpen(positional, options) {
   }
 
   const config = loadConfig();
-  const family =
-    typeof options.family === "string" ? options.family : config.browserFamily;
-  const requestedAddress =
-    (family === "chromium" || family === "edge") &&
-    typeof options.address === "string"
-      ? options.address.trim()
-      : null;
+  const launch = await launchBrowser({
+    config,
+    browserFamily: typeof options.family === "string" ? options.family : null,
+    url,
+    port: options.port,
+    address: options.address,
+    userDataDir: options["user-data-dir"],
+    waitMs: options["wait-ms"],
+    skipDoctor: options["no-doctor"] === true,
+  });
 
-  if (
-    requestedAddress &&
-    !isLoopbackHost(requestedAddress) &&
-    !config.allowRemoteEndpoints
-  ) {
-    throw new Error(
-      "--address must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1",
+  process.stdout.write(
+    `launched ${launch.browserFamily} browser: ${launch.executable} ${launch.args.join(" ")}\n`,
+  );
+
+  if (launch.profileStrategy === "temporary" && launch.userDataDir) {
+    process.stdout.write(
+      `using temporary browser profile: ${launch.userDataDir}\n`,
     );
   }
 
-  const executable = await findBrowserExecutable(family);
-  if (!executable) {
-    throw new Error(`No local ${family} browser executable found`);
-  }
-
-  const defaultPort =
-    family === "firefox"
-      ? new URL(config.firefoxBidiWsUrl).port || "9222"
-      : new URL(config.cdpBaseUrl).port || "9222";
-  const resolvedPort =
-    typeof options.port === "string" ? options.port : defaultPort;
-  const userDataDir =
-    typeof options["user-data-dir"] === "string"
-      ? options["user-data-dir"]
-      : undefined;
-
-  if (family === "firefox" && userDataDir) {
-    await mkdir(userDataDir, { recursive: true });
-  }
-
-  const args = buildBrowserLaunchArgs({
-    family,
-    url,
-    remoteDebuggingPort: resolvedPort,
-    remoteDebuggingAddress: requestedAddress || undefined,
-    userDataDir,
-  });
-
-  const child = spawn(executable, args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-
-  process.stdout.write(
-    `launched ${family} browser: ${executable} ${args.join(" ")}\n`,
-  );
-
-  if (options["no-doctor"] === true) {
+  if (!launch.doctorReport) {
     return;
   }
 
-  const waitMs =
-    typeof options["wait-ms"] === "string"
-      ? Number.parseInt(options["wait-ms"], 10)
-      : 5000;
-  const timeoutMs = Number.isInteger(waitMs) && waitMs >= 0 ? waitMs : 5000;
-  const startedAt = Date.now();
-  const doctorEnv = {
-    ...process.env,
-    MCP_BROWSER_FAMILY: family,
-  };
+  process.stdout.write(`${renderDoctorReport(launch.doctorReport)}\n`);
 
-  if (family === "firefox") {
-    doctorEnv.FIREFOX_BIDI_WS_URL = await resolveFirefoxDoctorEndpoint({
-      userDataDir,
-      fallbackPort: resolvedPort,
-    });
-  } else {
-    const address = requestedAddress || "127.0.0.1";
-    doctorEnv.CDP_BASE_URL = `http://${address}:${resolvedPort}`;
-  }
-
-  let report = await collectDoctorReport({
-    env: doctorEnv,
-    url: isHttpLikeUrl(url) ? url : null,
-  });
-
-  while (
-    !report.browserStatus.available &&
-    Date.now() - startedAt < timeoutMs
-  ) {
-    await sleep(250);
-    if (family === "firefox") {
-      doctorEnv.FIREFOX_BIDI_WS_URL = await resolveFirefoxDoctorEndpoint({
-        userDataDir,
-        fallbackPort: resolvedPort,
-      });
-    }
-    report = await collectDoctorReport({
-      env: doctorEnv,
-      url: isHttpLikeUrl(url) ? url : null,
-    });
-  }
-
-  process.stdout.write(`${renderDoctorReport(report)}\n`);
-
-  if (!report.browserStatus.available) {
+  if (!launch.doctorReport.browserStatus.available) {
     process.exitCode = 1;
   }
 }
@@ -377,7 +232,7 @@ export async function runCli(argv = process.argv.slice(2)) {
 
   switch (command) {
     case "serve":
-      await runServe();
+      await runServe(options);
       return;
     case "doctor":
       await runDoctor(options);

@@ -56,7 +56,7 @@ test("isLoopbackHost accepts loopback hostnames only", () => {
   assert.equal(isLoopbackHost("0.0.0.0"), false);
 });
 
-test("parseBrowserFamily falls back to chromium", () => {
+test("parseBrowserFamily falls back to auto", () => {
   assert.equal(parseBrowserFamily("chromium"), "chromium");
   assert.equal(parseBrowserFamily("edge"), "edge");
   assert.equal(parseBrowserFamily("firefox"), "firefox");
@@ -74,7 +74,7 @@ test("parseLogLevel falls back to error", () => {
 
 test("loadConfig applies defaults", () => {
   assert.deepEqual(loadConfig({}), {
-    browserFamily: "chromium",
+    browserFamily: "auto",
     cdpBaseUrl: DEFAULT_CDP_BASE_URL,
     firefoxBidiWsUrl: DEFAULT_FIREFOX_BIDI_WS_URL,
     allowRemoteEndpoints: false,

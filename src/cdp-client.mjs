@@ -1,7 +1,9 @@
 import {
+  exportHarLikeSummary,
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { DEFAULT_CDP_BASE_URL } from "./config.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
 import { buildPageContextExpression } from "./page-context.mjs";
 
@@ -35,6 +37,36 @@ function inferTitle(url) {
 
 function cdpBrowserFamily(config) {
   return config.browserFamily === "edge" ? "edge" : "chromium";
+}
+
+function buildDiscoveryBaseUrls(configuredBaseUrl) {
+  const configured = new URL(configuredBaseUrl);
+  const candidatePorts = [
+    configured.port || "9222",
+    "9223",
+    "9224",
+    "9225",
+    "9226",
+  ];
+  const seen = new Set();
+  const candidates = [];
+
+  for (const port of candidatePorts) {
+    const candidate = new URL(configured.toString());
+    candidate.port = port;
+    candidate.pathname = "/";
+    candidate.search = "";
+    candidate.hash = "";
+    const normalized = candidate.toString().replace(/\/+$/, "");
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+
+  return candidates;
 }
 
 function summarizeRemoteObject(object) {
@@ -669,6 +701,82 @@ export class CdpSession {
     return summarizeNetworkRequests(this.bufferedEvents, limit);
   }
 
+  async getCookies() {
+    return this.runPageAction({
+      action: "cookie_snapshot",
+    });
+  }
+
+  async getStorage() {
+    return this.runPageAction({
+      action: "storage_snapshot",
+    });
+  }
+
+  async captureDebugReport(options = {}) {
+    const consoleLimit =
+      Number.isInteger(options.consoleLimit) && options.consoleLimit > 0
+        ? options.consoleLimit
+        : 20;
+    const networkLimit =
+      Number.isInteger(options.networkLimit) && options.networkLimit > 0
+        ? options.networkLimit
+        : 20;
+    const includeScreenshot = options.includeScreenshot !== false;
+    const screenshotFormat = options.screenshotFormat ?? "png";
+    const snapshot = await this.runPageAction({
+      action: "debug_report",
+    });
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      capturedAt: new Date().toISOString(),
+      page: {
+        ...(await this.getPageState()),
+      },
+      cookies: snapshot.cookies,
+      storage: snapshot.storage,
+      console: this.getConsoleMessages(consoleLimit),
+      network: this.getNetworkRequests(networkLimit),
+      screenshot: includeScreenshot
+        ? await this.takeScreenshot(screenshotFormat)
+        : null,
+    };
+  }
+
+  getHar(options = {}) {
+    return exportHarLikeSummary(this.bufferedEvents, {
+      limit: options.limit ?? 50,
+      page: {
+        title: this.target.title,
+        url: this.target.url,
+      },
+    });
+  }
+
+  async captureSessionSnapshot() {
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      capturedAt: new Date().toISOString(),
+      page: await this.getPageState(),
+      ...(await this.getCookies()),
+      ...(await this.getStorage()),
+    };
+  }
+
+  async restoreSessionSnapshot(snapshot, options = {}) {
+    const result = await this.runPageAction({
+      action: "restore_snapshot",
+      snapshot,
+      clearStorage: options.clearStorage === true,
+    });
+
+    return {
+      ...result,
+      page: await this.getPageState(),
+    };
+  }
+
   async inspectElement(selector) {
     return this.runPageAction({
       action: "inspect",
@@ -897,12 +1005,114 @@ export class CdpSessionManager {
   constructor(config) {
     this.config = config;
     this.sessions = new Map();
+    this.resolvedBaseUrl = null;
+    this.lastAttemptedBaseUrl = null;
+    this.lastKnownBaseUrl = null;
+    this.failedBaseUrlCooldownMs = 5_000;
+    this.failedBaseUrlDeadlines = new Map();
+    this.fetchTimeoutMs = 1_000;
+  }
+
+  shouldAutoDiscoverBaseUrl() {
+    return this.config.cdpBaseUrl === DEFAULT_CDP_BASE_URL;
+  }
+
+  markBaseUrlFailed(baseUrl) {
+    this.failedBaseUrlDeadlines.set(
+      baseUrl,
+      Date.now() + this.failedBaseUrlCooldownMs,
+    );
+  }
+
+  invalidateBaseUrl(baseUrl) {
+    this.markBaseUrlFailed(baseUrl);
+
+    if (this.resolvedBaseUrl === baseUrl) {
+      this.resolvedBaseUrl = null;
+    }
+
+    if (this.lastKnownBaseUrl === baseUrl) {
+      this.lastKnownBaseUrl = null;
+    }
+  }
+
+  pruneFailedBaseUrls(now = Date.now()) {
+    for (const [baseUrl, deadline] of this.failedBaseUrlDeadlines.entries()) {
+      if (deadline <= now) {
+        this.failedBaseUrlDeadlines.delete(baseUrl);
+      }
+    }
+  }
+
+  async fetchJsonAt(baseUrl, pathname) {
+    this.lastAttemptedBaseUrl = baseUrl;
+    const url = new URL(pathname, `${baseUrl}/`);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(this.fetchTimeoutMs),
+    });
+    return parseJson(response);
+  }
+
+  async resolveBaseUrl(excludedBaseUrls = new Set()) {
+    if (this.resolvedBaseUrl) {
+      return this.resolvedBaseUrl;
+    }
+
+    const candidates = this.shouldAutoDiscoverBaseUrl()
+      ? buildDiscoveryBaseUrls(this.config.cdpBaseUrl)
+      : [this.config.cdpBaseUrl];
+    this.pruneFailedBaseUrls();
+    const preferredCandidates = candidates.filter(
+      (candidate) =>
+        !excludedBaseUrls.has(candidate) &&
+        !this.failedBaseUrlDeadlines.has(candidate),
+    );
+    const probeCandidates =
+      preferredCandidates.length > 0
+        ? preferredCandidates
+        : candidates.filter((candidate) => !excludedBaseUrls.has(candidate));
+    let lastError = null;
+
+    for (const candidate of probeCandidates) {
+      try {
+        const info = await this.fetchJsonAt(candidate, "/json/version");
+        if (!info.webSocketDebuggerUrl) {
+          this.invalidateBaseUrl(candidate);
+          continue;
+        }
+
+        this.failedBaseUrlDeadlines.delete(candidate);
+        this.resolvedBaseUrl = candidate;
+        this.lastKnownBaseUrl = candidate;
+        return candidate;
+      } catch (error) {
+        this.invalidateBaseUrl(candidate);
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error("Unable to resolve a CDP browser endpoint");
   }
 
   async fetchJson(pathname) {
-    const url = new URL(pathname, `${this.config.cdpBaseUrl}/`);
-    const response = await fetch(url);
-    return parseJson(response);
+    const baseUrl = await this.resolveBaseUrl();
+
+    try {
+      return await this.fetchJsonAt(baseUrl, pathname);
+    } catch (error) {
+      if (!this.shouldAutoDiscoverBaseUrl() || !this.resolvedBaseUrl) {
+        throw error;
+      }
+
+      this.invalidateBaseUrl(baseUrl);
+      const rediscoveredBaseUrl = await this.resolveBaseUrl(new Set([baseUrl]));
+      try {
+        return await this.fetchJsonAt(rediscoveredBaseUrl, pathname);
+      } catch (rediscoveredError) {
+        this.invalidateBaseUrl(rediscoveredBaseUrl);
+        throw rediscoveredError;
+      }
+    }
   }
 
   async sendBrowserCommand(method, params = {}) {
@@ -988,6 +1198,12 @@ export class CdpSessionManager {
       websocket.addEventListener("message", handleMessage);
       websocket.addEventListener("error", handleError, { once: true });
       websocket.addEventListener("close", handleClose, { once: true });
+    }).catch((error) => {
+      if (this.shouldAutoDiscoverBaseUrl() && this.resolvedBaseUrl) {
+        this.invalidateBaseUrl(this.resolvedBaseUrl);
+      }
+
+      throw error;
     });
   }
 
@@ -996,7 +1212,15 @@ export class CdpSessionManager {
       const info = await this.fetchJson("/json/version");
       return {
         available: true,
-        endpoint: this.config.cdpBaseUrl,
+        endpoint:
+          this.resolvedBaseUrl ??
+          this.lastKnownBaseUrl ??
+          this.config.cdpBaseUrl,
+        attemptedEndpoint:
+          this.lastAttemptedBaseUrl ??
+          this.resolvedBaseUrl ??
+          this.lastKnownBaseUrl ??
+          this.config.cdpBaseUrl,
         sessionCount: this.sessions.size,
         browser: info.Browser,
         protocolVersion: info["Protocol-Version"],
@@ -1005,7 +1229,15 @@ export class CdpSessionManager {
     } catch (error) {
       return {
         available: false,
-        endpoint: this.config.cdpBaseUrl,
+        endpoint:
+          this.resolvedBaseUrl ??
+          this.lastKnownBaseUrl ??
+          this.config.cdpBaseUrl,
+        attemptedEndpoint:
+          this.lastAttemptedBaseUrl ??
+          this.resolvedBaseUrl ??
+          this.lastKnownBaseUrl ??
+          this.config.cdpBaseUrl,
         sessionCount: this.sessions.size,
         error: toErrorMessage(error),
       };
@@ -1180,6 +1412,30 @@ export class CdpSessionManager {
 
   getNetworkRequests(sessionId, limit) {
     return this.getSession(sessionId).getNetworkRequests(limit);
+  }
+
+  async getCookies(sessionId) {
+    return this.getSession(sessionId).getCookies();
+  }
+
+  async getStorage(sessionId) {
+    return this.getSession(sessionId).getStorage();
+  }
+
+  async captureDebugReport(sessionId, options = {}) {
+    return this.getSession(sessionId).captureDebugReport(options);
+  }
+
+  getHar(sessionId, options = {}) {
+    return this.getSession(sessionId).getHar(options);
+  }
+
+  async captureSessionSnapshot(sessionId) {
+    return this.getSession(sessionId).captureSessionSnapshot();
+  }
+
+  async restoreSessionSnapshot(sessionId, snapshot, options = {}) {
+    return this.getSession(sessionId).restoreSessionSnapshot(snapshot, options);
   }
 
   async inspectElement(sessionId, selector) {

@@ -2,7 +2,7 @@ export const DEFAULT_CDP_BASE_URL = "http://127.0.0.1:9222";
 export const DEFAULT_FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222";
 export const DEFAULT_EVENT_BUFFER_SIZE = 200;
 export const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
-export const DEFAULT_BROWSER_FAMILY = "chromium";
+export const DEFAULT_BROWSER_FAMILY = "auto";
 export const DEFAULT_LOG_LEVEL = "error";
 export const CDP_BROWSER_FAMILIES = ["chromium", "edge"];
 

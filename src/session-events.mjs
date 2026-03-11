@@ -1,3 +1,5 @@
+import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
+
 const CONSOLE_EVENT_KINDS = new Set(["console", "log", "exception"]);
 
 function normalizeLimit(limit, fallback = 50) {
@@ -87,4 +89,85 @@ export function summarizeNetworkRequests(events = [], limit = 50) {
   }
 
   return Array.from(requests.values()).slice(-safeLimit);
+}
+
+function asHarDateTime(value, fallback) {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+
+  return fallback;
+}
+
+export function exportHarLikeSummary(events = [], options = {}) {
+  const safeLimit = normalizeLimit(options.limit, 50);
+  const exportedAt = new Date().toISOString();
+  const page = options.page ?? null;
+  const pageId = page ? "page-1" : null;
+  const requests = summarizeNetworkRequests(events, safeLimit);
+
+  return {
+    log: {
+      version: "1.2",
+      creator: {
+        name: PACKAGE_NAME,
+        version: PACKAGE_VERSION,
+      },
+      pages: page
+        ? [
+            {
+              startedDateTime: exportedAt,
+              id: pageId,
+              title: page.title ?? page.url ?? "Attached Page",
+              pageTimings: {},
+            },
+          ]
+        : [],
+      entries: requests.map((request) => ({
+        pageref: pageId,
+        startedDateTime: asHarDateTime(request.startedAt, exportedAt),
+        time: typeof request.duration === "number" ? request.duration : -1,
+        request: {
+          method: request.method ?? "GET",
+          url: request.url ?? "",
+          httpVersion: "unknown",
+          headers: [],
+          queryString: [],
+          headersSize: -1,
+          bodySize: request.encodedBodySize ?? -1,
+        },
+        response: {
+          status: request.status ?? 0,
+          statusText: request.statusText ?? "",
+          httpVersion: "unknown",
+          headers: [],
+          content: {
+            size: request.decodedBodySize ?? -1,
+            mimeType: request.mimeType ?? "application/octet-stream",
+          },
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: request.encodedBodySize ?? -1,
+          _transferSize: request.transferSize ?? -1,
+        },
+        cache: {},
+        timings: {
+          send: -1,
+          wait: typeof request.duration === "number" ? request.duration : -1,
+          receive: -1,
+        },
+        _requestId: request.requestId,
+        _resourceType: request.resourceType ?? null,
+        _initiatorType: request.initiatorType ?? null,
+        _source: request.source ?? null,
+        _finished: request.finished,
+        _failed: request.failed,
+        _canceled: request.canceled,
+        _errorText: request.errorText ?? null,
+      })),
+    },
+  };
 }

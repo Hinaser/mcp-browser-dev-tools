@@ -1,7 +1,9 @@
 import {
+  exportHarLikeSummary,
   filterConsoleMessages,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
+import { DEFAULT_FIREFOX_BIDI_WS_URL } from "./config.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
 import { buildPageContextExpression } from "./page-context.mjs";
 
@@ -259,6 +261,36 @@ function toWebSocketEndpointUrl(endpointUrl) {
   return url;
 }
 
+function buildDiscoveryWebSocketUrls(configuredUrl) {
+  const configured = new URL(configuredUrl);
+  const candidatePorts = [
+    configured.port || "9222",
+    "9223",
+    "9224",
+    "9225",
+    "9226",
+  ];
+  const seen = new Set();
+  const candidates = [];
+
+  for (const port of candidatePorts) {
+    const candidate = new URL(configured.toString());
+    candidate.port = port;
+    candidate.pathname = "/";
+    candidate.search = "";
+    candidate.hash = "";
+    const normalized = candidate.toString().replace(/\/+$/, "");
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+
+  return candidates;
+}
+
 function joinUrlPath(baseUrl, pathname) {
   const url = new URL(baseUrl);
   const basePath = url.pathname.replace(/\/+$/, "");
@@ -345,7 +377,12 @@ export class FirefoxBidiSessionManager {
     this.browserSessionId = null;
     this.capabilities = null;
     this.connectPromise = null;
+    this.discoveredEndpointUrl = null;
     this.resolvedWebSocketUrl = null;
+  }
+
+  shouldAutoDiscoverEndpoint() {
+    return this.config.firefoxBidiWsUrl === DEFAULT_FIREFOX_BIDI_WS_URL;
   }
 
   async ensureConnected() {
@@ -369,9 +406,31 @@ export class FirefoxBidiSessionManager {
   }
 
   async openConnection() {
-    const endpoint = await this.resolveConnectionEndpoint();
-    this.resolvedWebSocketUrl = endpoint.webSocketUrl;
-    this.websocket = this.websocketFactory(endpoint.webSocketUrl);
+    const candidates = this.shouldAutoDiscoverEndpoint()
+      ? buildDiscoveryWebSocketUrls(this.config.firefoxBidiWsUrl)
+      : [this.config.firefoxBidiWsUrl];
+    let lastError = null;
+
+    for (const candidate of candidates) {
+      const endpoint = this.resolveConnectionEndpoint(candidate);
+      try {
+        await this.openConnectionAt(endpoint);
+        this.discoveredEndpointUrl = candidate;
+        return;
+      } catch (error) {
+        lastError = error;
+        await this.resetConnectionState();
+      }
+    }
+
+    throw (
+      lastError ?? new Error("Unable to connect to a Firefox BiDi endpoint")
+    );
+  }
+
+  async openConnectionAt(endpoint) {
+    const websocket = this.websocketFactory(endpoint.webSocketUrl);
+    this.websocket = websocket;
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -381,7 +440,7 @@ export class FirefoxBidiSessionManager {
         }
 
         settled = true;
-        this.websocket?.close?.();
+        websocket.close?.();
         reject(
           new Error(
             `Timed out connecting to Firefox BiDi at ${endpoint.webSocketUrl}`,
@@ -400,7 +459,7 @@ export class FirefoxBidiSessionManager {
         callback();
       };
 
-      this.websocket.addEventListener(
+      websocket.addEventListener(
         "open",
         () => {
           settle(resolve);
@@ -408,27 +467,35 @@ export class FirefoxBidiSessionManager {
         { once: true },
       );
 
-      this.websocket.addEventListener(
+      websocket.addEventListener(
         "error",
         () => {
           settle(() => {
-            reject(
-              new Error(`Failed to connect to ${this.config.firefoxBidiWsUrl}`),
-            );
+            reject(new Error(`Failed to connect to ${endpoint.webSocketUrl}`));
           });
         },
         { once: true },
       );
 
-      this.websocket.addEventListener("message", (event) => {
+      websocket.addEventListener("message", (event) => {
+        if (this.websocket !== websocket) {
+          return;
+        }
+
         void this.handleMessage(event.data);
       });
 
-      this.websocket.addEventListener("close", () => {
+      websocket.addEventListener("close", () => {
+        if (this.websocket !== websocket) {
+          return;
+        }
+
         this.rejectPending(new Error("Firefox BiDi connection closed"));
         this.websocket = null;
         this.browserSessionId = null;
         this.capabilities = null;
+        this.discoveredEndpointUrl = null;
+        this.resolvedWebSocketUrl = null;
         this.sessions.clear();
         settle(() => {
           reject(
@@ -447,15 +514,31 @@ export class FirefoxBidiSessionManager {
 
       this.browserSessionId = result.sessionId;
       this.capabilities = result.capabilities ?? {};
+      this.resolvedWebSocketUrl = endpoint.webSocketUrl;
       return;
     }
 
     this.browserSessionId = endpoint.sessionId;
     this.capabilities = endpoint.capabilities ?? {};
+    this.resolvedWebSocketUrl = endpoint.webSocketUrl;
   }
 
-  async resolveConnectionEndpoint() {
-    const configuredUrl = new URL(this.config.firefoxBidiWsUrl);
+  async resetConnectionState() {
+    if (this.websocket?.readyState < WebSocket.CLOSING) {
+      this.websocket.close();
+      await this.waitForWebSocketClose(this.websocket, 50);
+    }
+
+    this.rejectPending(new Error("Firefox BiDi connection closed"));
+    this.websocket = null;
+    this.browserSessionId = null;
+    this.capabilities = null;
+    this.discoveredEndpointUrl = null;
+    this.resolvedWebSocketUrl = null;
+  }
+
+  resolveConnectionEndpoint(endpointUrl = this.config.firefoxBidiWsUrl) {
+    const configuredUrl = new URL(endpointUrl);
 
     if (isHttpProtocol(configuredUrl.protocol)) {
       return {
@@ -589,17 +672,20 @@ export class FirefoxBidiSessionManager {
       await this.ensureConnected();
       return {
         available: true,
-        endpoint: this.config.firefoxBidiWsUrl,
+        endpoint: this.discoveredEndpointUrl ?? this.config.firefoxBidiWsUrl,
         sessionCount: this.sessions.size,
         browser: this.capabilities?.browserName || "firefox",
         browserVersion: this.capabilities?.browserVersion ?? null,
         protocol: "webdriver-bidi",
-        webSocketUrl: this.resolvedWebSocketUrl ?? this.config.firefoxBidiWsUrl,
+        webSocketUrl:
+          this.resolvedWebSocketUrl ??
+          this.discoveredEndpointUrl ??
+          this.config.firefoxBidiWsUrl,
       };
     } catch (error) {
       return {
         available: false,
-        endpoint: this.config.firefoxBidiWsUrl,
+        endpoint: this.discoveredEndpointUrl ?? this.config.firefoxBidiWsUrl,
         sessionCount: this.sessions.size,
         protocol: "webdriver-bidi",
         error: toErrorMessage(error),
@@ -1062,6 +1148,84 @@ export class FirefoxBidiSessionManager {
 
   getNetworkRequests(sessionId, limit) {
     return this.getSession(sessionId).getNetworkRequests(limit);
+  }
+
+  async getCookies(sessionId) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "cookie_snapshot",
+    });
+  }
+
+  async getStorage(sessionId) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "storage_snapshot",
+    });
+  }
+
+  async captureDebugReport(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    const consoleLimit =
+      Number.isInteger(options.consoleLimit) && options.consoleLimit > 0
+        ? options.consoleLimit
+        : 20;
+    const networkLimit =
+      Number.isInteger(options.networkLimit) && options.networkLimit > 0
+        ? options.networkLimit
+        : 20;
+    const includeScreenshot = options.includeScreenshot !== false;
+    const screenshotFormat = options.screenshotFormat ?? "png";
+    const snapshot = await this.runPageAction(session, {
+      action: "debug_report",
+    });
+
+    return {
+      browserFamily: "firefox",
+      capturedAt: new Date().toISOString(),
+      page: {
+        ...(await this.getPageState(sessionId)),
+      },
+      cookies: snapshot.cookies,
+      storage: snapshot.storage,
+      console: session.getConsoleMessages(consoleLimit),
+      network: session.getNetworkRequests(networkLimit),
+      screenshot: includeScreenshot
+        ? await this.takeScreenshot(sessionId, screenshotFormat)
+        : null,
+    };
+  }
+
+  getHar(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    return exportHarLikeSummary(session.bufferedEvents, {
+      limit: options.limit ?? 50,
+      page: {
+        title: session.target.title,
+        url: session.target.url,
+      },
+    });
+  }
+
+  async captureSessionSnapshot(sessionId) {
+    return {
+      browserFamily: "firefox",
+      capturedAt: new Date().toISOString(),
+      page: await this.getPageState(sessionId),
+      ...(await this.getCookies(sessionId)),
+      ...(await this.getStorage(sessionId)),
+    };
+  }
+
+  async restoreSessionSnapshot(sessionId, snapshot, options = {}) {
+    const result = await this.runPageAction(this.getSession(sessionId), {
+      action: "restore_snapshot",
+      snapshot,
+      clearStorage: options.clearStorage === true,
+    });
+
+    return {
+      ...result,
+      page: await this.getPageState(sessionId),
+    };
   }
 
   async inspectElement(sessionId, selector) {
