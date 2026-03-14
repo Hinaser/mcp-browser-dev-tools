@@ -84,6 +84,7 @@ test("loadConfig applies defaults", () => {
     eventBufferSize: DEFAULT_EVENT_BUFFER_SIZE,
     logLevel: DEFAULT_LOG_LEVEL,
     debugStdio: false,
+    logFile: null,
     protocolVersion: "2024-11-05",
   });
 });
@@ -93,12 +94,18 @@ test("loadLoggingConfig reads logger-related environment flags", () => {
     loadLoggingConfig({
       MCP_BROWSER_LOG_LEVEL: "debug",
       MCP_BROWSER_DEBUG_STDIO: "1",
+      MCP_BROWSER_LOG_FILE: "/tmp/broker.log",
     }),
     {
       logLevel: "debug",
       debugStdio: true,
+      logFile: "/tmp/broker.log",
     },
   );
+});
+
+test("loadLoggingConfig defaults logFile to null", () => {
+  assert.equal(loadLoggingConfig({}).logFile, null);
 });
 
 test("loadConfig rejects non-loopback CDP endpoints by default", () => {
