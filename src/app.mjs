@@ -16,6 +16,7 @@ export function createBrowserDevToolsApp({
     level: config.logLevel,
     output: errorOutput,
     name: PACKAGE_NAME,
+    filePath: config.logFile,
   });
   const browserAdapter = createBrowserAdapter(config);
   const server = new McpBrowserDevToolsServer({

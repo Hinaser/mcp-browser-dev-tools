@@ -8,6 +8,12 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-03-14
+
+### Added
+
+- `MCP_BROWSER_LOG_FILE` environment variable to write all log output to a file in addition to stderr, useful for diagnosing crashes when the MCP client captures stderr inconsistently
+
 ## [0.0.4] - 2026-03-14
 
 ### Added

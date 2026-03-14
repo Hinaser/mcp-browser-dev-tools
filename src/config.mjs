@@ -78,6 +78,7 @@ export function loadLoggingConfig(env = process.env) {
   return {
     logLevel: parseLogLevel(env.MCP_BROWSER_LOG_LEVEL),
     debugStdio: isTruthyFlag(env.MCP_BROWSER_DEBUG_STDIO),
+    logFile: env.MCP_BROWSER_LOG_FILE?.trim() || null,
   };
 }
 
@@ -123,6 +124,7 @@ export function loadConfig(env = process.env) {
     ),
     logLevel: logging.logLevel,
     debugStdio: logging.debugStdio,
+    logFile: logging.logFile,
     protocolVersion:
       env.MCP_PROTOCOL_VERSION?.trim() || DEFAULT_PROTOCOL_VERSION,
   };

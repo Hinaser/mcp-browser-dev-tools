@@ -186,6 +186,7 @@ async function runRelay(options) {
     level: logging.logLevel,
     output: process.stderr,
     name: PACKAGE_NAME,
+    filePath: logging.logFile,
   });
   const relayOptions = resolveRelayOptions(options);
   const relay = await startTcpRelay({

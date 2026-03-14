@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import process from "node:process";
 
 import { PACKAGE_NAME } from "./package-info.mjs";
@@ -21,6 +22,7 @@ export function createLogger({
   level = "error",
   output = process.stderr,
   name = PACKAGE_NAME,
+  filePath = null,
 } = {}) {
   const threshold = LOG_LEVELS[level] ?? LOG_LEVELS.error;
 
@@ -34,7 +36,15 @@ export function createLogger({
         return false;
       }
 
-      output.write(`[${name}] ${messageLevel}: ${normalizeMessage(message)}\n`);
+      const line = `[${name}] ${messageLevel}: ${normalizeMessage(message)}\n`;
+      output.write(line);
+      if (filePath != null) {
+        try {
+          appendFileSync(filePath, line);
+        } catch {
+          // ignore file write errors to avoid crashing the server
+        }
+      }
       return true;
     },
     error(message, options) {
