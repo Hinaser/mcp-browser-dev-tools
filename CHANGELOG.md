@@ -8,6 +8,15 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-03-14
+
+### Added
+
+- Auto-dismiss JavaScript dialogs (`alert`, `confirm`, `prompt`) on attached CDP and Firefox BiDi sessions to prevent page-blocking modals from stalling the broker connection and causing MCP clients to deregister all tools
+- Dialog events are captured in the session event buffer as `kind: "dialog"` entries so callers can observe that a dialog appeared even though it was auto-dismissed
+- Firefox BiDi sessions now subscribe to `browsingContext.userPromptOpened` and `browsingContext.userPromptClosed` events
+- Crash diagnostics: `uncaughtException` and `unhandledRejection` handlers log full stack traces to stderr before exit, and a `process.exit` handler logs non-zero exit codes — all with `force: true` so they appear regardless of the configured log level
+
 ## [0.0.3] - 2026-03-12
 
 ### Added
