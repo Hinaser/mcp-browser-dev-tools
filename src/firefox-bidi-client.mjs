@@ -220,6 +220,21 @@ function normalizeFirefoxEvent(method, params = {}) {
     };
   }
 
+  if (
+    method === "browsingContext.userPromptOpened" ||
+    method === "browsingContext.userPromptClosed"
+  ) {
+    return {
+      kind: "dialog",
+      phase:
+        method === "browsingContext.userPromptOpened" ? "opened" : "closed",
+      dialogType: params.type ?? null,
+      message: params.message ?? null,
+      defaultValue: params.defaultValue ?? null,
+      context: params.context ?? null,
+    };
+  }
+
   return {
     kind: "raw",
     params,
@@ -656,6 +671,14 @@ export class FirefoxBidiSessionManager {
       return;
     }
 
+    if (message.method === "browsingContext.userPromptOpened") {
+      const accept = message.params?.type !== "prompt";
+      this.send("browsingContext.handleUserPrompt", {
+        context: contextId,
+        accept,
+      }).catch(() => {});
+    }
+
     for (const session of this.sessions.values()) {
       if (session.target.targetId === contextId) {
         session.bufferEvent(message.method, message.params ?? {});
@@ -774,6 +797,8 @@ export class FirefoxBidiSessionManager {
         "network.responseCompleted",
         "browsingContext.load",
         "browsingContext.contextDestroyed",
+        "browsingContext.userPromptOpened",
+        "browsingContext.userPromptClosed",
       ],
       contexts: [targetId],
     });

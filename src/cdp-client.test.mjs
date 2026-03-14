@@ -151,6 +151,91 @@ test("CdpSessionManager waitFor resolves when the selector becomes visible", asy
   assert.equal(result.attempts, 2);
 });
 
+test("CdpSession auto-dismisses alert dialogs via Page.handleJavaScriptDialog", () => {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+
+  const sentCommands = [];
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+
+  session.bufferEvent("Page.javascriptDialogOpening", {
+    type: "alert",
+    message: "Hello!",
+  });
+
+  assert.equal(sentCommands.length, 1);
+  assert.equal(sentCommands[0].method, "Page.handleJavaScriptDialog");
+  assert.equal(sentCommands[0].params.accept, true);
+
+  const dialogEvent = session.bufferedEvents.find(
+    (e) => e.kind === "dialog" && e.phase === "opened",
+  );
+  assert.ok(dialogEvent);
+  assert.equal(dialogEvent.dialogType, "alert");
+  assert.equal(dialogEvent.message, "Hello!");
+});
+
+test("CdpSession auto-dismisses confirm dialogs with accept=true", () => {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+
+  const sentCommands = [];
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+
+  session.bufferEvent("Page.javascriptDialogOpening", {
+    type: "confirm",
+    message: "Are you sure?",
+  });
+
+  assert.equal(sentCommands[0].params.accept, true);
+});
+
+test("CdpSession auto-dismisses prompt dialogs with accept=false", () => {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+
+  const sentCommands = [];
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+
+  session.bufferEvent("Page.javascriptDialogOpening", {
+    type: "prompt",
+    message: "Enter value:",
+    defaultPrompt: "default",
+  });
+
+  assert.equal(sentCommands[0].params.accept, false);
+});
+
 test("CdpSessionManager auto-discovers a loopback CDP endpoint when using the default port", async () => {
   const manager = new CdpSessionManager({
     browserFamily: "edge",

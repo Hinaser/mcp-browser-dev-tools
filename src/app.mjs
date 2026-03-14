@@ -71,6 +71,27 @@ export function createBrowserDevToolsApp({
     process.on("SIGTERM", () => {
       void close("SIGTERM").finally(() => process.exit(0));
     });
+
+    process.on("uncaughtException", (error) => {
+      logger.error(`uncaught exception: ${error?.stack ?? error}`, {
+        force: true,
+      });
+      void close("uncaughtException").finally(() => process.exit(1));
+    });
+
+    process.on("unhandledRejection", (reason) => {
+      logger.error(
+        `unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : reason}`,
+        { force: true },
+      );
+      void close("unhandledRejection").finally(() => process.exit(1));
+    });
+
+    process.on("exit", (code) => {
+      if (code !== 0) {
+        logger.error(`process exiting with code ${code}`, { force: true });
+      }
+    });
   }
 
   return {

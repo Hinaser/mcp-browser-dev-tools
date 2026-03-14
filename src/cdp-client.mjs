@@ -302,6 +302,20 @@ function normalizeEvent(method, params) {
     };
   }
 
+  if (
+    method === "Page.javascriptDialogOpening" ||
+    method === "Page.javascriptDialogClosed"
+  ) {
+    return {
+      kind: "dialog",
+      phase: method === "Page.javascriptDialogOpening" ? "opened" : "closed",
+      dialogType: params.type ?? null,
+      message: params.message ?? null,
+      defaultPrompt: params.defaultPrompt ?? null,
+      url: params.url ?? null,
+    };
+  }
+
   return {
     kind: "raw",
     method,
@@ -486,12 +500,21 @@ export class CdpSession {
       this.lastNavigationAt = capturedAt;
     }
 
+    if (method === "Page.javascriptDialogOpening") {
+      this.autoDismissDialog(params);
+    }
+
     this.pushEvent({
       method,
       capturedAt,
       ...normalizeEvent(method, params),
     });
     this.resolveEventWaiters(method, params);
+  }
+
+  autoDismissDialog(params) {
+    const accept = params.type !== "prompt";
+    this.send("Page.handleJavaScriptDialog", { accept }).catch(() => {});
   }
 
   pushEvent(event) {

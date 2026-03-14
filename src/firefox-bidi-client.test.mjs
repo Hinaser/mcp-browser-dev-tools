@@ -413,6 +413,88 @@ test("stale Firefox socket close events do not clear a newer connection", async 
   assert.equal(manager.resolvedWebSocketUrl, "ws://127.0.0.1:9223/session");
 });
 
+test("FirefoxBidiSessionManager auto-dismisses alert dialogs via browsingContext.handleUserPrompt", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+
+  const session = {
+    id: "session-1",
+    target: { targetId: "ctx-1" },
+    closed: false,
+    bufferedEvents: [],
+    bufferEvent(method, params) {
+      this.bufferedEvents.push({ method, params });
+    },
+  };
+  manager.sessions.set("session-1", session);
+
+  const sentCommands = [];
+  manager.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+  manager.websocket = { readyState: 1 };
+
+  await manager.handleMessage(
+    JSON.stringify({
+      type: "event",
+      method: "browsingContext.userPromptOpened",
+      params: {
+        context: "ctx-1",
+        type: "alert",
+        message: "Hello!",
+      },
+    }),
+  );
+
+  assert.equal(sentCommands.length, 1);
+  assert.equal(sentCommands[0].method, "browsingContext.handleUserPrompt");
+  assert.equal(sentCommands[0].params.context, "ctx-1");
+  assert.equal(sentCommands[0].params.accept, true);
+  assert.equal(session.bufferedEvents.length, 1);
+});
+
+test("FirefoxBidiSessionManager auto-dismisses prompt dialogs with accept=false", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+
+  const session = {
+    id: "session-1",
+    target: { targetId: "ctx-1" },
+    closed: false,
+    bufferedEvents: [],
+    bufferEvent(method, params) {
+      this.bufferedEvents.push({ method, params });
+    },
+  };
+  manager.sessions.set("session-1", session);
+
+  const sentCommands = [];
+  manager.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+  manager.websocket = { readyState: 1 };
+
+  await manager.handleMessage(
+    JSON.stringify({
+      type: "event",
+      method: "browsingContext.userPromptOpened",
+      params: {
+        context: "ctx-1",
+        type: "prompt",
+        message: "Enter value:",
+      },
+    }),
+  );
+
+  assert.equal(sentCommands[0].params.accept, false);
+});
+
 test("closeAll ends the Firefox session and closes the websocket", async () => {
   class FakeSocket extends EventTarget {
     constructor() {
