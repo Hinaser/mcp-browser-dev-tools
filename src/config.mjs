@@ -125,6 +125,7 @@ export function loadConfig(env = process.env) {
     logLevel: logging.logLevel,
     debugStdio: logging.debugStdio,
     logFile: logging.logFile,
+    userDataDir: env.MCP_BROWSER_USER_DATA_DIR?.trim() || null,
     protocolVersion:
       env.MCP_PROTOCOL_VERSION?.trim() || DEFAULT_PROTOCOL_VERSION,
   };

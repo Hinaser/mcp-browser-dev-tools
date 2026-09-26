@@ -396,7 +396,7 @@ function launchBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
     userDataDir: {
       type: "string",
       description:
-        "Browser profile directory. When omitted, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
+        "Browser profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR when set). Without either, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
     },
     waitMs: {
       type: "integer",
@@ -459,7 +459,7 @@ function ensureBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
     userDataDir: {
       type: "string",
       description:
-        "Browser profile directory. When omitted, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
+        "Browser profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR when set). Without either, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
     },
     waitMs: {
       type: "integer",
@@ -502,7 +502,19 @@ function isRequestedBrowserAvailable(
     return Boolean(status?.available);
   }
 
-  return Boolean(status?.browsers?.[requestedFamily]?.available);
+  // Edge shares the Chromium adapter in auto mode.
+  const adapterFamily =
+    requestedFamily === "edge" ? "chromium" : requestedFamily;
+  return Boolean(status?.browsers?.[adapterFamily]?.available);
+}
+
+const STATUS_PROBE_ATTEMPTS = 3;
+const LAUNCH_GRACE_MS = 30_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function shouldCreateBrowserTab(args) {
@@ -563,6 +575,7 @@ export class McpBrowserDevToolsServer {
     config,
     browserAdapter,
     launchBrowser = launchLocalBrowser,
+    statusProbeRetryMs = 500,
     input = process.stdin,
     output = process.stdout,
     errorOutput = process.stderr,
@@ -575,12 +588,131 @@ export class McpBrowserDevToolsServer {
     this.config = config;
     this.browserAdapter = browserAdapter;
     this.launchBrowser = launchBrowser;
+    this.statusProbeRetryMs = statusProbeRetryMs;
+    this.launchQueue = Promise.resolve();
+    this.unconfirmedLaunches = new Map();
     this.input = input;
     this.output = output;
     this.errorOutput = errorOutput;
     this.logger = logger;
     this.messageBuffer = new MessageBuffer();
     this.tools = this.createTools();
+  }
+
+  // Runs launch decisions one at a time, so parallel tool calls see the browser
+  // the first call started instead of each launching their own.
+  runExclusiveLaunch(task) {
+    const run = this.launchQueue.then(task, task);
+    this.launchQueue = run.catch(() => {});
+    return run;
+  }
+
+  // A busy browser can miss a single status check, and treating that as "not
+  // running" would launch a second browser, so retry before giving up.
+  async probeBrowser(browserFamily) {
+    let status = null;
+    for (let attempt = 0; attempt < STATUS_PROBE_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(this.statusProbeRetryMs);
+      }
+
+      status = await this.browserAdapter.getBrowserStatus();
+      if (
+        isRequestedBrowserAvailable(
+          status,
+          this.config.browserFamily,
+          browserFamily,
+        )
+      ) {
+        this.unconfirmedLaunches.delete(
+          browserFamily ?? this.config.browserFamily,
+        );
+        return { status, available: true };
+      }
+    }
+
+    return { status, available: false };
+  }
+
+  // A browser can take a while to expose its endpoint after launch. Launching
+  // again in that window would start a second browser, so refuse until the
+  // first one answers or the grace period passes.
+  async launchUnlessPending(browserFamily, options) {
+    const key = browserFamily ?? this.config.browserFamily;
+    const launchedAt = this.unconfirmedLaunches.get(key);
+    if (launchedAt !== undefined && Date.now() - launchedAt < LAUNCH_GRACE_MS) {
+      const seconds = Math.round((Date.now() - launchedAt) / 1000);
+      throw new Error(
+        `A ${key} browser launched ${seconds}s ago has not exposed its debugging endpoint yet, so another one was not launched. Wait a few seconds and call ensure_browser again.`,
+      );
+    }
+
+    const launch = await this.launchBrowser(options);
+    const confirmed =
+      launch?.launched === false ||
+      launch?.doctorReport?.browserStatus?.available === true;
+    if (confirmed) {
+      this.unconfirmedLaunches.delete(key);
+    } else {
+      this.unconfirmedLaunches.set(key, Date.now());
+    }
+    return launch;
+  }
+
+  async ensureBrowser(args) {
+    const browserFamily = requestedBrowserFamily(
+      this.config.browserFamily,
+      args.browserFamily,
+    );
+    const { status: currentStatus, available } =
+      await this.probeBrowser(browserFamily);
+    let launch = null;
+    let status = currentStatus;
+
+    if (!available) {
+      if (args.launchIfMissing === false) {
+        return {
+          browserFamily,
+          available: false,
+          launched: false,
+          status,
+          tab: null,
+        };
+      }
+
+      launch = await this.launchUnlessPending(browserFamily, {
+        config: this.config,
+        browserFamily,
+        url: args.url,
+        port: args.port,
+        address: args.address,
+        userDataDir: args.userDataDir,
+        unsafeArgs: args.unsafeArgs,
+        waitMs: args.waitMs,
+        skipDoctor: args.skipDoctor,
+      });
+      ({ status } = await this.probeBrowser(browserFamily));
+    }
+
+    let tab = null;
+    if (shouldCreateBrowserTab(args)) {
+      tab = await this.browserAdapter.createTab(args.url, {
+        browserFamily,
+      });
+    }
+
+    return {
+      browserFamily,
+      available: isRequestedBrowserAvailable(
+        status,
+        this.config.browserFamily,
+        browserFamily,
+      ),
+      launched: Boolean(launch) && launch.launched !== false,
+      launch,
+      status,
+      tab,
+    };
   }
 
   createTools() {
@@ -621,23 +753,56 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "launch_browser",
             description:
-              "Launch a local debug-enabled browser process that matches the current broker configuration and return launch details plus an optional doctor report.",
+              "Launch a local debug-enabled browser process that matches the current broker configuration and return launch details plus an optional doctor report. When port, address, userDataDir, and unsafeArgs are all omitted and a browser of this family is already reachable, returns it with reused: true instead of launching, opening url in a new tab if given. On macOS and Linux it never starts a second browser on a profile that is already open. Prefer ensure_browser.",
             inputSchema: launchBrowserInputSchema(
               this.config.browserFamily,
               this.config.enableUnsafeLaunchArgs,
             ),
           },
           handler: async (args) =>
-            this.launchBrowser({
-              config: this.config,
-              browserFamily: args.browserFamily,
-              url: args.url,
-              port: args.port,
-              address: args.address,
-              userDataDir: args.userDataDir,
-              unsafeArgs: args.unsafeArgs,
-              waitMs: args.waitMs,
-              skipDoctor: args.skipDoctor,
+            this.runExclusiveLaunch(async () => {
+              const browserFamily = requestedBrowserFamily(
+                this.config.browserFamily,
+                args.browserFamily,
+              );
+              // A requested port, address, profile, or flags ask for a
+              // specific browser, so only a plain launch may reuse the
+              // running one.
+              if (
+                args.port === undefined &&
+                args.address === undefined &&
+                args.userDataDir === undefined &&
+                args.unsafeArgs === undefined
+              ) {
+                const { status, available } =
+                  await this.probeBrowser(browserFamily);
+                if (available) {
+                  const tab = shouldCreateBrowserTab(args)
+                    ? await this.browserAdapter.createTab(args.url, {
+                        browserFamily,
+                      })
+                    : null;
+                  return {
+                    browserFamily,
+                    launched: false,
+                    reused: true,
+                    status,
+                    tab,
+                  };
+                }
+              }
+
+              return this.launchUnlessPending(browserFamily, {
+                config: this.config,
+                browserFamily: args.browserFamily,
+                url: args.url,
+                port: args.port,
+                address: args.address,
+                userDataDir: args.userDataDir,
+                unsafeArgs: args.unsafeArgs,
+                waitMs: args.waitMs,
+                skipDoctor: args.skipDoctor,
+              });
             }),
         },
       ],
@@ -647,71 +812,14 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "ensure_browser",
             description:
-              "Ensure a compatible browser is reachable through the current broker. If needed, launch one locally and optionally open a tab for the requested URL.",
+              "Ensure a compatible browser is reachable through the current broker, reusing a running one when possible. If none answers after three status checks, launch one locally, using the MCP_BROWSER_USER_DATA_DIR profile when set, and optionally open a tab for the requested URL. Will not launch again for 30 seconds while a browser it launched is still starting, and on macOS and Linux never starts a second browser on a profile that is already open.",
             inputSchema: ensureBrowserInputSchema(
               this.config.browserFamily,
               this.config.enableUnsafeLaunchArgs,
             ),
           },
-          handler: async (args) => {
-            const browserFamily = requestedBrowserFamily(
-              this.config.browserFamily,
-              args.browserFamily,
-            );
-            const currentStatus = await this.browserAdapter.getBrowserStatus();
-            const available = isRequestedBrowserAvailable(
-              currentStatus,
-              this.config.browserFamily,
-              browserFamily,
-            );
-            let launch = null;
-            let status = currentStatus;
-
-            if (!available) {
-              if (args.launchIfMissing === false) {
-                return {
-                  browserFamily,
-                  available: false,
-                  launched: false,
-                  status,
-                  tab: null,
-                };
-              }
-
-              launch = await this.launchBrowser({
-                config: this.config,
-                browserFamily,
-                url: args.url,
-                port: args.port,
-                address: args.address,
-                userDataDir: args.userDataDir,
-                unsafeArgs: args.unsafeArgs,
-                waitMs: args.waitMs,
-                skipDoctor: args.skipDoctor,
-              });
-              status = await this.browserAdapter.getBrowserStatus();
-            }
-
-            let tab = null;
-            if (shouldCreateBrowserTab(args)) {
-              tab = await this.browserAdapter.createTab(args.url, {
-                browserFamily,
-              });
-            }
-
-            return {
-              browserFamily,
-              available: isRequestedBrowserAvailable(
-                status,
-                this.config.browserFamily,
-                browserFamily,
-              ),
-              launched: Boolean(launch),
-              launch,
-              status,
-              tab,
-            };
-          },
+          handler: async (args) =>
+            this.runExclusiveLaunch(() => this.ensureBrowser(args)),
         },
       ],
       [

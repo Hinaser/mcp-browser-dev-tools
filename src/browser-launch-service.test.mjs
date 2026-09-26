@@ -238,3 +238,191 @@ test("launchBrowser auto-creates a temporary Chromium profile when the browser i
   assert.equal(result.existingBrowserProcess.detected, true);
   assert.deepEqual(result.existingBrowserProcess.matches, ["chrome"]);
 });
+
+function launchDeps({ processes = [], available, spawned }) {
+  const psColumns = (column) =>
+    processes.map((entry) => `${entry.pid} ${entry[column]}`).join("\n");
+  return {
+    execFileFn: async (command, args = []) => {
+      const format = args[2];
+      if (command === "ps" && format === "pid=,comm=") {
+        return { stdout: psColumns("comm") };
+      }
+      if (command === "ps" && format === "pid=,command=") {
+        return { stdout: psColumns("command") };
+      }
+      return { stdout: processes.map((entry) => entry.name).join("\n") };
+    },
+    realpathFn: async (dir) => dir,
+    findBrowserExecutableFn: async () => "/usr/bin/chromium",
+    spawnProcess: (command, args) => {
+      spawned.push(args);
+      return { pid: 88, unref() {} };
+    },
+    collectDoctorReportFn: async () => ({
+      browserStatus: { available },
+    }),
+    sleepFn: async () => {},
+  };
+}
+
+const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+test("launchBrowser uses MCP_BROWSER_USER_DATA_DIR when no userDataDir is passed", async () => {
+  const spawned = [];
+  const deps = launchDeps({ available: true, spawned });
+
+  const result = await launchBrowser(
+    {
+      config: loadConfig({ MCP_BROWSER_USER_DATA_DIR: "/profiles/debug" }),
+      browserFamily: "chromium",
+      waitMs: 0,
+    },
+    deps,
+  );
+
+  assert.equal(result.launched, true);
+  assert.equal(result.profileStrategy, "provided");
+  assert.ok(spawned[0].includes("--user-data-dir=/profiles/debug"));
+});
+
+test("launchBrowser reuses a running browser on the same profile instead of opening another window", async () => {
+  const spawned = [];
+  const deps = launchDeps({
+    processes: [
+      {
+        pid: 501,
+        name: "Google Chrome",
+        comm: CHROME,
+        command: `${CHROME} --remote-debugging-port=9222 --user-data-dir=/profiles/debug about:blank`,
+      },
+    ],
+    available: true,
+    spawned,
+  });
+
+  const result = await launchBrowser(
+    {
+      config: loadConfig({}),
+      browserFamily: "chromium",
+      userDataDir: "/profiles/debug/",
+      waitMs: 0,
+    },
+    deps,
+  );
+
+  assert.deepEqual(spawned, []);
+  assert.equal(result.launched, false);
+  assert.equal(result.profileAlreadyRunning, true);
+  assert.equal(result.pid, null);
+});
+
+test("launchBrowser refuses to relaunch a running profile whose endpoint is down", async () => {
+  const spawned = [];
+  const deps = launchDeps({
+    processes: [
+      {
+        pid: 502,
+        name: "chrome",
+        comm: "chrome",
+        command: "chrome --user-data-dir=/profiles/debug",
+      },
+    ],
+    available: false,
+    spawned,
+  });
+
+  await assert.rejects(
+    launchBrowser(
+      {
+        config: loadConfig({}),
+        browserFamily: "chromium",
+        userDataDir: "/profiles/debug",
+        waitMs: 0,
+      },
+      deps,
+    ),
+    /already running with profile \/profiles\/debug.*nothing was launched/,
+  );
+  assert.deepEqual(spawned, []);
+});
+
+test("launchBrowser does not treat a profile whose path only shares a prefix as running", async () => {
+  const spawned = [];
+  const deps = launchDeps({
+    processes: [
+      {
+        pid: 503,
+        name: "chrome",
+        comm: "chrome",
+        command: "chrome --user-data-dir=/profiles/debug-old",
+      },
+    ],
+    available: true,
+    spawned,
+  });
+
+  const result = await launchBrowser(
+    {
+      config: loadConfig({}),
+      browserFamily: "chromium",
+      userDataDir: "/profiles/debug",
+      waitMs: 0,
+    },
+    deps,
+  );
+
+  assert.equal(result.launched, true);
+  assert.equal(spawned.length, 1);
+});
+
+test("launchBrowser does not start Firefox without a profile while Firefox is running", async () => {
+  const spawned = [];
+  const deps = launchDeps({
+    processes: [
+      { pid: 504, name: "firefox", comm: "firefox", command: "firefox" },
+    ],
+    available: false,
+    spawned,
+  });
+  deps.resolveFirefoxDoctorEndpointFn = async () => "ws://127.0.0.1:9222";
+
+  await assert.rejects(
+    launchBrowser(
+      { config: loadConfig({}), browserFamily: "firefox", waitMs: 0 },
+      deps,
+    ),
+    /firefox is already running.*nothing was launched/,
+  );
+  assert.deepEqual(spawned, []);
+});
+
+test("launchBrowser ignores non-browser processes that mention the profile", async () => {
+  const spawned = [];
+  const deps = launchDeps({
+    processes: [
+      {
+        pid: 505,
+        name: "node",
+        comm: "node",
+        command:
+          "node /usr/lib/mcp-browser-dev-tools/cli.mjs open https://example.com --user-data-dir=/profiles/debug",
+      },
+    ],
+    available: true,
+    spawned,
+  });
+
+  const result = await launchBrowser(
+    {
+      config: loadConfig({}),
+      browserFamily: "chromium",
+      userDataDir: "/profiles/debug",
+      waitMs: 0,
+    },
+    deps,
+  );
+
+  assert.equal(result.launched, true);
+  assert.equal(spawned.length, 1);
+});
