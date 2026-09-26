@@ -8,6 +8,11 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-09-27
+
+This stable release rolls up the `0.0.6-beta.0` and `0.0.6-beta.1`
+prerelease changes below with no further changes.
+
 ## [0.0.6-beta.1] - 2026-09-27
 
 ### Added
