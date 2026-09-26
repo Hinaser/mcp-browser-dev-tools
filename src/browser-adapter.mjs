@@ -65,7 +65,9 @@ export class MultiBrowserAdapter {
   }
 
   getAdapter(browserFamily) {
-    const adapter = this.adapters[browserFamily];
+    // Edge is served by the Chromium adapter.
+    const adapter =
+      this.adapters[browserFamily === "edge" ? "chromium" : browserFamily];
     if (!adapter) {
       throw new Error(`Unsupported browser family: ${browserFamily}`);
     }
@@ -162,7 +164,8 @@ export class MultiBrowserAdapter {
   }
 
   async createTab(url, options = {}) {
-    const browserFamily = options.browserFamily;
+    const browserFamily =
+      options.browserFamily === "edge" ? "chromium" : options.browserFamily;
     if (!browserFamily) {
       throw new Error(
         "browserFamily is required when multiple browsers are configured",

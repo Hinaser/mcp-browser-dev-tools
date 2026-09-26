@@ -160,7 +160,9 @@ async function runOpen(positional, options) {
   });
 
   process.stdout.write(
-    `launched ${launch.browserFamily} browser: ${launch.executable} ${launch.args.join(" ")}\n`,
+    launch.launched === false
+      ? `${launch.browserFamily} is already running${launch.userDataDir ? ` with profile ${launch.userDataDir}` : ""}; reusing it\n`
+      : `launched ${launch.browserFamily} browser: ${launch.executable} ${launch.args.join(" ")}\n`,
   );
 
   if (launch.profileStrategy === "temporary" && launch.userDataDir) {

@@ -248,3 +248,23 @@ test("MultiBrowserAdapter prefixes target and session identifiers", async () => 
     { sessionId: "chromium:chromium-session" },
   ]);
 });
+
+test("MultiBrowserAdapter serves Edge requests through the Chromium adapter", async () => {
+  const created = [];
+  const adapter = new MultiBrowserAdapter({
+    chromium: {
+      async createTab(url) {
+        created.push(url);
+        return { targetId: "t1", url };
+      },
+    },
+    firefox: {},
+  });
+
+  const tab = await adapter.createTab("https://example.com", {
+    browserFamily: "edge",
+  });
+
+  assert.deepEqual(created, ["https://example.com"]);
+  assert.equal(tab.targetId, "chromium:t1");
+});

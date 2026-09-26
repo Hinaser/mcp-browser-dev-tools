@@ -70,6 +70,15 @@ Once the server is registered, the normal workflow is to ask the agent for brows
 
 The agent should usually start with `ensure_browser`. That tool can confirm browser availability, launch one if needed, and optionally open the requested URL in one step.
 
+Both `ensure_browser` and `launch_browser` try to keep one browser running instead of starting more:
+
+- a browser that is already reachable is reused, whatever profile it runs on; `launch_browser` returns `reused: true` instead of launching when `port`, `address`, `userDataDir`, and `unsafeArgs` are all omitted, and opens `url` in a new tab of that browser
+- before reusing or launching, the browser status is checked three times, so one slow answer does not trigger a launch
+- after launching, the broker will not launch the same browser again for 30 seconds while it waits for the endpoint, and launches are handled one at a time, so parallel tool calls do not start one browser each
+- on macOS and Linux, the broker never launches a second browser on a profile that is already open (or, for Firefox without `userDataDir`, while any Firefox is running), because that only opens another window in the running browser; it waits for that browser's endpoint instead, and fails with an explanation if the endpoint stays down. On Windows and WSL the broker cannot read browser command lines, so it cannot detect which profile a running Chrome or Edge uses; the Firefox check and the automatic temporary Chrome/Edge profile still apply there
+
+To make every launch use the same profile, set `MCP_BROWSER_USER_DATA_DIR` in the MCP server environment instead of passing `userDataDir` on every call. It applies only when a browser actually has to be launched; a browser that is already reachable is reused as is.
+
 If the agent launches Chrome or Edge without `userDataDir`, the broker checks whether the same browser family is already running. If it is, the broker automatically creates a temporary profile directory before launching so the new debug flags are not swallowed by the already-running profile.
 
 Typical temporary profile locations:
@@ -223,6 +232,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `CDP_BASE_URL` defaults to `http://127.0.0.1:9222`; when left at that default the broker probes loopback ports `9222` through `9226` for a reachable CDP browser endpoint
 - `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when left at that default the broker probes loopback ports `9222` through `9226`, and when pointed at the root Firefox remote debugging port it connects to the `/session` websocket and creates a BiDi session there
 - in `auto` mode, assign CDP and Firefox different ports so both browsers can run at once
+- `MCP_BROWSER_USER_DATA_DIR` sets the browser profile directory that `ensure_browser` and `launch_browser` use when `userDataDir` is not passed; a leading `~/` expands to the home directory
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`

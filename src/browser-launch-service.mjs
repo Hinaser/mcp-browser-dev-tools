@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import process from "node:process";
 import path from "node:path";
@@ -71,6 +71,111 @@ function normalizeStringValue(value) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function expandHomeDir(value) {
+  if (value === "~") {
+    return os.homedir();
+  }
+
+  return value?.startsWith("~/")
+    ? path.join(os.homedir(), value.slice(2))
+    : value;
+}
+
+function profileArgument(family, userDataDir) {
+  return family === "firefox"
+    ? `-profile ${userDataDir}`
+    : `--user-data-dir=${userDataDir}`;
+}
+
+// Starting a browser binary on a profile that is already open does not start
+// a second browser: the running instance just opens another window. Callers
+// use this to reuse that instance instead.
+// Executable names that identify browser processes, so a command line that
+// merely mentions the profile (such as this broker's own CLI) is not mistaken
+// for a running browser.
+function isBrowserExecutable(family, executable) {
+  const name = path.basename(executable).toLowerCase();
+  const hints =
+    family === "firefox"
+      ? ["firefox"]
+      : ["chrome", "chromium", "msedge", "microsoft edge", "microsoft-edge"];
+  return hints.some((hint) => name.includes(hint));
+}
+
+function parsePidColumns(stdout) {
+  const rows = new Map();
+  for (const line of stdout.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (match) {
+      rows.set(match[1], match[2]);
+    }
+  }
+  return rows;
+}
+
+function mentionsProfile(commandLine, needles) {
+  return needles.some((needle) => {
+    let index = commandLine.indexOf(needle);
+    while (index !== -1) {
+      const rest = commandLine.slice(index + needle.length);
+      if (rest === "" || rest.startsWith(" ") || /^\/(\s|$)/.test(rest)) {
+        return true;
+      }
+      index = commandLine.indexOf(needle, index + 1);
+    }
+    return false;
+  });
+}
+
+// Starting a browser binary on a profile that is already open does not start
+// a second browser: the running instance just opens another window. Callers
+// use this to reuse that instance instead.
+async function findProfileProcesses(
+  family,
+  userDataDir,
+  { env = process.env, execFileFn = execFileAsync, realpathFn = realpath } = {},
+) {
+  const platform = detectRuntimePlatform(env);
+  // Windows process listings do not include command lines, and WSL cannot see
+  // the command lines of the Windows browsers it launches.
+  if (platform !== "darwin" && platform !== "linux") {
+    return [];
+  }
+
+  let executables;
+  let commandLines;
+  try {
+    const options = { maxBuffer: 8 * 1024 * 1024 };
+    executables = parsePidColumns(
+      (await execFileFn("ps", ["-A", "-o", "pid=,comm="], options)).stdout,
+    );
+    commandLines = parsePidColumns(
+      (await execFileFn("ps", ["-A", "-o", "pid=,command="], options)).stdout,
+    );
+  } catch {
+    return [];
+  }
+
+  const trimmed = userDataDir.replace(/\/+$/, "") || userDataDir;
+  const spellings = [trimmed, path.resolve(trimmed)];
+  try {
+    spellings.push(await realpathFn(trimmed));
+  } catch {
+    // A profile directory that does not exist yet cannot be in use.
+  }
+  const needles = [
+    ...new Set(spellings.map((dir) => profileArgument(family, dir))),
+  ];
+
+  return [...commandLines.entries()]
+    .filter(
+      ([pid, commandLine]) =>
+        isBrowserExecutable(family, executables.get(pid) ?? "") &&
+        mentionsProfile(commandLine, needles),
+    )
+    .map(([, commandLine]) => commandLine);
 }
 
 const MANAGED_UNSAFE_LAUNCH_ARG_PREFIXES = [
@@ -162,7 +267,7 @@ function browserProcessMatchers(family) {
   }
 
   if (family === "firefox") {
-    return ["firefox", "firefox.exe"];
+    return ["firefox", "firefox.exe", "firefox-bin"];
   }
 
   return [
@@ -432,6 +537,7 @@ export async function launchBrowser(
     findBrowserExecutableFn = findBrowserExecutable,
     collectDoctorReportFn = collectDoctorReport,
     resolveFirefoxDoctorEndpointFn = resolveFirefoxDoctorEndpoint,
+    findProfileProcessesFn = findProfileProcesses,
     sleepFn = sleep,
   } = {},
 ) {
@@ -465,7 +571,11 @@ export async function launchBrowser(
     throw new Error(`No local ${family} browser executable found`);
   }
 
-  const providedUserDataDir = normalizeStringValue(userDataDir) ?? undefined;
+  const providedUserDataDir =
+    expandHomeDir(
+      normalizeStringValue(userDataDir) ??
+        normalizeStringValue(config.userDataDir),
+    ) ?? undefined;
   const {
     userDataDir: normalizedUserDataDir,
     profileStrategy,
@@ -494,11 +604,26 @@ export async function launchBrowser(
     unsafeArgs: normalizedUnsafeArgs,
   });
 
-  const child = spawnProcess(executable, args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref?.();
+  // Firefox started without a profile hands its command line to a Firefox
+  // that is already running, which opens a window there and ignores the
+  // debugging flag.
+  const profileAlreadyRunning = normalizedUserDataDir
+    ? (
+        await findProfileProcessesFn(family, normalizedUserDataDir, {
+          env,
+          execFileFn,
+        })
+      ).length > 0
+    : family === "firefox" && existingBrowserProcess.detected;
+
+  let child = null;
+  if (!profileAlreadyRunning) {
+    child = spawnProcess(executable, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref?.();
+  }
 
   const launchedAt = new Date().toISOString();
   const result = {
@@ -506,7 +631,9 @@ export async function launchBrowser(
     url: targetUrl,
     executable,
     args,
-    pid: child.pid ?? null,
+    pid: child?.pid ?? null,
+    launched: !profileAlreadyRunning,
+    profileAlreadyRunning,
     launchedAt,
     endpoint:
       family === "firefox"
@@ -571,5 +698,15 @@ export async function launchBrowser(
       ? doctorEnv.FIREFOX_BIDI_WS_URL
       : doctorEnv.CDP_BASE_URL;
   result.doctorReport = report;
+
+  if (profileAlreadyRunning && !report.browserStatus.available) {
+    const running = normalizedUserDataDir
+      ? `A browser is already running with profile ${normalizedUserDataDir}`
+      : `${family} is already running`;
+    throw new Error(
+      `${running}, but its debugging endpoint ${result.endpoint} is not answering. Launching it again would only open another window in that browser, so nothing was launched. Quit that browser and retry, or restart it with remote debugging on port ${resolvedPort}.`,
+    );
+  }
+
   return result;
 }

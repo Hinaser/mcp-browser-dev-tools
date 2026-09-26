@@ -362,6 +362,7 @@ test("launch_browser delegates to the launch service", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
     browserAdapter: createFakeManager(),
+    statusProbeRetryMs: 0,
     launchBrowser: async (args) => {
       capturedArgs = args;
       return {
@@ -411,6 +412,7 @@ test("launch_browser passes unsafeArgs through when enabled", async () => {
       MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
     }),
     browserAdapter: createFakeManager(),
+    statusProbeRetryMs: 0,
     launchBrowser: async (args) => {
       capturedArgs = args;
       return {
@@ -506,10 +508,10 @@ test("ensure_browser launches a browser when none is reachable", async () => {
   browserAdapter.getBrowserStatus = async () => {
     statusCalls += 1;
     return {
-      available: statusCalls >= 2,
+      available: launchCalls > 0,
       browserFamily: "auto",
       browsers:
-        statusCalls >= 2
+        launchCalls > 0
           ? {
               chromium: { available: true },
               firefox: { available: false },
@@ -523,6 +525,7 @@ test("ensure_browser launches a browser when none is reachable", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
     browserAdapter,
+    statusProbeRetryMs: 0,
     launchBrowser: async (args) => {
       launchCalls += 1;
       return {
@@ -552,6 +555,7 @@ test("ensure_browser launches a browser when none is reachable", async () => {
   });
 
   assert.equal(launchCalls, 1);
+  assert.equal(statusCalls, 4, "three probes before launching, one after");
   assert.equal(response.result.structuredContent.available, true);
   assert.equal(response.result.structuredContent.launched, true);
   assert.equal(
@@ -1073,4 +1077,226 @@ test("unsafe launch args are only exposed when explicitly enabled", async () => 
     });
     assert.match(description, /command-line flags/);
   }
+});
+
+function createLaunchServer({ chromiumAvailable, launches }) {
+  const browserAdapter = createFakeManager();
+  browserAdapter.getBrowserStatus = async () => {
+    const available = chromiumAvailable();
+    return {
+      available,
+      browserFamily: "auto",
+      browsers: {
+        chromium: { available },
+        firefox: { available: false },
+      },
+    };
+  };
+
+  return new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter,
+    statusProbeRetryMs: 0,
+    launchBrowser: async (args) => {
+      launches.push(args);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { browserFamily: args.browserFamily, launched: true };
+    },
+  });
+}
+
+function callTool(server, name, args, id = 1) {
+  return server.handleRequest({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+}
+
+test("launch_browser reuses a reachable browser instead of launching another", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => true,
+    launches,
+  });
+
+  const response = await callTool(server, "launch_browser", {
+    browserFamily: "chromium",
+  });
+
+  assert.equal(launches.length, 0);
+  assert.equal(response.result.structuredContent.reused, true);
+  assert.equal(response.result.structuredContent.launched, false);
+});
+
+test("launch_browser launches on an explicit port even when a browser is reachable", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => true,
+    launches,
+  });
+
+  await callTool(server, "launch_browser", {
+    browserFamily: "chromium",
+    port: 9333,
+  });
+
+  assert.equal(launches.length, 1);
+  assert.equal(launches[0].port, 9333);
+});
+
+test("parallel ensure_browser calls launch only one browser", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => launches.length > 0,
+    launches,
+  });
+
+  const responses = await Promise.all(
+    [1, 2, 3].map((id) =>
+      callTool(
+        server,
+        "ensure_browser",
+        { browserFamily: "chromium", createTab: false },
+        id,
+      ),
+    ),
+  );
+
+  assert.equal(launches.length, 1);
+  assert.deepEqual(
+    responses.map((response) => response.result.structuredContent.launched),
+    [true, false, false],
+  );
+});
+
+test("ensure_browser does not launch when the browser misses one status check", async () => {
+  const launches = [];
+  let checks = 0;
+  const server = createLaunchServer({
+    chromiumAvailable: () => {
+      checks += 1;
+      return checks > 1;
+    },
+    launches,
+  });
+
+  const response = await callTool(server, "ensure_browser", {
+    browserFamily: "chromium",
+    createTab: false,
+  });
+
+  assert.equal(launches.length, 0);
+  assert.equal(response.result.structuredContent.available, true);
+});
+
+test("ensure_browser treats Edge as available through the Chromium adapter in auto mode", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => true,
+    launches,
+  });
+
+  const response = await callTool(server, "ensure_browser", {
+    browserFamily: "edge",
+    createTab: false,
+  });
+
+  assert.equal(launches.length, 0);
+  assert.equal(response.result.structuredContent.available, true);
+});
+
+test("ensure_browser does not launch again while a launched browser is still starting", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => false,
+    launches,
+  });
+
+  const [first, second] = await Promise.all([
+    callTool(
+      server,
+      "ensure_browser",
+      { browserFamily: "chromium", createTab: false },
+      1,
+    ),
+    callTool(
+      server,
+      "ensure_browser",
+      { browserFamily: "chromium", createTab: false },
+      2,
+    ),
+  ]);
+
+  assert.equal(launches.length, 1);
+  assert.equal(first.result.structuredContent.launched, true);
+  assert.match(
+    second.error.message,
+    /has not exposed its debugging endpoint yet/,
+  );
+});
+
+test("launch_browser with an explicit profile does not reuse the running browser", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => true,
+    launches,
+  });
+
+  await callTool(server, "launch_browser", {
+    browserFamily: "chromium",
+    userDataDir: "/profiles/other",
+  });
+
+  assert.equal(launches.length, 1);
+  assert.equal(launches[0].userDataDir, "/profiles/other");
+});
+
+test("launch_browser opens the requested url when reusing a running browser", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => true,
+    launches,
+  });
+  const tabs = [];
+  server.browserAdapter.createTab = async (url, options) => {
+    tabs.push([url, options.browserFamily]);
+    return { targetId: "tab-9", url };
+  };
+
+  const response = await callTool(server, "launch_browser", {
+    browserFamily: "chromium",
+    url: "https://example.com/app",
+  });
+
+  assert.deepEqual(tabs, [["https://example.com/app", "chromium"]]);
+  assert.equal(response.result.structuredContent.tab.targetId, "tab-9");
+});
+
+test("a confirmed launch does not block the next explicit launch", async () => {
+  const launches = [];
+  const server = createLaunchServer({
+    chromiumAvailable: () => false,
+    launches,
+  });
+  server.launchBrowser = async (args) => {
+    launches.push(args);
+    return {
+      browserFamily: args.browserFamily,
+      launched: true,
+      doctorReport: { browserStatus: { available: true } },
+    };
+  };
+
+  await callTool(server, "launch_browser", { browserFamily: "chromium" }, 1);
+  const second = await callTool(
+    server,
+    "launch_browser",
+    { browserFamily: "chromium", port: 9333 },
+    2,
+  );
+
+  assert.equal(second.error, undefined);
+  assert.equal(launches.length, 2);
 });

@@ -8,6 +8,21 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `MCP_BROWSER_USER_DATA_DIR` sets the browser profile that `ensure_browser` and `launch_browser` use when they have to launch a browser
+
+### Changed
+
+- `launch_browser` reuses an already reachable browser (returning `reused: true`, and opening `url` in a new tab) instead of launching another one, unless `port`, `address`, `userDataDir`, or `unsafeArgs` is passed
+- `ensure_browser` and `launch_browser` check the browser status three times before deciding to launch, handle launches one at a time, and do not launch the same browser again for 30 seconds while a browser they launched has not yet answered, so parallel or repeated calls cannot each start a browser
+- On macOS and Linux, launching on a profile that is already open (or Firefox without a profile while Firefox is running) no longer opens another window in that browser: the broker waits for its endpoint instead, and fails with an explanation if the endpoint stays down
+- `open` reports when it reused an already running browser instead of launching one
+
+### Fixed
+
+- `ensure_browser` in `auto` mode now finds an Edge or Chrome browser reachable through the Chromium adapter when asked for `edge`, instead of launching another browser or failing to open the tab
+
 ## [0.0.6-beta.0] - 2026-09-27
 
 ### Changed

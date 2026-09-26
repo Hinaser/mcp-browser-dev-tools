@@ -85,6 +85,7 @@ test("loadConfig applies defaults", () => {
     logLevel: DEFAULT_LOG_LEVEL,
     debugStdio: false,
     logFile: null,
+    userDataDir: null,
     protocolVersion: "2024-11-05",
   });
 });
@@ -200,4 +201,16 @@ test("loadConfig still accepts the legacy remote endpoint flag", () => {
 
   assert.equal(config.allowRemoteEndpoints, true);
   assert.equal(config.allowRemoteCdp, true);
+});
+
+test("loadConfig reads the default browser profile from MCP_BROWSER_USER_DATA_DIR", () => {
+  assert.equal(
+    loadConfig({ MCP_BROWSER_USER_DATA_DIR: " ~/chrome-debug-profile " })
+      .userDataDir,
+    "~/chrome-debug-profile",
+  );
+  assert.equal(
+    loadConfig({ MCP_BROWSER_USER_DATA_DIR: " " }).userDataDir,
+    null,
+  );
 });
