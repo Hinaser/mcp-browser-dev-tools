@@ -143,15 +143,28 @@ function sessionWithLimitSchema(description) {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       limit: {
         type: "integer",
         minimum: 1,
+        description:
+          "Return the most recent N entries from the session buffer (default 50).",
       },
     },
     required: ["sessionId"],
     additionalProperties: false,
     description,
+  };
+}
+
+const LOCATOR_DESCRIPTION =
+  'Element locator. Plain CSS (or css=...) resolves to the first document.querySelector match. text=Foo resolves to the first visible element whose whitespace-normalized text equals Foo, falling back to the first whose text contains Foo; elements are scanned in document order, so this can resolve to a wrapper around the element you want. role=button or role=button[name="Save"] matches by explicit or implicit ARIA role and, optionally, accessible name (equal or containing), without a visibility check. name=Foo resolves to the first visible element whose accessible name (aria-label, aria-labelledby, associated label, alt, and so on) equals or contains Foo. Text comparisons are case-sensitive. Only the top-level document is searched: elements inside iframes or shadow roots are not found.';
+
+function selectorProperty() {
+  return {
+    type: "string",
+    description: LOCATOR_DESCRIPTION,
   };
 }
 
@@ -161,6 +174,7 @@ function sessionSchema(properties, required, description) {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       ...properties,
     },
@@ -174,6 +188,8 @@ function waitUntilProperty() {
   return {
     type: "string",
     enum: ["none", "interactive", "complete"],
+    description:
+      "When to return: none returns once navigation starts, interactive after DOMContentLoaded, complete after the load event (default complete).",
   };
 }
 
@@ -183,31 +199,38 @@ function waitForInputSchema() {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
-      selector: {
-        type: "string",
-      },
+      selector: selectorProperty(),
       state: {
         type: "string",
         enum: ["present", "visible", "hidden"],
+        description:
+          "Selector state to wait for (default visible). present: in the DOM. hidden: absent or not visible. Requires selector.",
       },
       url: {
         type: "string",
+        description: "Wait until the page URL equals this string exactly.",
       },
       urlIncludes: {
         type: "string",
+        description: "Wait until the page URL contains this string.",
       },
       readyState: {
         type: "string",
         enum: ["interactive", "complete"],
+        description:
+          "Wait until document.readyState reaches this state or later.",
       },
       timeoutMs: {
         type: "integer",
         minimum: 1,
+        description: "How long to wait before failing (default 10000).",
       },
       pollIntervalMs: {
         type: "integer",
         minimum: 1,
+        description: "Delay between checks (default 100).",
       },
     },
     required: ["sessionId"],
@@ -221,9 +244,11 @@ function compareSessionsSchema(properties, required) {
     properties: {
       sessionIdA: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       sessionIdB: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       ...properties,
     },
@@ -238,10 +263,12 @@ function storageInputSchema() {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       area: {
         type: "string",
         enum: ["all", "localStorage", "sessionStorage"],
+        description: "Which storage to return (default all).",
       },
     },
     required: ["sessionId"],
@@ -255,21 +282,26 @@ function captureDebugReportInputSchema(browserFamily) {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       consoleLimit: {
         type: "integer",
         minimum: 1,
+        description: "Most recent console entries to include (default 20).",
       },
       networkLimit: {
         type: "integer",
         minimum: 1,
+        description: "Most recent network requests to include (default 20).",
       },
       includeScreenshot: {
         type: "boolean",
+        description: "Include a viewport screenshot (default true).",
       },
       screenshotFormat: {
         type: "string",
         enum: screenshotFormatsFor(browserFamily),
+        description: "Screenshot image format (default png).",
       },
     },
     required: ["sessionId"],
@@ -283,12 +315,17 @@ function restoreSessionSnapshotInputSchema() {
     properties: {
       sessionId: {
         type: "string",
+        description: "Session id returned by attach_tab.",
       },
       snapshot: {
         type: "string",
+        description:
+          "The JSON output of capture_session_snapshot, as a string. Only entries for the current page origin are restored.",
       },
       clearStorage: {
         type: "boolean",
+        description:
+          "Clear localStorage and sessionStorage before restoring (default false).",
       },
     },
     required: ["sessionId", "snapshot"],
@@ -300,6 +337,7 @@ function newTabInputSchema(browserFamily) {
   const properties = {
     url: {
       type: "string",
+      description: "URL to open (default about:blank).",
     },
   };
   const required = [];
@@ -308,6 +346,7 @@ function newTabInputSchema(browserFamily) {
     properties.browserFamily = {
       type: "string",
       enum: ["chromium", "firefox"],
+      description: "Browser to open the tab in.",
     };
     required.push("browserFamily");
   }
@@ -326,6 +365,8 @@ function unsafeArgsProperty() {
     items: {
       type: "string",
     },
+    description:
+      "Extra browser command-line flags, each starting with -. Flags that conflict with broker-managed launch options (debugging port, address, profile) are rejected.",
   };
 }
 
@@ -333,27 +374,40 @@ function launchBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
   const properties = {
     url: {
       type: "string",
+      description: "URL to open in the launched browser (default about:blank).",
     },
     browserFamily: {
       type: "string",
       enum: supportedLaunchFamilies(browserFamily),
+      description:
+        "Browser to launch. Required when the broker runs in auto mode.",
     },
     port: {
       type: "integer",
       minimum: 1,
+      description:
+        "Remote debugging port to launch on (default: the port of the configured browser endpoint, usually 9222).",
     },
     address: {
       type: "string",
+      description:
+        "Remote debugging bind address for Chromium and Edge (ignored for Firefox). Must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
     },
     userDataDir: {
       type: "string",
+      description:
+        "Browser profile directory. When omitted, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
+      description:
+        "How long to wait for the debugging endpoint to answer after launch (default 5000).",
     },
     skipDoctor: {
       type: "boolean",
+      description:
+        "Return right after spawning the browser, without waiting for the endpoint or running the doctor report (default false).",
     },
   };
   if (enableUnsafeLaunchArgs) {
@@ -374,32 +428,49 @@ function ensureBrowserInputSchema(browserFamily, enableUnsafeLaunchArgs) {
     browserFamily: {
       type: "string",
       enum: supportedLaunchFamilies(browserFamily),
+      description:
+        "Browser to check or launch. Required when the broker runs in auto mode.",
     },
     url: {
       type: "string",
+      description: "URL to open in a new tab once the browser is reachable.",
     },
     createTab: {
       type: "boolean",
+      description:
+        "Open a tab after the browser is reachable (default: true when url is given).",
     },
     launchIfMissing: {
       type: "boolean",
+      description:
+        "Launch a browser when none is reachable (default true). When false and none is reachable, return the status without launching or opening a tab.",
     },
     port: {
       type: "integer",
       minimum: 1,
+      description:
+        "Remote debugging port to launch on (default: the port of the configured browser endpoint, usually 9222).",
     },
     address: {
       type: "string",
+      description:
+        "Remote debugging bind address for Chromium and Edge (ignored for Firefox). Must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
     },
     userDataDir: {
       type: "string",
+      description:
+        "Browser profile directory. When omitted, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
+      description:
+        "How long to wait for the debugging endpoint to answer after launch (default 5000).",
     },
     skipDoctor: {
       type: "boolean",
+      description:
+        "Return right after spawning the browser, without waiting for the endpoint or running the doctor report (default false).",
     },
   };
   if (enableUnsafeLaunchArgs) {
@@ -684,6 +755,7 @@ export class McpBrowserDevToolsServer {
               properties: {
                 targetId: {
                   type: "string",
+                  description: "Target id returned by list_tabs or new_tab.",
                 },
               },
               required: ["targetId"],
@@ -802,9 +874,7 @@ export class McpBrowserDevToolsServer {
               "Compare a selector across two attached sessions using a bounded element summary.",
             inputSchema: compareSessionsSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               ["selector"],
             ),
@@ -863,7 +933,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "wait_for",
             description:
-              "Wait for page state such as selector visibility, URL, or ready state on an attached session.",
+              "Wait until every given condition holds on an attached session: selector state, exact url, urlIncludes substring, and readyState. Give at least one condition. Polls until the conditions match or timeoutMs passes, then fails with the last observed state. A selector check scrolls the matched element into view on each poll.",
             inputSchema: waitForInputSchema(),
           },
           handler: async (args) => {
@@ -1025,6 +1095,7 @@ export class McpBrowserDevToolsServer {
               {
                 url: {
                   type: "string",
+                  description: "Absolute URL to load.",
                 },
                 waitUntil: waitUntilProperty(),
               },
@@ -1048,6 +1119,8 @@ export class McpBrowserDevToolsServer {
               {
                 ignoreCache: {
                   type: "boolean",
+                  description:
+                    "Bypass the HTTP cache for this reload (default false).",
                 },
                 waitUntil: waitUntilProperty(),
               },
@@ -1067,12 +1140,10 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "click",
             description:
-              "Click a single element located by CSS, text=..., role=..., or name=... syntax.",
+              "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
             inputSchema: sessionSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               ["selector"],
             ),
@@ -1087,12 +1158,10 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "hover",
             description:
-              "Hover a single element located by CSS, text=..., role=..., or name=... syntax.",
+              "Hover a single element located by CSS, text=..., role=..., or name=... syntax. Moves the real mouse pointer to the element center.",
             inputSchema: sessionSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               ["selector"],
             ),
@@ -1107,17 +1176,19 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "type",
             description:
-              "Type text into an input, textarea, or contenteditable element.",
+              "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false.",
             inputSchema: sessionSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
                 text: {
                   type: "string",
+                  description:
+                    "Text to enter. Each newline is sent as an Enter key press: a line break in a textarea, implicit form submission in a single-line input. Date, time, datetime-local, month, week, color, and range inputs get the value set directly, so pass it in that input's value format (for example 2026-09-27). An empty string with clear empties the field.",
                 },
                 clear: {
                   type: "boolean",
+                  description:
+                    "Replace the existing content (default true). When false, the text is inserted at the end of the current content. Ignored for date, time, datetime-local, month, week, color, and range inputs, whose value is always replaced.",
                 },
               },
               ["selector", "text"],
@@ -1135,17 +1206,19 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "select",
             description:
-              "Select an option from a <select> by value or visible label.",
+              "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead.",
             inputSchema: sessionSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
                 value: {
                   type: "string",
+                  description:
+                    "Matches an option whose value attribute or full text equals this string.",
                 },
                 label: {
                   type: "string",
+                  description:
+                    "Matches an option whose visible text contains this string (case-sensitive).",
                 },
               },
               ["selector"],
@@ -1169,15 +1242,15 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "press_key",
             description:
-              "Dispatch a key press against the focused element or an optionally targeted element.",
+              "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
             inputSchema: sessionSchema(
               {
                 key: {
                   type: "string",
+                  description:
+                    "A single character, or a named key: Enter, Tab, Escape, Backspace, Delete, Insert, ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, Space, F1-F12, Shift, Control, Alt, or Meta. Join modifiers with + (Shift+Tab, Control+Enter, Meta+a). Names are case-insensitive; unknown names are rejected.",
                 },
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               ["key"],
             ),
@@ -1199,18 +1272,22 @@ export class McpBrowserDevToolsServer {
               "Scroll the page by deltas or scroll a specific element into view.",
             inputSchema: sessionSchema(
               {
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
                 deltaX: {
                   type: "integer",
+                  description:
+                    "Horizontal scroll distance in CSS pixels; negative scrolls left. Ignored when selector is given.",
                 },
                 deltaY: {
                   type: "integer",
+                  description:
+                    "Vertical scroll distance in CSS pixels; negative scrolls up. Ignored when selector is given.",
                 },
                 block: {
                   type: "string",
                   enum: ["start", "center", "end", "nearest"],
+                  description:
+                    "Vertical alignment when scrolling selector into view (default center).",
                 },
               },
               [],
@@ -1248,17 +1325,23 @@ export class McpBrowserDevToolsServer {
                 width: {
                   type: "integer",
                   minimum: 1,
+                  description: "Viewport width in CSS pixels.",
                 },
                 height: {
                   type: "integer",
                   minimum: 1,
+                  description: "Viewport height in CSS pixels.",
                 },
                 deviceScaleFactor: {
                   type: "number",
                   minimum: 0.1,
+                  description:
+                    "Device pixel ratio to emulate. Chromium and Edge use 1 when omitted; Firefox keeps its current ratio.",
                 },
                 mobile: {
                   type: "boolean",
+                  description:
+                    "Emulate a mobile device, including meta viewport handling (default false). Chromium and Edge only; ignored on Firefox.",
                 },
               },
               ["width", "height"],
@@ -1318,10 +1401,13 @@ export class McpBrowserDevToolsServer {
               properties: {
                 sessionId: {
                   type: "string",
+                  description: "Session id returned by attach_tab.",
                 },
                 depth: {
                   type: "integer",
                   minimum: 1,
+                  description:
+                    "How many levels of child nodes to include (default 2). Chromium and Edge only; Firefox returns the full document HTML regardless.",
                 },
               },
               required: ["sessionId"],
@@ -1338,16 +1424,15 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "inspect_element",
             description:
-              "Inspect a single DOM element located by CSS, text=..., role=..., or name=... syntax and return normalized element details.",
+              "Inspect a single DOM element located by CSS, text=..., role=..., or name=... syntax and return normalized element details. Scrolls the element into view first, so the returned box reflects the scrolled position.",
             inputSchema: {
               type: "object",
               properties: {
                 sessionId: {
                   type: "string",
+                  description: "Session id returned by attach_tab.",
                 },
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               required: ["sessionId", "selector"],
               additionalProperties: false,
@@ -1369,14 +1454,14 @@ export class McpBrowserDevToolsServer {
               properties: {
                 sessionId: {
                   type: "string",
+                  description: "Session id returned by attach_tab.",
                 },
                 format: {
                   type: "string",
                   enum: screenshotFormatsFor(this.config.browserFamily),
+                  description: "Image format (default png).",
                 },
-                selector: {
-                  type: "string",
-                },
+                selector: selectorProperty(),
               },
               required: ["sessionId"],
               additionalProperties: false,
@@ -1404,10 +1489,13 @@ export class McpBrowserDevToolsServer {
               properties: {
                 sessionId: {
                   type: "string",
+                  description: "Session id returned by attach_tab.",
                 },
                 limit: {
                   type: "integer",
                   minimum: 1,
+                  description:
+                    "Return the most recent N events from the session buffer (default 50).",
                 },
               },
               required: ["sessionId"],
@@ -1436,15 +1524,22 @@ export class McpBrowserDevToolsServer {
               properties: {
                 sessionId: {
                   type: "string",
+                  description: "Session id returned by attach_tab.",
                 },
                 expression: {
                   type: "string",
+                  description:
+                    "JavaScript expression to evaluate in the page's main world.",
                 },
                 awaitPromise: {
                   type: "boolean",
+                  description:
+                    "Wait for a returned promise to settle and return its result (default true).",
                 },
                 returnByValue: {
                   type: "boolean",
+                  description:
+                    "Return the result as a JSON value (default true). When false, only a short description of the resulting object is returned. Chromium and Edge only; Firefox always returns a serialized value.",
                 },
               },
               required: ["sessionId", "expression"],

@@ -9,6 +9,15 @@ export function buildPageContextExpression(
   const body = `(() => {
     const payload = ${buildPayloadLiteral(payload)};
     const TEXT_LIMIT = 400;
+    const VALUE_ONLY_INPUT_TYPES = [
+      "date",
+      "time",
+      "datetime-local",
+      "month",
+      "week",
+      "color",
+      "range",
+    ];
 
     function clipText(value, limit = TEXT_LIMIT) {
       if (typeof value !== "string") {
@@ -566,24 +575,112 @@ export function buildPageContextExpression(
       element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
     }
 
+    // Assigning element.value directly also updates the value tracker React
+    // keeps on the instance, so React would treat the next input event as a
+    // no-op. The prototype setter bypasses that tracker.
+    function setNativeValue(element, value) {
+      const prototype = Object.getPrototypeOf(element);
+      const descriptor = prototype
+        ? Object.getOwnPropertyDescriptor(prototype, "value")
+        : null;
+      if (descriptor?.set) {
+        descriptor.set.call(element, value);
+      } else {
+        element.value = value;
+      }
+    }
+
     function maybeScrollIntoView(element) {
       if (!element || payload.scrollIntoView === false) {
         return;
       }
 
-      element.scrollIntoView({ block: "center", inline: "center" });
+      element.scrollIntoView({
+        block: "center",
+        inline: "center",
+        behavior: "instant",
+      });
     }
 
-    function pressKeyOnTarget(target, key) {
-      const eventInit = {
-        key,
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-      };
-      target.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-      target.dispatchEvent(new KeyboardEvent("keypress", eventInit));
-      target.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+    function summarizeTarget(element) {
+      return element
+        ? {
+            tagName: element.tagName,
+            id: element.getAttribute("id"),
+            className: element.getAttribute("class"),
+          }
+        : null;
+    }
+
+    function getDeepActiveElement() {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) {
+        active = active.shadowRoot.activeElement;
+      }
+      return active;
+    }
+
+    function focusElement(element) {
+      if (typeof element.focus === "function") {
+        element.focus();
+      }
+
+      const active = getDeepActiveElement();
+      return Boolean(
+        active &&
+          (active === element ||
+            (element.isContentEditable &&
+              typeof active.contains === "function" &&
+              active.contains(element))),
+      );
+    }
+
+    function findClickablePoint(element) {
+      const rects =
+        typeof element.getClientRects === "function"
+          ? Array.from(element.getClientRects())
+          : [];
+      if (rects.length === 0) {
+        rects.push(element.getBoundingClientRect());
+      }
+
+      for (const rect of rects) {
+        const left = Math.max(rect.left, 0);
+        const top = Math.max(rect.top, 0);
+        const right = Math.min(rect.right, window.innerWidth);
+        const bottom = Math.min(rect.bottom, window.innerHeight);
+        if (right - left >= 1 && bottom - top >= 1) {
+          return { x: (left + right) / 2, y: (top + bottom) / 2 };
+        }
+      }
+
+      return null;
+    }
+
+    function hitTest(point) {
+      let hit = document.elementFromPoint(point.x, point.y);
+      while (hit?.shadowRoot) {
+        const inner = hit.shadowRoot.elementFromPoint(point.x, point.y);
+        if (!inner || inner === hit) {
+          break;
+        }
+        hit = inner;
+      }
+      return hit;
+    }
+
+    function receivesPointerAt(element, hit) {
+      for (let node = hit; node; node = node.parentNode ?? node.host ?? null) {
+        if (node === element) {
+          return true;
+        }
+      }
+
+      // Styled checkboxes often hide the input behind its <label>, which
+      // forwards the click to the control.
+      const label =
+        typeof hit?.closest === "function" ? hit.closest("label") : null;
+      return Boolean(label && label.control === element);
     }
 
     function runAction() {
@@ -608,96 +705,100 @@ export function buildPageContextExpression(
             node: describeElement(resolved.element, resolved),
           };
         }
-        case "click": {
+        case "pointer_target": {
           const resolved = ensureResolved(payload.selector);
           if (!resolved.element) {
             return resolved;
           }
 
           maybeScrollIntoView(resolved.element);
-          if (typeof resolved.element.focus === "function") {
-            resolved.element.focus();
-          }
-
-          if (typeof resolved.element.click === "function") {
-            resolved.element.click();
-          } else {
-            resolved.element.dispatchEvent(
-              new MouseEvent("click", {
-                bubbles: true,
-                cancelable: true,
-                composed: true,
-              }),
-            );
-          }
+          const point = findClickablePoint(resolved.element);
+          const hit = point ? hitTest(point) : null;
+          const receivesEvents = Boolean(
+            hit && receivesPointerAt(resolved.element, hit),
+          );
 
           return {
             browserFamily: payload.browserFamily,
             selector: payload.selector,
             found: true,
-            clicked: true,
+            point,
+            receivesEvents,
+            obscuredBy: receivesEvents ? null : summarizeTarget(hit),
             node: describeElement(resolved.element, resolved),
           };
         }
-        case "hover": {
+        case "prepare_type": {
           const resolved = ensureResolved(payload.selector);
           if (!resolved.element) {
             return resolved;
           }
 
-          maybeScrollIntoView(resolved.element);
-          const eventInit = {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-          };
-          resolved.element.dispatchEvent(new MouseEvent("mouseover", eventInit));
-          resolved.element.dispatchEvent(new MouseEvent("mouseenter", eventInit));
-          resolved.element.dispatchEvent(new MouseEvent("mousemove", eventInit));
-
-          return {
-            browserFamily: payload.browserFamily,
-            selector: payload.selector,
-            found: true,
-            hovered: true,
-            node: describeElement(resolved.element, resolved),
-          };
-        }
-        case "type": {
-          const resolved = ensureResolved(payload.selector);
-          if (!resolved.element) {
-            return resolved;
-          }
-
+          const element = resolved.element;
           const clear = payload.clear !== false;
-          maybeScrollIntoView(resolved.element);
-          if (typeof resolved.element.focus === "function") {
-            resolved.element.focus();
-          }
+          maybeScrollIntoView(element);
 
-          if (
-            resolved.element instanceof HTMLInputElement ||
-            resolved.element instanceof HTMLTextAreaElement
-          ) {
-            resolved.element.value = clear
-              ? payload.text
-              : \`\${resolved.element.value}\${payload.text}\`;
-            dispatchInputEvents(resolved.element);
-          } else if (resolved.element.isContentEditable) {
-            resolved.element.textContent = clear
-              ? payload.text
-              : \`\${resolved.element.textContent ?? ""}\${payload.text}\`;
-            dispatchInputEvents(resolved.element);
-          } else {
+          const isTextControl =
+            element instanceof HTMLInputElement ||
+            element instanceof HTMLTextAreaElement;
+          if (!isEditable(element) || isDisabled(element)) {
             throw new Error("Resolved element is not editable");
           }
+          if (element.readOnly === true) {
+            throw new Error("Resolved element is read-only");
+          }
+
+          // Pickers such as date or color inputs do not accept typed text, so
+          // their value is set directly.
+          if (
+            element instanceof HTMLInputElement &&
+            VALUE_ONLY_INPUT_TYPES.includes((element.type || "").toLowerCase())
+          ) {
+            focusElement(element);
+            setNativeValue(element, payload.text);
+            dispatchInputEvents(element);
+            return {
+              browserFamily: payload.browserFamily,
+              selector: payload.selector,
+              found: true,
+              method: "value",
+              typedText: payload.text,
+              node: describeElement(element, resolved),
+            };
+          }
+
+          if (!focusElement(element)) {
+            throw new Error("Could not focus the resolved element");
+          }
+
+          if (isTextControl) {
+            if (clear) {
+              element.select();
+            } else {
+              const end = element.value.length;
+              try {
+                element.setSelectionRange(end, end);
+              } catch {
+                // email and number inputs do not support selection ranges.
+              }
+            }
+          } else {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            if (!clear) {
+              range.collapse(false);
+            }
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
 
           return {
             browserFamily: payload.browserFamily,
             selector: payload.selector,
             found: true,
-            typedText: payload.text,
-            node: describeElement(resolved.element, resolved),
+            method: "native",
+            node: describeElement(element, resolved),
           };
         }
         case "select": {
@@ -738,11 +839,7 @@ export function buildPageContextExpression(
             node: describeElement(resolved.element, resolved),
           };
         }
-        case "press_key": {
-          let target = document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : document.body;
-
+        case "focus": {
           if (payload.selector) {
             const resolved = ensureResolved(payload.selector);
             if (!resolved.element) {
@@ -750,25 +847,16 @@ export function buildPageContextExpression(
             }
 
             maybeScrollIntoView(resolved.element);
-            if (typeof resolved.element.focus === "function") {
-              resolved.element.focus();
+            if (!focusElement(resolved.element)) {
+              throw new Error("Could not focus the resolved element");
             }
-            target = resolved.element;
           }
-
-          pressKeyOnTarget(target, payload.key);
 
           return {
             browserFamily: payload.browserFamily,
-            key: payload.key,
-            dispatched: true,
-            target: target
-              ? {
-                  tagName: target.tagName,
-                  id: target.getAttribute("id"),
-                  className: target.getAttribute("class"),
-                }
-              : null,
+            selector: payload.selector ?? null,
+            found: true,
+            target: summarizeTarget(getDeepActiveElement() ?? document.body),
           };
         }
         case "scroll": {
@@ -948,4 +1036,38 @@ export function buildPageContextExpression(
   })()`;
 
   return serialize ? `JSON.stringify(${body})` : body;
+}
+
+function describeTarget(target) {
+  if (!target) {
+    return "another element";
+  }
+
+  const id = target.id ? `#${target.id}` : "";
+  const className =
+    typeof target.className === "string" && target.className.trim()
+      ? `.${target.className.trim().split(/\s+/).join(".")}`
+      : "";
+  return `<${target.tagName.toLowerCase()}${id}${className}>`;
+}
+
+// Real pointer input lands on whatever is painted at the point, so refuse to
+// send it when the resolved element is off-screen or covered.
+export function assertPointerTarget(target) {
+  if (!target.found) {
+    return;
+  }
+
+  if (!target.point) {
+    throw new Error(
+      `Element "${target.selector}" has no visible area inside the viewport`,
+    );
+  }
+
+  if (!target.receivesEvents) {
+    const { x, y } = target.point;
+    throw new Error(
+      `Element "${target.selector}" is covered by ${describeTarget(target.obscuredBy)} at (${Math.round(x)}, ${Math.round(y)}); close or scroll past the covering element first`,
+    );
+  }
 }

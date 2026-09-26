@@ -1063,16 +1063,14 @@ test("unsafe launch args are only exposed when explicitly enabled", async () => 
     (tool) => tool.name === "ensure_browser",
   );
 
-  assert.deepEqual(launchBrowserTool.inputSchema.properties.unsafeArgs, {
-    type: "array",
-    items: {
-      type: "string",
-    },
-  });
-  assert.deepEqual(ensureBrowserTool.inputSchema.properties.unsafeArgs, {
-    type: "array",
-    items: {
-      type: "string",
-    },
-  });
+  for (const tool of [launchBrowserTool, ensureBrowserTool]) {
+    const { description, ...shape } = tool.inputSchema.properties.unsafeArgs;
+    assert.deepEqual(shape, {
+      type: "array",
+      items: {
+        type: "string",
+      },
+    });
+    assert.match(description, /command-line flags/);
+  }
 });
