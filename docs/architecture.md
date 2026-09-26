@@ -37,7 +37,7 @@ The adapter layer hides protocol-specific details behind a shared interface:
 
 Each adapter owns target discovery, session attachment, event buffering, screenshots, DOM retrieval, and optional evaluation.
 
-Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, click, type, select, scroll, and page-state reads.
+Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, select, scroll, and page-state reads. For click, hover, type, and key presses the helper only resolves, scrolls, focuses, and hit-tests the target; the adapter then sends trusted input through the browser protocol (CDP `Input.*` or BiDi `input.performActions`), with key definitions shared in `keyboard.mjs`.
 
 In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity. Edge also uses the CDP-backed `chromium:` namespace in `auto` mode because it shares the same adapter family.
 

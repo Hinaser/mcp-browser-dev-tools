@@ -5,7 +5,11 @@ import {
 } from "./session-events.mjs";
 import { DEFAULT_CDP_BASE_URL } from "./config.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
-import { buildPageContextExpression } from "./page-context.mjs";
+import {
+  assertPointerTarget,
+  buildPageContextExpression,
+} from "./page-context.mjs";
+import { buildCdpKeyEvents } from "./keyboard.mjs";
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -807,36 +811,120 @@ export class CdpSession {
     });
   }
 
+  async resolvePointerTarget(selector) {
+    const target = await this.runPageAction({
+      action: "pointer_target",
+      selector,
+    });
+    assertPointerTarget(target);
+    return target;
+  }
+
+  async dispatchMouse(type, point, extra = {}) {
+    await this.send("Input.dispatchMouseEvent", {
+      type,
+      x: point.x,
+      y: point.y,
+      ...extra,
+    });
+  }
+
+  async dispatchKeyEvents(events) {
+    for (const params of events) {
+      await this.send("Input.dispatchKeyEvent", params);
+    }
+  }
+
   async click(selector) {
-    return this.runPageAction(
-      {
-        action: "click",
-        selector,
-      },
-      { userGesture: true },
-    );
+    const target = await this.resolvePointerTarget(selector);
+    if (!target.found) {
+      return target;
+    }
+
+    const press = { button: "left", clickCount: 1 };
+    await this.dispatchMouse("mouseMoved", target.point);
+    await this.dispatchMouse("mousePressed", target.point, {
+      ...press,
+      buttons: 1,
+    });
+    await this.dispatchMouse("mouseReleased", target.point, {
+      ...press,
+      buttons: 0,
+    });
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      selector,
+      found: true,
+      clicked: true,
+      point: target.point,
+      node: target.node,
+    };
   }
 
   async hover(selector) {
-    return this.runPageAction(
-      {
-        action: "hover",
-        selector,
-      },
-      { userGesture: true },
-    );
+    const target = await this.resolvePointerTarget(selector);
+    if (!target.found) {
+      return target;
+    }
+
+    await this.dispatchMouse("mouseMoved", target.point);
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      selector,
+      found: true,
+      hovered: true,
+      point: target.point,
+      node: target.node,
+    };
   }
 
   async type(selector, text, options = {}) {
-    return this.runPageAction(
+    const prepared = await this.runPageAction(
       {
-        action: "type",
+        action: "prepare_type",
         selector,
         text,
         clear: options.clear,
       },
       { userGesture: true },
     );
+    if (!prepared.found || prepared.method !== "native") {
+      return prepared;
+    }
+
+    // insertText goes through the browser's editing pipeline, so frameworks
+    // see trusted beforeinput/input events and the real value change.
+    // Newlines become Enter presses, matching the Firefox path: a line break
+    // in a textarea, implicit submission in a single-line input.
+    if (text) {
+      const lines = text.replace(/\r\n?/g, "\n").split("\n");
+      for (const [index, line] of lines.entries()) {
+        if (index > 0) {
+          await this.dispatchKeyEvents(buildCdpKeyEvents("Enter"));
+        }
+        if (line) {
+          await this.send("Input.insertText", { text: line });
+        }
+      }
+    } else if (options.clear !== false) {
+      await this.dispatchKeyEvents(buildCdpKeyEvents("Delete"));
+    }
+
+    const typed = await this.runPageAction({
+      action: "inspect",
+      selector,
+      scrollIntoView: false,
+    });
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      selector,
+      found: true,
+      typedText: text,
+      node: typed.found ? typed.node : prepared.node,
+    };
   }
 
   async select(selector, options = {}) {
@@ -852,14 +940,26 @@ export class CdpSession {
   }
 
   async pressKey(key, selector = null) {
-    return this.runPageAction(
+    const events = buildCdpKeyEvents(key);
+    const focused = await this.runPageAction(
       {
-        action: "press_key",
-        key,
+        action: "focus",
         selector,
       },
       { userGesture: true },
     );
+    if (!focused.found) {
+      return focused;
+    }
+
+    await this.dispatchKeyEvents(events);
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      key,
+      dispatched: true,
+      target: focused.target,
+    };
   }
 
   async scroll(options = {}) {

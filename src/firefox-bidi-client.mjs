@@ -5,7 +5,26 @@ import {
 } from "./session-events.mjs";
 import { DEFAULT_FIREFOX_BIDI_WS_URL } from "./config.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
-import { buildPageContextExpression } from "./page-context.mjs";
+import {
+  assertPointerTarget,
+  buildPageContextExpression,
+} from "./page-context.mjs";
+import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
+
+const POINTER_SOURCE = {
+  type: "pointer",
+  id: "mcp-mouse",
+  parameters: { pointerType: "mouse" },
+};
+
+function pointerMove(point) {
+  return {
+    type: "pointerMove",
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    origin: "viewport",
+  };
+}
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -1013,39 +1032,112 @@ export class FirefoxBidiSessionManager {
     };
   }
 
+  async performActions(session, actions) {
+    await this.send("input.performActions", {
+      context: session.target.targetId,
+      actions,
+    });
+  }
+
+  async performKeyActions(session, actions) {
+    await this.performActions(session, [
+      { type: "key", id: "mcp-keyboard", actions },
+    ]);
+  }
+
+  async resolvePointerTarget(session, selector) {
+    const target = await this.runPageAction(session, {
+      action: "pointer_target",
+      selector,
+    });
+    assertPointerTarget(target);
+    return target;
+  }
+
   async click(sessionId, selector) {
-    return this.runPageAction(
-      this.getSession(sessionId),
+    const session = this.getSession(sessionId);
+    const target = await this.resolvePointerTarget(session, selector);
+    if (!target.found) {
+      return target;
+    }
+
+    await this.performActions(session, [
       {
-        action: "click",
-        selector,
+        ...POINTER_SOURCE,
+        actions: [
+          pointerMove(target.point),
+          { type: "pointerDown", button: 0 },
+          { type: "pointerUp", button: 0 },
+        ],
       },
-      { userActivation: true },
-    );
+    ]);
+
+    return {
+      browserFamily: "firefox",
+      selector,
+      found: true,
+      clicked: true,
+      point: target.point,
+      node: target.node,
+    };
   }
 
   async hover(sessionId, selector) {
-    return this.runPageAction(
-      this.getSession(sessionId),
-      {
-        action: "hover",
-        selector,
-      },
-      { userActivation: true },
-    );
+    const session = this.getSession(sessionId);
+    const target = await this.resolvePointerTarget(session, selector);
+    if (!target.found) {
+      return target;
+    }
+
+    await this.performActions(session, [
+      { ...POINTER_SOURCE, actions: [pointerMove(target.point)] },
+    ]);
+
+    return {
+      browserFamily: "firefox",
+      selector,
+      found: true,
+      hovered: true,
+      point: target.point,
+      node: target.node,
+    };
   }
 
   async type(sessionId, selector, text, options = {}) {
-    return this.runPageAction(
-      this.getSession(sessionId),
+    const session = this.getSession(sessionId);
+    const prepared = await this.runPageAction(
+      session,
       {
-        action: "type",
+        action: "prepare_type",
         selector,
         text,
         clear: options.clear,
       },
       { userActivation: true },
     );
+    if (!prepared.found || prepared.method !== "native") {
+      return prepared;
+    }
+
+    if (text) {
+      await this.performKeyActions(session, buildBidiTextActions(text));
+    } else if (options.clear !== false) {
+      await this.performKeyActions(session, buildBidiKeyActions("Backspace"));
+    }
+
+    const typed = await this.runPageAction(session, {
+      action: "inspect",
+      selector,
+      scrollIntoView: false,
+    });
+
+    return {
+      browserFamily: "firefox",
+      selector,
+      found: true,
+      typedText: text,
+      node: typed.found ? typed.node : prepared.node,
+    };
   }
 
   async select(sessionId, selector, options = {}) {
@@ -1062,15 +1154,28 @@ export class FirefoxBidiSessionManager {
   }
 
   async pressKey(sessionId, key, selector = null) {
-    return this.runPageAction(
-      this.getSession(sessionId),
+    const session = this.getSession(sessionId);
+    const actions = buildBidiKeyActions(key);
+    const focused = await this.runPageAction(
+      session,
       {
-        action: "press_key",
-        key,
+        action: "focus",
         selector,
       },
       { userActivation: true },
     );
+    if (!focused.found) {
+      return focused;
+    }
+
+    await this.performKeyActions(session, actions);
+
+    return {
+      browserFamily: "firefox",
+      key,
+      dispatched: true,
+      target: focused.target,
+    };
   }
 
   async scroll(sessionId, options = {}) {

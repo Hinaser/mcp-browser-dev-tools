@@ -8,6 +8,16 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.6-beta.0] - 2026-09-27
+
+### Changed
+
+- `click`, `hover`, `type`, and `press_key` now send trusted browser input (CDP `Input.*` on Chromium, WebDriver BiDi `input.performActions` on Firefox) instead of synthetic DOM events, so React `onChange`, form submission on Enter, focus movement on Tab, pointer-event-driven menus, CSS `:hover`, and `beforeinput`-based rich-text editors respond as they do to a person
+- `click` and `hover` now fail with the covering element's description when another element (a modal, cookie banner, or overlay) sits on top of the target, instead of silently invoking the hidden element
+- `press_key` accepts key combinations such as `Shift+Tab`, `Control+Enter`, and `Meta+a`, and rejects unknown key names instead of dispatching them silently
+- `type` sets date, time, color, and range inputs through the native value setter so React state updates
+- Every tool parameter now has a description, including the locator grammar for `selector` (matching rules, case sensitivity, and the iframe/shadow-root limit), defaults for optional parameters, and side effects such as automatic dialog handling on `click`/`press_key` and scrolling in `inspect_element`/`wait_for`
+
 ## [0.0.5] - 2026-03-14
 
 ### Added

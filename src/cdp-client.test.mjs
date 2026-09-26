@@ -385,3 +385,166 @@ test("CdpSessionManager skips the cached loopback endpoint when only the follow-
   assert.equal(targets[0].targetId, "target-9224");
   assert.equal(updatedStatus.endpoint, "http://127.0.0.1:9224");
 });
+
+function createInputSession(pageActions) {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+
+  const sentCommands = [];
+  const runActions = [];
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+  session.runPageAction = async (payload) => {
+    runActions.push(payload.action);
+    return pageActions[payload.action](payload);
+  };
+
+  return { session, sentCommands, runActions };
+}
+
+const pointerTarget = (payload) => ({
+  found: true,
+  selector: payload.selector,
+  point: { x: 70, y: 40 },
+  receivesEvents: true,
+  obscuredBy: null,
+  node: { tagName: "BUTTON" },
+});
+
+test("CdpSession click dispatches trusted mouse events at the element center", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+  });
+
+  const result = await session.click("button.cta");
+
+  assert.equal(result.clicked, true);
+  assert.deepEqual(
+    sentCommands.map(({ method, params }) => [
+      method,
+      params.type,
+      params.x,
+      params.y,
+      params.button,
+    ]),
+    [
+      ["Input.dispatchMouseEvent", "mouseMoved", 70, 40, undefined],
+      ["Input.dispatchMouseEvent", "mousePressed", 70, 40, "left"],
+      ["Input.dispatchMouseEvent", "mouseReleased", 70, 40, "left"],
+    ],
+  );
+});
+
+test("CdpSession click refuses to click an element covered by another one", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: (payload) => ({
+      ...pointerTarget(payload),
+      receivesEvents: false,
+      obscuredBy: { tagName: "DIV", id: "modal", className: null },
+    }),
+  });
+
+  await assert.rejects(session.click("button.cta"), /covered by <div#modal>/);
+  assert.equal(sentCommands.length, 0);
+});
+
+test("CdpSession click returns not-found results without dispatching input", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: (payload) => ({ found: false, selector: payload.selector }),
+  });
+
+  const result = await session.click("#missing");
+
+  assert.equal(result.found, false);
+  assert.equal(sentCommands.length, 0);
+});
+
+test("CdpSession type inserts text through the browser editing pipeline", async () => {
+  const { session, sentCommands, runActions } = createInputSession({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    inspect: () => ({ found: true, node: { value: "hello" } }),
+  });
+
+  const result = await session.type("#field", "hello");
+
+  assert.deepEqual(runActions, ["prepare_type", "inspect"]);
+  assert.deepEqual(sentCommands, [
+    { method: "Input.insertText", params: { text: "hello" } },
+  ]);
+  assert.equal(result.typedText, "hello");
+  assert.equal(result.node.value, "hello");
+});
+
+test("CdpSession type with empty text deletes the selected value", async () => {
+  const { session, sentCommands } = createInputSession({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    inspect: () => ({ found: true, node: { value: "" } }),
+  });
+
+  await session.type("#field", "");
+
+  assert.deepEqual(
+    sentCommands.map(({ method, params }) => [method, params.key]),
+    [
+      ["Input.dispatchKeyEvent", "Delete"],
+      ["Input.dispatchKeyEvent", "Delete"],
+    ],
+  );
+});
+
+test("CdpSession pressKey validates the key before touching focus", async () => {
+  const { session, runActions } = createInputSession({
+    focus: () => ({ found: true, target: null }),
+  });
+
+  await assert.rejects(session.pressKey("Hyper"), /Unsupported key/);
+  assert.deepEqual(runActions, []);
+});
+
+test("CdpSession pressKey focuses the selector and dispatches key events", async () => {
+  const { session, sentCommands } = createInputSession({
+    focus: () => ({
+      found: true,
+      target: { tagName: "INPUT", id: "q", className: null },
+    }),
+  });
+
+  const result = await session.pressKey("Enter", "#q");
+
+  assert.equal(result.dispatched, true);
+  assert.equal(result.target.id, "q");
+  assert.deepEqual(
+    sentCommands.map(({ params }) => params.type),
+    ["keyDown", "keyUp"],
+  );
+});
+
+test("CdpSession type presses Enter for newlines like the Firefox path", async () => {
+  const { session, sentCommands } = createInputSession({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    inspect: () => ({ found: true, node: {} }),
+  });
+
+  await session.type("#q", "shoes\r\n");
+
+  assert.deepEqual(
+    sentCommands.map(({ method, params }) => [
+      method,
+      params.text ?? params.key,
+    ]),
+    [
+      ["Input.insertText", "shoes"],
+      ["Input.dispatchKeyEvent", "\r"],
+      ["Input.dispatchKeyEvent", "Enter"],
+    ],
+  );
+});

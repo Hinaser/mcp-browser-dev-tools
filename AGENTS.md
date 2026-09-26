@@ -45,7 +45,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 
 ## Current Repository Shape
 
-- Public docs: `README.md`, `docs/architecture.md`, `docs/repository-settings.md`, `PUBLISHING.md`
+- Public docs: `README.md`, `CHANGELOG.md`, `docs/architecture.md`, `docs/setup.md`, `docs/repository-settings.md`, `PUBLISHING.md`
 - Maintainer scripts: `scripts/`
 - Runtime source: `src/`
 - GitHub automation: `.github/workflows/`

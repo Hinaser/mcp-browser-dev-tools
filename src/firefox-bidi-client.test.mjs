@@ -612,3 +612,72 @@ test("getBrowserStatus times out if the Firefox websocket never opens", async ()
   assert.equal(websocket.closeCount, 1);
   assert.equal(manager.resolvedWebSocketUrl, null);
 });
+
+function createBidiInputManager(pageActions) {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+  manager.sessions.set("session-1", {
+    id: "session-1",
+    target: { targetId: "ctx-1" },
+    closed: false,
+    bufferedEvents: [],
+  });
+
+  const sentCommands = [];
+  manager.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return {};
+  };
+  manager.runPageAction = async (_session, payload) =>
+    pageActions[payload.action](payload);
+
+  return { manager, sentCommands };
+}
+
+test("FirefoxBidiSessionManager click performs pointer actions at the element center", async () => {
+  const { manager, sentCommands } = createBidiInputManager({
+    pointer_target: () => ({
+      found: true,
+      selector: "button",
+      point: { x: 70.4, y: 39.6 },
+      receivesEvents: true,
+      node: {},
+    }),
+  });
+
+  await manager.click("session-1", "button");
+
+  assert.equal(sentCommands.length, 1);
+  assert.equal(sentCommands[0].method, "input.performActions");
+  assert.equal(sentCommands[0].params.context, "ctx-1");
+  assert.deepEqual(sentCommands[0].params.actions[0].actions, [
+    { type: "pointerMove", x: 70, y: 40, origin: "viewport" },
+    { type: "pointerDown", button: 0 },
+    { type: "pointerUp", button: 0 },
+  ]);
+});
+
+test("FirefoxBidiSessionManager type sends key actions for each character", async () => {
+  const { manager, sentCommands } = createBidiInputManager({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    inspect: () => ({ found: true, node: { value: "hi" } }),
+  });
+
+  const result = await manager.type("session-1", "#field", "hi");
+
+  assert.equal(result.node.value, "hi");
+  assert.deepEqual(sentCommands[0].params.actions, [
+    {
+      type: "key",
+      id: "mcp-keyboard",
+      actions: [
+        { type: "keyDown", value: "h" },
+        { type: "keyUp", value: "h" },
+        { type: "keyDown", value: "i" },
+        { type: "keyUp", value: "i" },
+      ],
+    },
+  ]);
+});
