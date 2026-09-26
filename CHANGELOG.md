@@ -8,6 +8,8 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.6-beta.1] - 2026-09-27
+
 ### Added
 
 - `MCP_BROWSER_USER_DATA_DIR` sets the browser profile that `ensure_browser` and `launch_browser` use when they have to launch a browser
