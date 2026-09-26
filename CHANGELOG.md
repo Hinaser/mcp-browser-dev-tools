@@ -8,6 +8,8 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.0.6-beta.0] - 2026-09-27
+
 ### Changed
 
 - `click`, `hover`, `type`, and `press_key` now send trusted browser input (CDP `Input.*` on Chromium, WebDriver BiDi `input.performActions` on Firefox) instead of synthetic DOM events, so React `onChange`, form submission on Enter, focus movement on Tab, pointer-event-driven menus, CSS `:hover`, and `beforeinput`-based rich-text editors respond as they do to a person
