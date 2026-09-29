@@ -1766,7 +1766,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "click",
             description:
-              "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
+              "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1802,7 +1802,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "type",
             description:
-              "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false.",
+              "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1832,7 +1832,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "select",
             description:
-              "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead.",
+              "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1868,7 +1868,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "press_key",
             description:
-              "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
+              "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 key: {
@@ -2307,7 +2307,7 @@ export class McpBrowserDevToolsServer {
               version: SERVER_VERSION,
             },
             instructions:
-              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi.",
+              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To act on a page and check the result, prefer run_steps: put the action, a wait_for, and the check (take_screenshot with output image, inspect_element, or an if step when the page can be in more than one state) in one call instead of several round trips.",
           });
         case "notifications/initialized":
           return null;

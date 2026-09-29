@@ -249,6 +249,7 @@ test("initialize returns MCP server metadata", async () => {
   assert.equal(response.result.serverInfo.name, "mcp-browser-dev-tools");
   assert.equal(response.result.serverInfo.version, PACKAGE_VERSION);
   assert.deepEqual(response.result.capabilities, { tools: {} });
+  assert.match(response.result.instructions, /prefer run_steps/);
 });
 
 test("start resumes the input stream so spawned stdio servers stay alive", () => {
