@@ -92,3 +92,27 @@ What to try next, based on these results:
 - **Let a wait end on a change or on one of several outcomes**, for example a `textExcludes` condition or a list of alternative conditions, so flows like `payment-retry` don't need fixed sleeps inside a batch.
 - **Shorten the tool definitions.** They are paid for on every turn.
 - **Consider a compact page-text tool** to replace the opening `evaluate_js` or `get_document` read.
+
+### 2026-09-30: Sonnet 5.5, medium effort, with `run_steps` guidance
+
+- **Change under test:** commit `26a3d2d` adds a recommendation to use `run_steps` to the server's `initialize` instructions, and a one-line pointer to it in the `click`, `type`, `select`, and `press_key` descriptions. This was the first "what to try next" item above.
+- **Runs:** the `batch` mode only (the prompt does not mention `run_steps`), 3 runs per scenario, 9 runs in total, $0.70 in total. Same model, effort, and environment as above.
+
+| Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | ------- | --- | ---------------------- | --------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | `batch` | 3/3 | 9.0 s (8.4 s–11.2 s)   | 4         | 3          | 0.9 s (0.9 s–1.0 s)   | 16.9k (16.9k–16.9k) | 70.8k (70.8k–70.8k)    | 0.6k (0.6k–0.6k) | $0.051 ($0.050–$0.102) |
+| `payment-retry`  | `batch` | 3/3 | 26.2 s (19.4 s–41.7 s) | 10 (6–13) | 9 (5–12)   | 14.0 s (6.6 s–23.2 s) | 7.8k (5.1k–7.8k)    | 122.4k (103.4k–159.3k) | 1.1k (0.9k–1.6k) | $0.062 ($0.052–$0.072) |
+| `settings-login` | `batch` | 3/3 | 19.1 s (14.5 s–23.6 s) | 16 (7–16) | 15 (6–15)  | 0.5 s (0.4 s–1.3 s)   | 29.2k (17.5k–35.0k) | 216.5k (145.7k–236.9k) | 1.9k (1.2k–1.9k) | $0.103 ($0.091–$0.116) |
+
+What changed compared with the first results:
+
+1. **Every run passed.** 9 of 9.
+2. **The agent now chooses `run_steps` without being asked, but not always.** It used `run_steps` in 5 of 9 runs, up from 0 of 9 before the guidance: every `signup` run, and one run each of `payment-retry` and `settings-login`.
+3. **`signup` now gets most of the hinted-mode gain.** Median 9.0 s against 11.4 s in `single` mode (21% faster), 4 turns instead of 10, 16% cheaper. With the explicit hint it was 8.3 s.
+4. **The other two scenarios are mixed.** Most of their runs still used single calls, so their medians barely moved: `settings-login` took 19.1 s against 20.0 s in `single` mode, within the run-to-run variation, with the same 16 turns, and `payment-retry` took 26.2 s against 19.9 s. The runs that did batch were among the fastest: 14.5 s with 7 turns for `settings-login`, and 19.4 s with 6 turns for `payment-retry`.
+5. **Timed-out waits cost the most in `payment-retry`.** In the two runs that did not batch, `wait_for` calls that ended at their timeout took 13 s and 23 s of server time. The timing log does not record what a wait was waiting for, so the cause is not certain. One of those waits started after the third, successful attempt. The hinted runs above point the same way: without a wait that can end on one of several outcomes, the agent falls back to fixed sleeps or long timeouts.
+
+Next steps:
+
+- **Add a wait that ends on a change or on one of several outcomes**, and record each wait's condition in the timing log so timeouts like the ones above can be explained.
+- **Consider more ways to get the agent to batch,** for example a short example in the instructions, then measure again. The current guidance works well when the task is a clear straight line (`signup`) and less well when the agent first wants to look around (`settings-login`).
