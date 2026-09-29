@@ -2307,7 +2307,7 @@ export class McpBrowserDevToolsServer {
               version: SERVER_VERSION,
             },
             instructions:
-              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To act on a page and check the result, prefer run_steps: put the action, a wait_for, and the check (take_screenshot with output image, inspect_element, or an if step when the page can be in more than one state) in one call instead of several round trips.",
+              'Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To act on a page and check the result, prefer run_steps: send the actions you already know (such as every field of a form), a wait_for, and the check (take_screenshot with output image, or inspect_element) in one call instead of several round trips, for example {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"#search","text":"headphones"}},{"tool":"press_key","arguments":{"key":"Enter"}},{"tool":"wait_for","arguments":{"selector":"#results"}},{"tool":"take_screenshot","arguments":{"output":"image"}}]}. Add an if step when the page can be in more than one state.',
           });
         case "notifications/initialized":
           return null;

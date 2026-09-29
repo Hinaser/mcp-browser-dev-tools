@@ -2079,3 +2079,35 @@ test("tool calls append timing entries when MCP_BROWSER_TIMING_LOG is set", asyn
   assert.equal(entries[2].steps, 1);
   assert.equal(entries[2].stepsOk, true);
 });
+
+test("the run_steps example in the server instructions is a valid call", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+  const { instructions } = (
+    await server.handleRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {},
+    })
+  ).result;
+  const example = JSON.parse(
+    instructions.slice(
+      instructions.indexOf("{"),
+      instructions.lastIndexOf("}") + 1,
+    ),
+  );
+
+  const response = await callRunSteps(server, {
+    ...example,
+    sessionId: "session-1",
+  });
+
+  assert.equal(response.error, undefined);
+  assert.equal(
+    response.result.structuredContent.ranSteps,
+    example.steps.length,
+  );
+});
