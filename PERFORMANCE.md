@@ -149,3 +149,35 @@ Next steps:
 
 - **Keep the example.** It raised batching and gave the biggest gain seen so far on the form-heavy scenario. The `signup` screenshot cost is small by comparison.
 - **Add a wait that ends on one of several outcomes, or on a change**, and record each wait's condition in the timing log. This is now the clearest remaining cost.
+
+### 2026-09-30: Opus 5.5, high effort
+
+- **Model:** `claude-opus-5-5`, `--effort high`, 3 runs per scenario and mode, 18 runs in total, $2.54 in total.
+- **Builds:** `single` mode ran on `857dfa3`, the benchmark commit from before the `run_steps` guidance, so its server instructions don't recommend a tool that `single` mode disallows (the same conditions as the Sonnet baseline). `batch` mode ran on `f153a94`, which has the guidance and the example. The prompt never mentions `run_steps`.
+- **Environment:** same as the Sonnet runs above.
+
+| Build     | Scenario         | Mode     | OK  | Wall time              | Turns      | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| --------- | ---------------- | -------- | --- | ---------------------- | ---------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `857dfa3` | `signup`         | `single` | 3/3 | 18.7 s (18.6 s–18.8 s) | 11         | 10         | 0.6 s (0.5 s–0.6 s)  | 13.3k (13.3k–13.3k) | 104.4k (104.3k–104.4k) | 1.3k (1.2k–1.3k) | $0.113 ($0.111–$0.207) |
+| `857dfa3` | `payment-retry`  | `single` | 1/3 | 25.9 s (25.7 s–59.3 s) | 9 (9–11)   | 8 (8–10)   | 1.4 s (1.3 s–36.0 s) | 12.4k (11.1k–12.4k) | 119.2k (119.2k–137.5k) | 1.7k (1.5k–1.7k) | $0.120 ($0.120–$0.121) |
+| `857dfa3` | `settings-login` | `single` | 3/3 | 29.8 s (28.8 s–44.5 s) | 17 (16–17) | 16 (15–16) | 0.1 s (0.1 s–0.3 s)  | 16.9k (16.8k–17.6k) | 226.2k (187.1k–249.6k) | 2.1k (1.9k–2.2k) | $0.164 ($0.164–$0.177) |
+| `f153a94` | `signup`         | `batch`  | 3/3 | 12.4 s (12.0 s–13.0 s) | 4 (4–5)    | 3 (3–4)    | 0.9 s (0.9 s–1.0 s)  | 18.5k (18.5k–19.9k) | 72.6k (72.1k–75.7k)    | 0.7k (0.6k–0.7k) | $0.111 ($0.093–$0.201) |
+| `f153a94` | `payment-retry`  | `batch`  | 3/3 | 24.5 s (23.8 s–29.0 s) | 8 (6–11)   | 7 (5–10)   | 1.5 s (1.3 s–4.0 s)  | 17.5k (14.2k–20.0k) | 150.1k (111.4k–188.0k) | 1.5k (1.2k–1.8k) | $0.132 ($0.118–$0.145) |
+| `f153a94` | `settings-login` | `batch`  | 3/3 | 21.2 s (20.7 s–33.1 s) | 7 (7–8)    | 6 (6–7)    | 1.2 s (1.2 s–1.3 s)  | 26.8k (26.7k–26.9k) | 139.7k (139.3k–140.2k) | 1.3k (1.3k–1.4k) | $0.148 ($0.145–$0.149) |
+
+Median wall time and cost next to the Sonnet 5.5 results:
+
+| Scenario         | Sonnet `single` | Sonnet `batch` with example | Opus `single`                  | Opus `batch` with example |
+| ---------------- | --------------- | --------------------------- | ------------------------------ | ------------------------- |
+| `signup`         | 11.4 s, $0.060  | 10.0 s, $0.059              | 18.7 s, $0.113                 | 12.4 s, $0.111            |
+| `payment-retry`  | 19.9 s, $0.072  | 28.9 s, $0.072              | 25.9 s, $0.120 (1 of 3 passed) | 24.5 s, $0.132            |
+| `settings-login` | 20.0 s, $0.103  | 13.7 s, $0.093              | 29.8 s, $0.164                 | 21.2 s, $0.148            |
+
+What the numbers show:
+
+1. **Opus used `run_steps` in every `batch` run** (9 of 9) without being asked, against 6 of 9 for Sonnet with the same instructions.
+2. **Batching cut Opus's time by about a third on the form scenarios.** `signup` was 34% faster than `single` mode (18.7 s to 12.4 s, 11 turns to 4). `settings-login` was 29% faster (29.8 s to 21.2 s, 17 turns to 7) and 10% cheaper. `signup` cost stayed about the same, at $0.111 against $0.113.
+3. **Opus handled the payment waits better when batching.** All 3 `batch` runs passed, with a median of 1.5 s of server time (at most 4.0 s) and no long waits, against 13–15 s per run lost to timed-out waits for Sonnet.
+4. **In `single` mode, Opus gave up on the payment in 2 of 3 runs.** After two "card declined" responses, it stopped and reported that it couldn't pay instead of trying a third time, although the task says a payment may fail temporarily. This is the model's judgment about a card decline, not a tool failure, and no Sonnet run did it. A clearer error message on the fixture page (for example "temporarily unavailable") would separate the two, at the cost of comparability with the runs above.
+5. **Opus is slower and costs more per task than Sonnet here.** It cost 1.6–1.9 times as much in every scenario and mode. It took 1.2–1.6 times as long, with one exception: `payment-retry` in `batch` mode, where Opus was faster because Sonnet lost time to timed-out waits. The turn counts were similar (within 1 turn, except in `payment-retry`), so the extra time goes into each turn. Model time was a median 90% of wall time.
+6. **The first run of each series costs about $0.20**, because it writes about 21k tokens to the prompt cache. The medians hide this, and the ranges show it.
