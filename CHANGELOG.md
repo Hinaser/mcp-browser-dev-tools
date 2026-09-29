@@ -10,6 +10,10 @@ release history retroactively.
 
 ### Added
 
+- `MCP_BROWSER_TIMING_LOG` writes one JSON line per tool call with its duration, outcome, and response size
+
+### Added
+
 - `run_steps` MCP tool that runs several session tools (plus `sleep`) in order on one attached session in a single call, validates every step up front, stops at the first failure unless `continueOnError` is set, and returns screenshots as image content. An `if` step branches on page conditions checked once (the `wait_for` condition fields), with a flat `elseIf` list and `else`
 - `wait_for` accepts `textEquals` and `textIncludes` to wait for a selector's visible text
 

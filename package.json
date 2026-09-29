@@ -75,6 +75,8 @@
     "check": "node --run lint && node --run format:check && node --run test",
     "prepare": "husky",
     "pack:check": "node scripts/pack-check.mjs",
+    "bench": "node bench/run.mjs",
+    "bench:summary": "node bench/summarize.mjs",
     "prepublishOnly": "node --run check",
     "test": "node --test"
   },

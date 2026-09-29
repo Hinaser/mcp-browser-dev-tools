@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -2324,15 +2331,54 @@ export class McpBrowserDevToolsServer {
   }
 
   async callTool(params = {}) {
-    const tool = this.tools.get(params.name);
-    if (!tool) {
-      throw new Error(`Unknown tool: ${params.name}`);
+    const startedAt = Date.now();
+    let response = null;
+    try {
+      const tool = this.tools.get(params.name);
+      if (!tool) {
+        throw new Error(`Unknown tool: ${params.name}`);
+      }
+
+      const args = params.arguments ?? {};
+      validateValue("arguments", args, tool.definition.inputSchema);
+      tool.validate?.(args);
+      const result = await tool.handler(args);
+      response = (tool.formatResult ?? asToolResult)(result, args);
+      return response;
+    } finally {
+      await this.logTiming(params.name, startedAt, response);
+    }
+  }
+
+  // Appends one JSON line per tool call when MCP_BROWSER_TIMING_LOG is set.
+  // responseChars and images approximate what the call costs the client.
+  async logTiming(name, startedAt, response) {
+    if (!this.config.timingLogFile) {
+      return;
     }
 
-    const args = params.arguments ?? {};
-    validateValue("arguments", args, tool.definition.inputSchema);
-    tool.validate?.(args);
-    const result = await tool.handler(args);
-    return (tool.formatResult ?? asToolResult)(result, args);
+    const content = response?.content ?? [];
+    const entry = {
+      ts: new Date(startedAt).toISOString(),
+      tool: name ?? null,
+      ms: Date.now() - startedAt,
+      ok: response !== null,
+      responseChars: content
+        .filter((block) => block.type === "text")
+        .reduce((total, block) => total + block.text.length, 0),
+      images: content.filter((block) => block.type === "image").length,
+    };
+    // ok is whether the call returned; a batch that stopped at a failing
+    // step still returns, so its own outcome is logged as stepsOk.
+    if (name === "run_steps" && response?.structuredContent) {
+      entry.steps = response.structuredContent.ranSteps;
+      entry.stepsOk = response.structuredContent.ok;
+    }
+
+    try {
+      await appendFile(this.config.timingLogFile, `${JSON.stringify(entry)}\n`);
+    } catch (error) {
+      this.logger.error(`failed to write timing log: ${error.message}`);
+    }
   }
 }

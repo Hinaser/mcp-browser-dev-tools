@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Create your account</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+      }
+      label {
+        display: block;
+        margin: 12px 0;
+      }
+      #cookie {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: flex-end;
+        background: rgb(0 0 0 / 50%);
+      }
+      #cookie .panel {
+        width: 100%;
+        padding: 20px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Create your account</h1>
+    <form id="signup">
+      <label>Full name <input name="name" autocomplete="off" /></label>
+      <label
+        >Email <input name="email" type="email" autocomplete="off"
+      /></label>
+      <label
+        >Plan
+        <select name="plan">
+          <option value="">Choose a plan</option>
+          <option value="free">Free</option>
+          <option value="pro">Pro</option>
+          <option value="team">Team</option>
+        </select>
+      </label>
+      <label><input type="checkbox" name="terms" /> I agree to the terms</label>
+      <button type="submit">Create account</button>
+    </form>
+    <p id="message" role="status"></p>
+    <div id="cookie" role="dialog" aria-label="Cookie consent">
+      <div class="panel">
+        <p>We use cookies to improve your experience.</p>
+        <button id="accept">Accept all</button>
+        <button id="reject">Reject all</button>
+      </div>
+    </div>
+    <script>
+      const run = new URLSearchParams(location.search).get("run");
+      const form = document.getElementById("signup");
+      const message = document.getElementById("message");
+      const cookie = document.getElementById("cookie");
+
+      // The banner arrives late and covers the form, like a consent manager.
+      setTimeout(() => {
+        cookie.style.display = "flex";
+      }, 500);
+      for (const id of ["accept", "reject"]) {
+        document.getElementById(id).onclick = () => cookie.remove();
+      }
+
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        if (!data.get("terms")) {
+          message.textContent = "Please accept the terms to continue.";
+          return;
+        }
+
+        const button = form.querySelector("button");
+        button.disabled = true;
+        message.textContent = "Creating your account…";
+        const response = await fetch(`/api/signup?run=${run}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: data.get("name"),
+            email: data.get("email"),
+            plan: data.get("plan"),
+            terms: data.get("terms") === "on",
+          }),
+        });
+        const result = await response.json();
+        button.disabled = false;
+        if (!response.ok) {
+          message.textContent = result.error;
+          return;
+        }
+
+        form.remove();
+        message.textContent = `Welcome, ${result.name}! Confirmation code: ${result.code}`;
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+      }
+      label {
+        display: block;
+        margin: 12px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sign in</h1>
+    <form id="login">
+      <label>Username <input name="username" autocomplete="off" /></label>
+      <label
+        >Password <input name="password" type="password" autocomplete="off"
+      /></label>
+      <button type="submit">Sign in</button>
+    </form>
+    <p id="message" role="status"></p>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const run = params.get("run");
+      const next = params.get("next") || "/app/settings";
+      const form = document.getElementById("login");
+      const message = document.getElementById("message");
+
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        message.textContent = "Signing in…";
+        const response = await fetch(`/api/login?run=${run}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            username: data.get("username"),
+            password: data.get("password"),
+          }),
+        });
+        if (!response.ok) {
+          message.textContent = "Invalid username or password.";
+          return;
+        }
+
+        message.textContent = "Signed in. Redirecting…";
+        setTimeout(() => {
+          location.href = `${next}?run=${run}`;
+        }, 300);
+      };
+    </script>
+  </body>
+</html>

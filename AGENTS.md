@@ -47,6 +47,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 
 - Public docs: `README.md`, `CHANGELOG.md`, `docs/architecture.md`, `docs/setup.md`, `docs/repository-settings.md`, `PUBLISHING.md`
 - Maintainer scripts: `scripts/`
+- Benchmark: `bench/` (scenarios, fixture pages, runner) with results and method in `PERFORMANCE.md`; raw results in `bench/results/` stay uncommitted
 - Runtime source: `src/`
 - GitHub automation: `.github/workflows/`
 - Repo ruleset definitions: `.github/rulesets/`

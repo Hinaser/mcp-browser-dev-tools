@@ -2043,3 +2043,38 @@ test("wait_for passes text conditions to the adapter", async () => {
   });
   assert.match(invalid.error.message, /require selector/);
 });
+
+test("tool calls append timing entries when MCP_BROWSER_TIMING_LOG is set", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "timing-log-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const logFile = path.join(dir, "timing.jsonl");
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_TIMING_LOG: logFile }),
+    browserAdapter: createFakeManager(),
+  });
+
+  await callTool(server, "take_screenshot", {
+    sessionId: "session-1",
+    output: "image",
+  });
+  await callTool(server, "wait_for", { sessionId: "session-1" });
+  await callTool(server, "run_steps", {
+    sessionId: "session-1",
+    steps: [{ tool: "inspect_element", arguments: { selector: "#a" } }],
+  });
+
+  const entries = (await readFile(logFile, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(entries.length, 3);
+  assert.equal(entries[0].tool, "take_screenshot");
+  assert.equal(entries[0].ok, true);
+  assert.equal(entries[0].images, 1);
+  assert.ok(entries[0].responseChars > 0);
+  assert.equal(entries[1].tool, "wait_for");
+  assert.equal(entries[1].ok, false);
+  assert.equal(typeof entries[1].ms, "number");
+  assert.equal(entries[2].steps, 1);
+  assert.equal(entries[2].stepsOk, true);
+});
