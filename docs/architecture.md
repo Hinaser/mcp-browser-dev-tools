@@ -84,10 +84,11 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - `inspect_element`
 - `take_screenshot`
 - `get_events`
+- `run_steps`
 
-`evaluate_js` exists behind `MCP_BROWSER_ENABLE_EVAL=1` because it changes the trust model from inspection to execution.
+`evaluate_js` is exposed by default and can be removed with `MCP_BROWSER_ENABLE_EVAL=0`. The flag narrows the tool surface but is not a security boundary: the remaining tools can already read page content, cookies, and storage and navigate anywhere, and anything that can reach the loopback debugging endpoint can evaluate code through the browser protocol itself. Per-call control belongs to the MCP client's tool permissions.
 
-Unsafe browser launch flags exist behind `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`. That gate only exposes an `unsafeArgs` array on browser-launch tools; it does not enable `evaluate_js`, and it still rejects broker-managed flags that would replace the debug port, address, or profile settings.
+Unsafe browser launch flags exist behind `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`. That gate only exposes an `unsafeArgs` array on browser-launch tools, and it still rejects broker-managed flags that would replace the debug port, address, or profile settings.
 
 ## Protocol Mapping
 
@@ -113,8 +114,8 @@ Unsafe browser launch flags exist behind `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=
 ## Safety Model
 
 - Loopback-only browser endpoints by default
-- Read-oriented tools enabled by default
-- Explicit opt-in for evaluation
+- Inspection, interaction, and evaluation tools are all enabled by default; the MCP client's tool permissions decide which calls run
+- `evaluate_js` exposed by default, removable with `MCP_BROWSER_ENABLE_EVAL=0`
 - The relay command stays loopback-only by default unless you explicitly bind it differently
 - Bounded in-memory event buffers per session
 - Adapter-specific normalization before data is returned to the MCP client

@@ -79,7 +79,7 @@ test("loadConfig applies defaults", () => {
     firefoxBidiWsUrl: DEFAULT_FIREFOX_BIDI_WS_URL,
     allowRemoteEndpoints: false,
     allowRemoteCdp: false,
-    enableEvaluate: false,
+    enableEvaluate: true,
     enableUnsafeLaunchArgs: false,
     eventBufferSize: DEFAULT_EVENT_BUFFER_SIZE,
     logLevel: DEFAULT_LOG_LEVEL,
@@ -127,6 +127,21 @@ test("loadConfig allows non-loopback CDP endpoints when explicitly enabled", () 
   assert.equal(config.allowRemoteEndpoints, true);
   assert.equal(config.allowRemoteCdp, true);
   assert.equal(config.enableEvaluate, true);
+});
+
+test("loadConfig turns evaluate_js off only for 0 or false", () => {
+  assert.equal(
+    loadConfig({ MCP_BROWSER_ENABLE_EVAL: "0" }).enableEvaluate,
+    false,
+  );
+  assert.equal(
+    loadConfig({ MCP_BROWSER_ENABLE_EVAL: "false" }).enableEvaluate,
+    false,
+  );
+  assert.equal(
+    loadConfig({ MCP_BROWSER_ENABLE_EVAL: "1" }).enableEvaluate,
+    true,
+  );
 });
 
 test("loadConfig reads the unsafe launch args gate", () => {

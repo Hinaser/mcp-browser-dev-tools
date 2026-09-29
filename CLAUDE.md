@@ -16,7 +16,7 @@ This repository's canonical agent memory is in `AGENTS.md`. Keep both files alig
 - No `workflow_dispatch` publish path.
 - `npm-release` environment gate for publish.
 - Loopback-only browser/debug endpoints by default.
-- `MCP_BROWSER_ENABLE_EVAL` stays opt-in.
+- `evaluate_js` is on by default; `MCP_BROWSER_ENABLE_EVAL=0` turns it off.
 - `.codex-reviews/` stays ignored and local-only.
 - `pnpm-lock.yaml` is the canonical lockfile.
 

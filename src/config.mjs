@@ -41,6 +41,10 @@ export function isTruthyFlag(value) {
   return value === "1" || value === "true";
 }
 
+export function isFalsyFlag(value) {
+  return value === "0" || value === "false";
+}
+
 export function isLoopbackOrigin(value) {
   const url = new URL(value);
   return isLoopbackHost(url.hostname);
@@ -114,7 +118,7 @@ export function loadConfig(env = process.env) {
     firefoxBidiWsUrl,
     allowRemoteEndpoints,
     allowRemoteCdp: allowRemoteEndpoints,
-    enableEvaluate: isTruthyFlag(env.MCP_BROWSER_ENABLE_EVAL),
+    enableEvaluate: !isFalsyFlag(env.MCP_BROWSER_ENABLE_EVAL),
     enableUnsafeLaunchArgs: isTruthyFlag(
       env.MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS,
     ),

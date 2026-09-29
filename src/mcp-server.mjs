@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
 import { createLogger } from "./logger.mjs";
 import {
@@ -5,6 +10,7 @@ import {
   supportedLaunchFamilies,
 } from "./browser-launch-service.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
+import { checkPageCondition, normalizeWaitForOptions } from "./wait-for.mjs";
 
 const SERVER_NAME = PACKAGE_NAME;
 const SERVER_VERSION = PACKAGE_VERSION;
@@ -49,6 +55,19 @@ function asToolResult(value) {
   };
 }
 
+function asImageToolResult({ value, images }) {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(value, null, 2),
+      },
+      ...images,
+    ],
+    structuredContent: value,
+  };
+}
+
 function emptyObjectSchema() {
   return {
     type: "object",
@@ -88,6 +107,28 @@ function validateValue(path, value, schema) {
     return;
   }
 
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) {
+      throw new Error(`${path} must be an array`);
+    }
+
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      throw new Error(`${path} must have at least ${schema.minItems} items`);
+    }
+
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      throw new Error(`${path} must have at most ${schema.maxItems} items`);
+    }
+
+    if (schema.items) {
+      value.forEach((item, index) => {
+        validateValue(`${path}[${index}]`, item, schema.items);
+      });
+    }
+
+    return;
+  }
+
   if (schema.type === "string") {
     if (typeof value !== "string") {
       throw new Error(`${path} must be a string`);
@@ -117,6 +158,10 @@ function validateValue(path, value, schema) {
       throw new Error(`${path} must be >= ${schema.minimum}`);
     }
 
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      throw new Error(`${path} must be <= ${schema.maximum}`);
+    }
+
     return;
   }
 
@@ -135,6 +180,109 @@ function screenshotFormatsFor(browserFamily) {
   return browserFamily === "firefox"
     ? ["png", "jpeg"]
     : ["png", "jpeg", "webp"];
+}
+
+const SCREENSHOT_FILE_FORMATS = {
+  ".png": "png",
+  ".jpg": "jpeg",
+  ".jpeg": "jpeg",
+  ".webp": "webp",
+};
+
+function screenshotFileExtensions(browserFamily) {
+  const allowed = screenshotFormatsFor(browserFamily);
+  return Object.entries(SCREENSHOT_FILE_FORMATS)
+    .filter(([, format]) => allowed.includes(format))
+    .map(([extension]) => extension);
+}
+
+// Only image extensions are accepted, so a screenshot path can never replace
+// a config file or script.
+function screenshotTarget(args, browserFamily) {
+  const output = args.output ?? (args.path === undefined ? "data" : "file");
+  if (output !== "file") {
+    if (args.path !== undefined || args.overwrite !== undefined) {
+      throw new Error(
+        `take_screenshot path and overwrite require output file, not ${output}`,
+      );
+    }
+    return { output, format: args.format ?? "png", filePath: null };
+  }
+
+  if (args.path === undefined) {
+    return { output, format: args.format ?? "png", filePath: null };
+  }
+
+  if (!path.isAbsolute(args.path)) {
+    throw new Error("take_screenshot path must be absolute");
+  }
+
+  const format = SCREENSHOT_FILE_FORMATS[path.extname(args.path).toLowerCase()];
+  if (!format || !screenshotFormatsFor(browserFamily).includes(format)) {
+    throw new Error(
+      `take_screenshot path must end with ${screenshotFileExtensions(browserFamily).join(", ")}`,
+    );
+  }
+
+  if (args.format !== undefined && args.format !== format) {
+    throw new Error(
+      `take_screenshot format ${args.format} does not match the ${format} path extension`,
+    );
+  }
+
+  return { output, format, filePath: args.path };
+}
+
+// Screenshots can show signed-in pages, so files are private to the user.
+const SCREENSHOT_FILE_MODE = 0o600;
+
+async function writeTempScreenshot(image, format) {
+  // mkdtemp makes a fresh 0700 directory, which other users on a shared /tmp
+  // cannot pre-create or read.
+  const dir = await mkdtemp(path.join(tmpdir(), "mcp-browser-dev-tools-"));
+  const filePath = path.join(
+    dir,
+    `screenshot.${format === "jpeg" ? "jpg" : format}`,
+  );
+  await writeFile(filePath, image, { flag: "wx", mode: SCREENSHOT_FILE_MODE });
+  return filePath;
+}
+
+async function writeScreenshotFile(filePath, image, overwrite) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  if (!overwrite) {
+    // O_EXCL also refuses an existing symlink instead of following it.
+    try {
+      await writeFile(filePath, image, {
+        flag: "wx",
+        mode: SCREENSHOT_FILE_MODE,
+      });
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        throw new Error(
+          `${filePath} already exists; pass overwrite: true to replace it`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+    return filePath;
+  }
+
+  // Renaming a new file into place replaces a symlink at filePath rather
+  // than writing through it to a file without an image extension.
+  const tempPath = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, image, {
+      flag: "wx",
+      mode: SCREENSHOT_FILE_MODE,
+    });
+    await rename(tempPath, filePath);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
+  return filePath;
 }
 
 function sessionWithLimitSchema(description) {
@@ -193,6 +341,41 @@ function waitUntilProperty() {
   };
 }
 
+function pageConditionProperties() {
+  return {
+    selector: selectorProperty(),
+    state: {
+      type: "string",
+      enum: ["present", "visible", "hidden"],
+      description:
+        "Selector state (default visible). present: in the DOM. hidden: absent or not visible. Requires selector.",
+    },
+    url: {
+      type: "string",
+      description: "The page URL equals this string exactly.",
+    },
+    urlIncludes: {
+      type: "string",
+      description: "The page URL contains this string.",
+    },
+    readyState: {
+      type: "string",
+      enum: ["interactive", "complete"],
+      description: "document.readyState has reached this state or later.",
+    },
+    textEquals: {
+      type: "string",
+      description:
+        "The selector's visible text equals this string, comparing with whitespace collapsed; only the first 400 characters of the element's text are read, so textEquals never matches longer text. Requires selector; not with state hidden.",
+    },
+    textIncludes: {
+      type: "string",
+      description:
+        "The selector's visible text contains this string, comparing with whitespace collapsed; only the first 400 characters of the element's text are searched. Requires selector; not with state hidden.",
+    },
+  };
+}
+
 function waitForInputSchema() {
   return {
     type: "object",
@@ -201,27 +384,7 @@ function waitForInputSchema() {
         type: "string",
         description: "Session id returned by attach_tab.",
       },
-      selector: selectorProperty(),
-      state: {
-        type: "string",
-        enum: ["present", "visible", "hidden"],
-        description:
-          "Selector state to wait for (default visible). present: in the DOM. hidden: absent or not visible. Requires selector.",
-      },
-      url: {
-        type: "string",
-        description: "Wait until the page URL equals this string exactly.",
-      },
-      urlIncludes: {
-        type: "string",
-        description: "Wait until the page URL contains this string.",
-      },
-      readyState: {
-        type: "string",
-        enum: ["interactive", "complete"],
-        description:
-          "Wait until document.readyState reaches this state or later.",
-      },
+      ...pageConditionProperties(),
       timeoutMs: {
         type: "integer",
         minimum: 1,
@@ -236,6 +399,149 @@ function waitForInputSchema() {
     required: ["sessionId"],
     additionalProperties: false,
   };
+}
+
+const MAX_RUN_STEPS = 50;
+const MAX_STEP_DEPTH = 4;
+const MAX_SLEEP_MS = 30_000;
+
+function sleepStepSchema() {
+  return {
+    type: "object",
+    properties: {
+      ms: {
+        type: "integer",
+        minimum: 0,
+        maximum: MAX_SLEEP_MS,
+        description: `Milliseconds to wait (at most ${MAX_SLEEP_MS}).`,
+      },
+    },
+    required: ["ms"],
+    additionalProperties: false,
+  };
+}
+
+function ifStepSchema() {
+  const condition = {
+    type: "object",
+    properties: pageConditionProperties(),
+    additionalProperties: false,
+  };
+  const steps = {
+    type: "array",
+    items: { type: "object" },
+  };
+  return {
+    type: "object",
+    properties: {
+      condition,
+      then: steps,
+      elseIf: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { condition, then: steps },
+          required: ["condition"],
+          additionalProperties: false,
+        },
+      },
+      else: steps,
+    },
+    required: ["condition"],
+    additionalProperties: false,
+  };
+}
+
+function stepSchema(stepTools) {
+  return {
+    type: "object",
+    properties: {
+      tool: {
+        type: "string",
+        enum: ["sleep", "if", ...stepTools],
+        description:
+          "A tool that takes sessionId, sleep to pause, or if to branch.",
+      },
+      arguments: {
+        type: "object",
+        description:
+          "That tool's arguments without sessionId (default {}). sleep takes { ms }. if takes { condition, then, elseIf, else }: each condition has the wait_for condition fields, checked once without waiting, all of which must hold; then and else are step lists; elseIf is a list of { condition, then } checked in order after condition, and the first condition that holds runs its then.",
+      },
+    },
+    required: ["tool"],
+    additionalProperties: false,
+  };
+}
+
+function runStepsInputSchema(stepTools) {
+  return {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+        description:
+          "Session id returned by attach_tab. Every step runs on this session.",
+      },
+      steps: {
+        type: "array",
+        minItems: 1,
+        maxItems: MAX_RUN_STEPS,
+        description: `Steps to run in order (at most ${MAX_RUN_STEPS}, counting steps inside if branches; if nests at most ${MAX_STEP_DEPTH} deep).`,
+        items: stepSchema(stepTools),
+      },
+      continueOnError: {
+        type: "boolean",
+        description:
+          "Run the remaining steps after a step fails (default false: stop at the first failure).",
+      },
+    },
+    required: ["sessionId", "steps"],
+    additionalProperties: false,
+  };
+}
+
+function moveScreenshotImage(screenshot, images) {
+  if (typeof screenshot?.data !== "string") {
+    return screenshot;
+  }
+
+  const { data, ...metadata } = screenshot;
+  images.push({ type: "image", data, mimeType: screenshot.mimeType });
+  return { ...metadata, image: images.length };
+}
+
+// Moves screenshot data out of a step result so the client receives it as
+// image content, leaving `image` (1-based position among the images) behind.
+function extractStepImages(tool, result, images) {
+  if (tool === "take_screenshot") {
+    return moveScreenshotImage(result, images);
+  }
+
+  if (tool === "capture_debug_report" && result?.screenshot) {
+    return {
+      ...result,
+      screenshot: moveScreenshotImage(result.screenshot, images),
+    };
+  }
+
+  return result;
+}
+
+function parseSessionSnapshot(text) {
+  let snapshot;
+  try {
+    snapshot = JSON.parse(text);
+  } catch {
+    throw new Error("restore_session_snapshot snapshot must be valid JSON");
+  }
+
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error(
+      "restore_session_snapshot snapshot must decode to an object",
+    );
+  }
+
+  return snapshot;
 }
 
 function compareSessionsSchema(properties, required) {
@@ -715,6 +1021,235 @@ export class McpBrowserDevToolsServer {
     };
   }
 
+  async takeScreenshot(args) {
+    const { output, format, filePath } = screenshotTarget(
+      args,
+      this.config.browserFamily,
+    );
+    const screenshot = await this.browserAdapter.takeScreenshot(
+      args.sessionId,
+      format,
+      {
+        selector: args.selector,
+      },
+    );
+    if (output !== "file" || screenshot?.found === false) {
+      return screenshot;
+    }
+
+    if (typeof screenshot?.data !== "string") {
+      throw new Error("The browser returned no screenshot data");
+    }
+
+    const { data, ...metadata } = screenshot;
+    const image = Buffer.from(data, "base64");
+    const savedPath = filePath
+      ? await writeScreenshotFile(filePath, image, args.overwrite)
+      : await writeTempScreenshot(image, format);
+    return { ...metadata, path: savedPath };
+  }
+
+  prepareSteps(steps, context, pathPrefix, depth) {
+    return steps.map((step, index) => {
+      const stepPath = `${pathPrefix}[${index}]`;
+      validateValue(stepPath, step, this.stepSchema);
+      context.count += 1;
+      if (context.count > MAX_RUN_STEPS) {
+        throw new Error(
+          `run_steps allows at most ${MAX_RUN_STEPS} steps, counting steps inside if branches`,
+        );
+      }
+
+      const path = `${stepPath}.arguments`;
+      const stepArgs = step.arguments ?? {};
+      if (step.tool === "sleep") {
+        validateValue(path, stepArgs, sleepStepSchema());
+        return { tool: step.tool, args: stepArgs };
+      }
+
+      if (step.tool === "if") {
+        if (depth >= MAX_STEP_DEPTH) {
+          throw new Error(
+            `${path} nests if deeper than ${MAX_STEP_DEPTH} levels`,
+          );
+        }
+        validateValue(path, stepArgs, ifStepSchema());
+        const prepareBranch = (branch, branchPath) => ({
+          condition: normalizeWaitForOptions(
+            branch.condition,
+            `${branchPath}.condition`,
+          ),
+          steps: this.prepareSteps(
+            branch.then ?? [],
+            context,
+            `${branchPath}.then`,
+            depth + 1,
+          ),
+        });
+        return {
+          tool: step.tool,
+          branches: [
+            { name: "then", ...prepareBranch(stepArgs, path) },
+            ...(stepArgs.elseIf ?? []).map((branch, branchIndex) => ({
+              name: `elseIf[${branchIndex}]`,
+              ...prepareBranch(branch, `${path}.elseIf[${branchIndex}]`),
+            })),
+          ],
+          else: this.prepareSteps(
+            stepArgs.else ?? [],
+            context,
+            `${path}.else`,
+            depth + 1,
+          ),
+        };
+      }
+
+      if (stepArgs.sessionId !== undefined) {
+        throw new Error(
+          `${path}.sessionId is not allowed; run_steps passes its own sessionId`,
+        );
+      }
+
+      const toolArgs = { ...stepArgs, sessionId: context.sessionId };
+      const tool = this.tools.get(step.tool);
+      validateValue(path, toolArgs, tool.definition.inputSchema);
+      tool.validate?.(toolArgs);
+      return { tool: step.tool, args: toolArgs };
+    });
+  }
+
+  async checkStepCondition(condition, context) {
+    const check = await checkPageCondition({
+      getPageState: () => this.browserAdapter.getPageState(context.sessionId),
+      inspectElement: (selector) =>
+        this.browserAdapter.inspectElement(context.sessionId, selector),
+      normalized: condition,
+    });
+    const observed = {};
+    if (check.page) {
+      observed.url = check.page.url ?? null;
+      observed.readyState = check.page.readyState ?? null;
+    }
+    if (condition.selector) {
+      observed.found = Boolean(check.element?.found);
+      observed.visible = check.element?.node?.visible === true;
+      if (condition.textEquals !== null || condition.textIncludes !== null) {
+        observed.text = check.text;
+      }
+    }
+    return { matched: check.matched, observed };
+  }
+
+  // Checks the then and elseIf conditions in order and runs the first branch
+  // whose condition holds, or else when none does.
+  async runIfStep(step, context) {
+    const checked = [];
+    let selected = null;
+    for (const branch of step.branches) {
+      const { matched, observed } = await this.checkStepCondition(
+        branch.condition,
+        context,
+      );
+      checked.push({ branch: branch.name, matched, observed });
+      if (matched) {
+        selected = branch;
+        break;
+      }
+    }
+
+    const steps = await this.executeSteps(
+      selected ? selected.steps : step.else,
+      context,
+    );
+    return {
+      ok: steps.every((result) => result.ok),
+      result: {
+        matched: selected !== null,
+        branch: selected ? selected.name : "else",
+        checked,
+        steps,
+      },
+    };
+  }
+
+  async runStep(step, context) {
+    if (step.tool === "if") {
+      return this.runIfStep(step, context);
+    }
+
+    let result;
+    if (step.tool === "sleep") {
+      await sleep(step.args.ms);
+      result = { sleptMs: step.args.ms };
+    } else {
+      result = await this.tools.get(step.tool).handler(step.args);
+    }
+
+    const entry = {
+      ok: true,
+      result: extractStepImages(step.tool, result, context.images),
+    };
+    // Actions report a missing element as found: false instead of throwing;
+    // later steps usually depend on it, so treat it as a failure.
+    // inspect_element may be checking that something is gone.
+    if (result?.found === false && step.tool !== "inspect_element") {
+      entry.ok = false;
+      entry.error =
+        result.error ?? `No element matches selector ${step.args.selector}`;
+    }
+    return entry;
+  }
+
+  async executeSteps(steps, context) {
+    const results = [];
+    for (const [index, step] of steps.entries()) {
+      const startedAt = Date.now();
+      let entry;
+      try {
+        entry = await this.runStep(step, context);
+      } catch (error) {
+        entry = { ok: false, error: error.message };
+      }
+
+      results.push({
+        index,
+        tool: step.tool,
+        durationMs: Date.now() - startedAt,
+        ...entry,
+      });
+      if (!entry.ok && !context.continueOnError) {
+        break;
+      }
+    }
+    return results;
+  }
+
+  async runSteps(args) {
+    const context = {
+      sessionId: args.sessionId,
+      continueOnError: args.continueOnError === true,
+      images: [],
+      count: 0,
+    };
+    // Validate every step, including both branches of each if, first, so a
+    // typo in a late step does not leave the page half-changed.
+    const steps = this.prepareSteps(args.steps, context, "arguments.steps", 0);
+    const results = await this.executeSteps(steps, context);
+
+    return {
+      value: {
+        sessionId: args.sessionId,
+        ok:
+          results.length === steps.length &&
+          results.every((result) => result.ok),
+        ranSteps: results.length,
+        skippedSteps: steps.length - results.length,
+        steps: results,
+      },
+      images: context.images,
+    };
+  }
+
   createTools() {
     const tools = [
       [
@@ -1041,35 +1576,24 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "wait_for",
             description:
-              "Wait until every given condition holds on an attached session: selector state, exact url, urlIncludes substring, and readyState. Give at least one condition. Polls until the conditions match or timeoutMs passes, then fails with the last observed state. A selector check scrolls the matched element into view on each poll.",
+              "Wait until every given condition holds on an attached session: selector state, selector text (textEquals, textIncludes), exact url, urlIncludes substring, and readyState. Give at least one of selector, url, urlIncludes, or readyState. Polls until the conditions match or timeoutMs passes, then fails with the last observed state. A selector check scrolls the matched element into view on each poll.",
             inputSchema: waitForInputSchema(),
           },
-          handler: async (args) => {
-            if (
-              !args.selector &&
-              !args.url &&
-              !args.urlIncludes &&
-              !args.readyState
-            ) {
-              throw new Error(
-                "wait_for requires at least one of selector, url, urlIncludes, or readyState",
-              );
-            }
-
-            if (!args.selector && args.state !== undefined) {
-              throw new Error("wait_for state requires selector");
-            }
-
-            return this.browserAdapter.waitFor(args.sessionId, {
+          validate: (args) => {
+            normalizeWaitForOptions(args);
+          },
+          handler: async (args) =>
+            this.browserAdapter.waitFor(args.sessionId, {
               selector: args.selector,
               state: args.state,
               url: args.url,
               urlIncludes: args.urlIncludes,
               readyState: args.readyState,
+              textEquals: args.textEquals,
+              textIncludes: args.textIncludes,
               timeoutMs: args.timeoutMs,
               pollIntervalMs: args.pollIntervalMs,
-            });
-          },
+            }),
         },
       ],
       [
@@ -1151,30 +1675,17 @@ export class McpBrowserDevToolsServer {
               "Restore a bounded session snapshot into the currently attached page context. Restores only page-visible cookies plus localStorage/sessionStorage on the current origin.",
             inputSchema: restoreSessionSnapshotInputSchema(),
           },
-          handler: async (args) => {
-            let snapshot;
-            try {
-              snapshot = JSON.parse(args.snapshot);
-            } catch {
-              throw new Error(
-                "restore_session_snapshot snapshot must be valid JSON",
-              );
-            }
-
-            if (!snapshot || typeof snapshot !== "object") {
-              throw new Error(
-                "restore_session_snapshot snapshot must decode to an object",
-              );
-            }
-
-            return this.browserAdapter.restoreSessionSnapshot(
+          validate: (args) => {
+            parseSessionSnapshot(args.snapshot);
+          },
+          handler: async (args) =>
+            this.browserAdapter.restoreSessionSnapshot(
               args.sessionId,
-              snapshot,
+              parseSessionSnapshot(args.snapshot),
               {
                 clearStorage: args.clearStorage,
               },
-            );
-          },
+            ),
         },
       ],
       [
@@ -1332,16 +1843,16 @@ export class McpBrowserDevToolsServer {
               ["selector"],
             ),
           },
-          handler: async (args) => {
+          validate: (args) => {
             if (!args.value && !args.label) {
               throw new Error("select requires either value or label");
             }
-
-            return this.browserAdapter.select(args.sessionId, args.selector, {
+          },
+          handler: async (args) =>
+            this.browserAdapter.select(args.sessionId, args.selector, {
               value: args.value,
               label: args.label,
-            });
-          },
+            }),
         },
       ],
       [
@@ -1401,7 +1912,7 @@ export class McpBrowserDevToolsServer {
               [],
             ),
           },
-          handler: async (args) => {
+          validate: (args) => {
             if (
               !args.selector &&
               args.deltaX === undefined &&
@@ -1411,14 +1922,14 @@ export class McpBrowserDevToolsServer {
                 "scroll requires either selector or deltaX/deltaY values",
               );
             }
-
-            return this.browserAdapter.scroll(args.sessionId, {
+          },
+          handler: async (args) =>
+            this.browserAdapter.scroll(args.sessionId, {
               selector: args.selector,
               deltaX: args.deltaX,
               deltaY: args.deltaY,
               block: args.block,
-            });
-          },
+            }),
         },
       ],
       [
@@ -1556,7 +2067,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "take_screenshot",
             description:
-              "Capture a screenshot from an attached page or a single element when selector is provided.",
+              "Capture a screenshot from an attached page or a single element when selector is provided. By default the image comes back as base64 data in the JSON result; output image returns it as image content instead, and output file (or path) writes it to a file and returns the path.",
             inputSchema: {
               type: "object",
               properties: {
@@ -1567,22 +2078,42 @@ export class McpBrowserDevToolsServer {
                 format: {
                   type: "string",
                   enum: screenshotFormatsFor(this.config.browserFamily),
-                  description: "Image format (default png).",
+                  description:
+                    "Image format (default png). With path, it must match the extension.",
                 },
                 selector: selectorProperty(),
+                output: {
+                  type: "string",
+                  enum: ["data", "image", "file"],
+                  description:
+                    "How to return the image: data puts base64 data in the JSON result, image returns an image content block with only metadata in the JSON, file writes the decoded image to a file and returns its path (default data, or file when path is given).",
+                },
+                path: {
+                  type: "string",
+                  description: `Absolute file path for output file, ending in ${screenshotFileExtensions(this.config.browserFamily).join(", ")}; the extension sets the format. Missing parent directories are created. Default: a new file in a private directory under the system temp directory.`,
+                },
+                overwrite: {
+                  type: "boolean",
+                  description:
+                    "For output file: replace path if it already exists (default false: fail instead).",
+                },
               },
               required: ["sessionId"],
               additionalProperties: false,
             },
           },
-          handler: async (args) =>
-            this.browserAdapter.takeScreenshot(
-              args.sessionId,
-              args.format ?? "png",
-              {
-                selector: args.selector,
-              },
-            ),
+          validate: (args) => {
+            screenshotTarget(args, this.config.browserFamily);
+          },
+          handler: async (args) => this.takeScreenshot(args),
+          formatResult: (result, args) => {
+            if (args.output !== "image") {
+              return asToolResult(result);
+            }
+            const images = [];
+            const value = moveScreenshotImage(result, images);
+            return asImageToolResult({ value, images });
+          },
         },
       ],
       [
@@ -1662,6 +2193,26 @@ export class McpBrowserDevToolsServer {
         },
       ]);
     }
+
+    const stepTools = tools
+      .filter(([, tool]) =>
+        tool.definition.inputSchema.required?.includes("sessionId"),
+      )
+      .map(([name]) => name);
+    this.stepSchema = stepSchema(stepTools);
+    tools.push([
+      "run_steps",
+      {
+        definition: {
+          name: "run_steps",
+          description:
+            'Run several tools on one attached session in order, in a single call. Use it to act and check the result together, for example [{"tool":"click","arguments":{"selector":"text=Save"}},{"tool":"sleep","arguments":{"ms":300}},{"tool":"take_screenshot"}]. Each step names a tool that takes sessionId (or sleep) and gives that tool\'s arguments without sessionId. To branch on the page state, use an if step, for example {"tool":"if","arguments":{"condition":{"selector":"#status","textIncludes":"failed"},"then":[{"tool":"click","arguments":{"selector":"text=Retry"}}],"elseIf":[{"condition":{"urlIncludes":"/login"},"then":[{"tool":"take_screenshot","arguments":{"output":"image"}}]}],"else":[]}}; conditions are checked once, in order, without waiting, so put wait_for or sleep before the if when the page may still be changing. The if result reports the branch taken (then, elseIf[i], or else), each checked condition with what was observed, and the branch\'s step results. Every step, including both branches, is validated before any runs. A step fails when its tool throws or reports found: false (except inspect_element). Stops at the first failing step unless continueOnError is true, and returns each step\'s result or error. Screenshots come back as image content; the step result keeps the metadata plus image, the 1-based position of its image. Prefer wait_for over sleep when there is a condition to wait for.',
+          inputSchema: runStepsInputSchema(stepTools),
+        },
+        handler: async (args) => this.runSteps(args),
+        formatResult: asImageToolResult,
+      },
+    ]);
 
     return new Map(tools);
   }
@@ -1780,7 +2331,8 @@ export class McpBrowserDevToolsServer {
 
     const args = params.arguments ?? {};
     validateValue("arguments", args, tool.definition.inputSchema);
+    tool.validate?.(args);
     const result = await tool.handler(args);
-    return asToolResult(result);
+    return (tool.formatResult ?? asToolResult)(result, args);
   }
 }

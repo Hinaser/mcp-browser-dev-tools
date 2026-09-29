@@ -8,6 +8,16 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `run_steps` MCP tool that runs several session tools (plus `sleep`) in order on one attached session in a single call, validates every step up front, stops at the first failure unless `continueOnError` is set, and returns screenshots as image content. An `if` step branches on page conditions checked once (the `wait_for` condition fields), with a flat `elseIf` list and `else`
+- `wait_for` accepts `textEquals` and `textIncludes` to wait for a selector's visible text
+
+### Changed
+
+- `evaluate_js` is now enabled by default, matching most browser MCP servers; set `MCP_BROWSER_ENABLE_EVAL=0` (or `false`) to turn it off. Existing `MCP_BROWSER_ENABLE_EVAL=1` configurations keep working
+- `take_screenshot` accepts `output`: `image` returns the screenshot as image content instead of base64 text, and `file` (implied by `path`) writes it to an image file (absolute path with an image extension, or a new private temp file, created readable only by the current user) and returns the path; it does not replace an existing file unless `overwrite` is true. Without these arguments it returns base64 data as before
+
 ## [0.0.6] - 2026-09-27
 
 This stable release rolls up the `0.0.6-beta.0` and `0.0.6-beta.1`
