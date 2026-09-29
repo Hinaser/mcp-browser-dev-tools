@@ -116,3 +116,36 @@ Next steps:
 
 - **Add a wait that ends on a change or on one of several outcomes**, and record each wait's condition in the timing log so timeouts like the ones above can be explained.
 - **Consider more ways to get the agent to batch,** for example a short example in the instructions, then measure again. The current guidance works well when the task is a clear straight line (`signup`) and less well when the agent first wants to look around (`settings-login`).
+
+### 2026-09-30: Sonnet 5.5, medium effort, with a `run_steps` example in the instructions
+
+- **Change under test:** commit `9f8f548` adds an example `run_steps` call to the `initialize` instructions: a generic search flow of type, press Enter, `wait_for`, and `take_screenshot`, not one of the benchmark tasks. The instructions also now say to send the actions already known (such as every field of a form) together with the wait and the check.
+- **Runs:** the `batch` mode only (no hint in the prompt), 3 runs per scenario, 9 runs in total, $0.66 in total. Same model, effort, and environment as above.
+
+| Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time            | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | ------- | --- | ---------------------- | --------- | ---------- | ---------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | `batch` | 3/3 | 10.0 s (9.5 s–10.6 s)  | 5         | 4          | 0.9 s (0.9 s–1.0 s)    | 17.0k (17.0k–17.0k) | 74.6k (74.6k–74.6k)    | 0.7k (0.7k–0.7k) | $0.059 ($0.059–$0.059) |
+| `payment-retry`  | `batch` | 3/3 | 28.9 s (28.2 s–35.0 s) | 11 (9–13) | 10 (8–12)  | 14.1 s (14.1 s–15.2 s) | 8.0k (7.6k–9.8k)    | 131.6k (104.7k–169.7k) | 1.3k (1.0k–1.5k) | $0.072 ($0.057–$0.080) |
+| `settings-login` | `batch` | 3/3 | 13.7 s (13.2 s–14.9 s) | 8 (7–9)   | 7 (6–8)    | 0.8 s (0.7 s–1.2 s)    | 35.4k (23.1k–39.0k) | 147.4k (135.3k–175.3k) | 1.3k (1.2k–1.4k) | $0.093 ($0.080–$0.105) |
+
+Median wall time, turns, and cost for each configuration so far:
+
+| Scenario         | `single`                 | `batch-hinted`          | Guidance (`26a3d2d`)     | Guidance and example (`9f8f548`) |
+| ---------------- | ------------------------ | ----------------------- | ------------------------ | -------------------------------- |
+| `signup`         | 11.4 s, 10 turns, $0.060 | 8.3 s, 4 turns, $0.050  | 9.0 s, 4 turns, $0.051   | 10.0 s, 5 turns, $0.059          |
+| `payment-retry`  | 19.9 s, 12 turns, $0.072 | 23.9 s, 7 turns, $0.056 | 26.2 s, 10 turns, $0.062 | 28.9 s, 11 turns, $0.072         |
+| `settings-login` | 20.0 s, 16 turns, $0.103 | 16.4 s, 8 turns, $0.090 | 19.1 s, 16 turns, $0.103 | 13.7 s, 8 turns, $0.093          |
+
+What changed:
+
+1. **Every run passed.** 9 of 9.
+2. **`run_steps` was used in 6 of 9 runs**, against 5 of 9 with the guidance alone and 0 of 9 with neither: every `signup` and `settings-login` run, and no `payment-retry` run.
+3. **`settings-login` improved the most.** Every run batched the form, where only 1 of 3 did before the example. The median was 13.7 s: 31% faster than `single` mode, 8 turns instead of 16, and 10% cheaper. This beats the explicit prompt hint too (16.4 s).
+4. **`signup` got slightly worse than with the guidance alone.** It still batched in every run, but every run now also took a screenshot at the start, which no run did before. That made it 10.0 s instead of 9.0 s, and brought its cost back to the `single`-mode level ($0.059 against $0.060). The example ends with a screenshot, which may have prompted this, but three runs cannot show that.
+5. **`payment-retry` did not batch, and waits dominated.** Every run lost 13–15 s to `wait_for` calls that ended at their timeout, for a median of 28.9 s, 45% slower than `single` mode. No wording change helps here until a wait can end on one of several outcomes.
+6. **These results are from 3 runs per scenario.** `payment-retry` in particular varies widely between runs.
+
+Next steps:
+
+- **Keep the example.** It raised batching and gave the biggest gain seen so far on the form-heavy scenario. The `signup` screenshot cost is small by comparison.
+- **Add a wait that ends on one of several outcomes, or on a change**, and record each wait's condition in the timing log. This is now the clearest remaining cost.
