@@ -7,10 +7,14 @@ import {
 } from "./browser-launcher.mjs";
 
 test("getBrowserCandidates includes WSL Chrome paths for Chromium", () => {
-  const candidates = getBrowserCandidates("chromium", {
-    PATH: "/usr/bin",
-    WSL_INTEROP: "/run/WSL/1_interop",
-  });
+  const candidates = getBrowserCandidates(
+    "chromium",
+    {
+      PATH: "/usr/bin",
+      WSL_INTEROP: "/run/WSL/1_interop",
+    },
+    "wsl",
+  );
 
   assert.deepEqual(candidates.slice(0, 2), ["chromium-browser", "chromium"]);
   assert.equal(
