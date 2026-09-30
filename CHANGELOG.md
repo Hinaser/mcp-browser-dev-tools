@@ -10,7 +10,7 @@ release history retroactively.
 
 ### Added
 
-- `run_tabs` runs step lists in several tabs at the same time (up to 8, 4 at once by default), opening a tab for each URL and closing it afterwards unless `keepTabs` is true, and returns every tab's results in one reply; a failing or timed-out tab does not stop the others
+- `run_tabs` runs step lists in several tabs at the same time (up to 8, all at once unless `concurrency` is lower), opening a tab for each URL and closing it afterwards unless `keepTabs` is true, and returns every tab's results in one reply; a failing or timed-out tab does not stop the others
 - `read_text` returns the readable text of the page's main content or of one element, as plain lines up to `maxChars`, and with `links` the links inside it
 - `run_steps` accepts a `repeat` step (`steps`, `until`, `max`) that runs its steps, checks `until` once, and repeats until it holds, at most `max` passes (default 5, at most 10), so retry and polling flows need no round trip per attempt
 - `wait_for` and `run_steps` conditions accept `anyOf` to hold when any one of several conditions holds, reporting `matchedIndex`, and `textExcludes` to hold once a selector's text no longer contains a string

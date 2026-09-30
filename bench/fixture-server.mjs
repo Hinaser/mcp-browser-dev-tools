@@ -29,10 +29,10 @@ function escapeHtml(value) {
   );
 }
 
-function researchResultsPage(run) {
+function researchResultsPage(run, articleOrigin) {
   const results = RESEARCH_TOPICS.map(
     (topic, index) => `<article class="result">
-  <h2><a href="/research/article/${index + 1}?run=${encodeURIComponent(run)}">${topic} component overview</a></h2>
+  <h2><a href="${articleOrigin}/research/article/${index + 1}?run=${encodeURIComponent(run)}">${topic} component overview</a></h2>
   <p>Design notes, release history, and the current codename of the ${topic} component.</p>
 </article>`,
   ).join("\n");
@@ -99,13 +99,16 @@ export async function startFixtureServer({ fixturesDir }) {
     return runs.get(run);
   };
 
-  const server = http.createServer(async (request, response) => {
+  // The articles come from a second origin without CORS headers, as search
+  // results link to other sites, so a page script cannot fetch them.
+  let articleOrigin = "";
+  const handle = async (request, response) => {
     const url = new URL(request.url, "http://127.0.0.1");
     const run = url.searchParams.get("run") ?? "";
     try {
       if (request.method === "GET" && url.pathname === "/research") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(researchResultsPage(run));
+        response.end(researchResultsPage(run, articleOrigin));
         return;
       }
       const article = url.pathname.match(/^\/research\/article\/([1-5])$/);
@@ -213,18 +216,29 @@ export async function startFixtureServer({ fixturesDir }) {
     } catch (error) {
       send(response, 500, { error: error.message });
     }
-  });
+  };
+  const server = http.createServer(handle);
+  const articleServer = http.createServer(handle);
 
   await new Promise((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
   });
+  await new Promise((resolve) => {
+    articleServer.listen(0, "127.0.0.1", resolve);
+  });
+  articleOrigin = `http://127.0.0.1:${articleServer.address().port}`;
 
   return {
     origin: `http://127.0.0.1:${server.address().port}`,
     state: (run) => stateFor(run),
     close: () =>
-      new Promise((resolve) => {
-        server.close(resolve);
-      }),
+      Promise.all(
+        [server, articleServer].map(
+          (listener) =>
+            new Promise((resolve) => {
+              listener.close(resolve);
+            }),
+        ),
+      ),
   };
 }
