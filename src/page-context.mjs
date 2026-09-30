@@ -1,6 +1,14 @@
-import { pageScript } from "./page-script.mjs";
+import { inputRecorder, pageScript } from "./page-script.mjs";
 
 const PAGE_SCRIPT_SOURCE = pageScript.toString();
+
+// The input recorder as a function declaration, to run with early = true
+// when each new document starts or false on the current document.
+export const INPUT_RECORDER_FUNCTION = inputRecorder.toString();
+
+export function buildInputRecorderExpression(early) {
+  return `(${INPUT_RECORDER_FUNCTION})(${early})`;
+}
 
 // Builds an expression that runs pageScript in the page with this payload.
 // With serialize, the expression evaluates to the result as a JSON string.

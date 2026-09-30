@@ -9,9 +9,11 @@ import { waitForPageCondition } from "./wait-for.mjs";
 import {
   assertEnabled,
   assertPointerTarget,
+  buildInputRecorderExpression,
   buildPageContextExpression,
 } from "./page-context.mjs";
 import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
+import { sendCheckedInput } from "./input-delivery.mjs";
 
 const POINTER_SOURCE = {
   type: "pointer",
@@ -826,6 +828,7 @@ export class FirefoxBidiSessionManager {
 
     session.subscription = subscription.subscription ?? null;
     this.sessions.set(session.id, session);
+    await this.installInputRecorder(session);
     await this.seedBufferedState(session);
     return session.getSummary();
   }
@@ -836,6 +839,11 @@ export class FirefoxBidiSessionManager {
     if (session.subscription) {
       await this.send("session.unsubscribe", {
         subscriptions: [session.subscription],
+      }).catch(() => {});
+    }
+    if (session.inputRecorderScript) {
+      await this.send("script.removePreloadScript", {
+        script: session.inputRecorderScript,
       }).catch(() => {});
     }
 
@@ -1053,41 +1061,64 @@ export class FirefoxBidiSessionManager {
     ]);
   }
 
-  async resolvePointerTarget(session, selector) {
+  async resolvePointerTarget(session, selector, options = {}) {
     const target = await this.runPageAction(session, {
       action: "pointer_target",
       selector,
+      ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
     });
     assertPointerTarget(target);
     return target;
   }
 
+  async readInputProbe(session, token, disarm) {
+    try {
+      const probe = await this.runPageAction(session, {
+        action: "input_probe",
+        token,
+        disarm,
+      });
+      return probe.armed ? probe : null;
+    } catch {
+      return null;
+    }
+  }
+
   async click(sessionId, selector) {
     const session = this.getSession(sessionId);
-    const target = await this.resolvePointerTarget(session, selector);
+    const token = crypto.randomUUID();
+    const target = await this.resolvePointerTarget(session, selector, {
+      inputProbe: token,
+    });
     if (!target.found) {
       return target;
     }
     assertEnabled(target);
 
-    await this.performActions(session, [
-      {
-        ...POINTER_SOURCE,
-        actions: [
-          pointerMove(target.point),
-          { type: "pointerDown", button: 0 },
-          { type: "pointerUp", button: 0 },
-        ],
-      },
-    ]);
+    const delivery = await sendCheckedInput({
+      send: () =>
+        this.performActions(session, [
+          {
+            ...POINTER_SOURCE,
+            actions: [
+              pointerMove(target.point),
+              { type: "pointerDown", button: 0 },
+              { type: "pointerUp", button: 0 },
+            ],
+          },
+        ]),
+      readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+      describe: `The click on "${selector}"`,
+    });
 
     return {
       browserFamily: "firefox",
       selector,
       found: true,
       clicked: true,
+      ...(delivery.resent ? { resent: true } : {}),
       point: target.point,
-      node: target.node,
+      node: delivery.node ?? target.node,
     };
   }
 
@@ -1114,6 +1145,7 @@ export class FirefoxBidiSessionManager {
 
   async type(sessionId, selector, text, options = {}) {
     const session = this.getSession(sessionId);
+    const token = crypto.randomUUID();
     const prepared = await this.runPageAction(
       session,
       {
@@ -1121,6 +1153,7 @@ export class FirefoxBidiSessionManager {
         selector,
         text,
         clear: options.clear,
+        inputProbe: token,
       },
       { userActivation: true },
     );
@@ -1128,24 +1161,37 @@ export class FirefoxBidiSessionManager {
       return prepared;
     }
 
-    if (text) {
-      await this.performKeyActions(session, buildBidiTextActions(text));
-    } else if (options.clear !== false) {
-      await this.performKeyActions(session, buildBidiKeyActions("Backspace"));
+    let delivery = { node: null, resent: false };
+    if (text || options.clear !== false) {
+      const actions = text
+        ? buildBidiTextActions(text)
+        : buildBidiKeyActions("Backspace");
+      delivery = await sendCheckedInput({
+        send: () => this.performKeyActions(session, actions),
+        readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+        describe: `The text for "${selector}"`,
+      });
+    } else {
+      await this.readInputProbe(session, token, true);
     }
 
-    const typed = await this.runPageAction(session, {
-      action: "inspect",
-      selector,
-      scrollIntoView: false,
-    });
+    let node = delivery.node;
+    if (!node) {
+      const typed = await this.runPageAction(session, {
+        action: "inspect",
+        selector,
+        scrollIntoView: false,
+      });
+      node = typed.found ? typed.node : prepared.node;
+    }
 
     return {
       browserFamily: "firefox",
       selector,
       found: true,
       typedText: text,
-      node: typed.found ? typed.node : prepared.node,
+      ...(delivery.resent ? { resent: true } : {}),
+      node,
     };
   }
 
@@ -1165,11 +1211,13 @@ export class FirefoxBidiSessionManager {
   async pressKey(sessionId, key, selector = null) {
     const session = this.getSession(sessionId);
     const actions = buildBidiKeyActions(key);
+    const token = crypto.randomUUID();
     const focused = await this.runPageAction(
       session,
       {
         action: "focus",
         selector,
+        inputProbe: token,
       },
       { userActivation: true },
     );
@@ -1177,12 +1225,17 @@ export class FirefoxBidiSessionManager {
       return focused;
     }
 
-    await this.performKeyActions(session, actions);
+    const delivery = await sendCheckedInput({
+      send: () => this.performKeyActions(session, actions),
+      readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+      describe: `The key press "${key}"`,
+    });
 
     return {
       browserFamily: "firefox",
       key,
       dispatched: true,
+      ...(delivery.resent ? { resent: true } : {}),
       target: focused.target,
     };
   }
@@ -1386,6 +1439,26 @@ export class FirefoxBidiSessionManager {
       selector,
       textChecks: options.textChecks,
     });
+  }
+
+  // Counts trusted input from the start of every later document, and from
+  // now on in the current one, so input actions can check that their input
+  // arrived. Without it they are reported as sent, unchecked.
+  async installInputRecorder(session) {
+    try {
+      const preload = await this.send("script.addPreloadScript", {
+        functionDeclaration: `() => ${buildInputRecorderExpression(true)}`,
+        contexts: [session.target.targetId],
+      });
+      session.inputRecorderScript = preload?.script ?? null;
+      await this.evaluateInContext(
+        session,
+        buildInputRecorderExpression(false),
+        { awaitPromise: false },
+      );
+    } catch {
+      // Ignore recorder failures so attach still succeeds.
+    }
   }
 
   async seedBufferedState(session) {
