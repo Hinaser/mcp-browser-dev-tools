@@ -1,8 +1,9 @@
-// Runs the benchmark scenarios through headless Claude Code against a
-// throwaway headless Chrome, and appends one JSON line per run to
-// bench/results/. See PERFORMANCE.md for the method.
+// Runs the benchmark scenarios through headless Claude Code (or the Codex
+// CLI for gpt-* models) against a throwaway headless Chrome, and appends one
+// JSON line per run to bench/results/. See PERFORMANCE.md for the method.
 //
 //   node bench/run.mjs --model claude-sonnet-5-5 --effort medium --repeats 3
+//   node bench/run.mjs --model gpt-6.1-sol --effort medium --modes batch
 
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -17,6 +18,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { startFixtureServer } from "./fixture-server.mjs";
@@ -53,6 +55,9 @@ const { values: options } = parseArgs({
     "cdp-port": { type: "string", default: "9333" },
     "timeout-ms": { type: "string", default: "300000" },
     out: { type: "string" },
+    // Directory to save each run's stream-json transcript in, for reading
+    // the exact tool arguments afterwards.
+    transcripts: { type: "string" },
   },
 });
 
@@ -68,6 +73,10 @@ const scenarios = options.scenarios.split(",").map((id) => {
   return scenario;
 });
 const modes = options.modes.split(",");
+const isCodex = options.model.startsWith("gpt-");
+if (isCodex && modes.includes("single")) {
+  throw new Error("single mode is not supported for Codex runs yet");
+}
 for (const mode of modes) {
   if (!MODES[mode]) {
     throw new Error(`Unknown mode ${mode}`);
@@ -186,8 +195,12 @@ function runClaude({ prompt, mode, runDir, mcpConfigPath }) {
     ...MODES[mode].args,
   ];
 
+  return runAgent("claude", args, runDir);
+}
+
+function runAgent(command, args, runDir) {
   return new Promise((resolve) => {
-    const child = spawn("claude", args, {
+    const child = spawn(command, args, {
       cwd: runDir,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -207,6 +220,166 @@ function runClaude({ prompt, mode, runDir, mcpConfigPath }) {
       resolve({ stdout, stderr, exitCode });
     });
   });
+}
+
+// GPT models run through the Codex CLI, isolated like the Claude runs: no
+// user config, no built-in browser, shell, web, or app tools, and only this
+// server. Codex keeps an exec tool, which the read-only sandbox confines.
+const CODEX_DISABLED_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "browser_use",
+  "browser_use_external",
+  "computer_use",
+  "in_app_browser",
+  "apps",
+  "plugins",
+  "image_generation",
+  "skill_search",
+  "tool_suggest",
+  "sleep_tool",
+  "goals",
+];
+
+// OpenAI API standard-tier list prices in USD per 1M tokens, short context,
+// from developers.openai.com/api/docs/pricing on 2026-09-30. Codex under a
+// ChatGPT login reports tokens but no cost, so GPT costs are estimates.
+const OPENAI_PRICES = {
+  "gpt-6-astra": {
+    input: 10.0,
+    cachedInput: 1.0,
+    cacheWrite: 12.5,
+    output: 50.0,
+  },
+  "gpt-6.1-sol": {
+    input: 2.0,
+    cachedInput: 0.1,
+    cacheWrite: 2.5,
+    output: 10.0,
+  },
+  "gpt-6-luna": {
+    input: 0.1,
+    cachedInput: 0.01,
+    cacheWrite: 0.125,
+    output: 0.5,
+  },
+};
+
+// Output tokens include reasoning tokens, which are billed as output.
+function estimateOpenAiCost(model, usage) {
+  const price = OPENAI_PRICES[model];
+  if (!price) {
+    return null;
+  }
+  return (
+    (usage.input_tokens * price.input +
+      usage.cache_read_input_tokens * price.cachedInput +
+      usage.cache_creation_input_tokens * price.cacheWrite +
+      usage.output_tokens * price.output) /
+    1_000_000
+  );
+}
+
+function tomlString(value) {
+  return JSON.stringify(value);
+}
+
+function runCodex({ prompt, runDir, timingLog }) {
+  const env = {
+    MCP_BROWSER_FAMILY: "chromium",
+    CDP_BASE_URL: cdpOrigin,
+    MCP_BROWSER_TIMING_LOG: timingLog,
+  };
+  const args = [
+    "exec",
+    "--model",
+    options.model,
+    "-c",
+    `model_reasoning_effort=${tomlString(options.effort)}`,
+    "--json",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--sandbox",
+    "read-only",
+    "--cd",
+    runDir,
+    ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+    "-c",
+    'web_search="disabled"',
+    "-c",
+    `mcp_servers.${SERVER_NAME}.command=${tomlString(process.execPath)}`,
+    "-c",
+    `mcp_servers.${SERVER_NAME}.args=[${tomlString(fileURLToPath(new URL("cli.mjs", REPO_ROOT)))},"serve"]`,
+    "-c",
+    `mcp_servers.${SERVER_NAME}.default_tools_approval_mode="approve"`,
+    "-c",
+    `mcp_servers.${SERVER_NAME}.env={${Object.entries(env)
+      .map(([key, value]) => `${key}=${tomlString(value)}`)
+      .join(",")}}`,
+    prompt,
+  ];
+  return runAgent("codex", args, runDir);
+}
+
+// Codex prints one JSON event per line. Its usage counts cached input inside
+// input_tokens, and it reports neither turns nor cost, so turns are counted
+// as tool calls plus the final answer.
+function parseCodexStream(stdout) {
+  const toolCalls = {};
+  let reply = null;
+  const usage = { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 };
+  let completed = false;
+  const errors = [];
+  for (const line of stdout.split("\n")) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const item = event.item;
+    if (event.type === "item.completed" && item) {
+      if (item.type === "agent_message") {
+        reply = item.text ?? reply;
+      } else if (item.type === "mcp_tool_call") {
+        toolCalls[item.tool] = (toolCalls[item.tool] ?? 0) + 1;
+      } else if (item.type === "error") {
+        errors.push(item.message);
+      } else if (item.type !== "reasoning") {
+        toolCalls[item.type] = (toolCalls[item.type] ?? 0) + 1;
+      }
+    }
+    if (event.type === "turn.failed" || event.type === "error") {
+      errors.push(event.error?.message ?? event.message ?? event.type);
+    }
+    if (event.type === "turn.completed") {
+      completed = true;
+      usage.input += event.usage?.input_tokens ?? 0;
+      usage.cached += event.usage?.cached_input_tokens ?? 0;
+      usage.cacheWrite += event.usage?.cache_write_input_tokens ?? 0;
+      usage.output += event.usage?.output_tokens ?? 0;
+      usage.reasoning += event.usage?.reasoning_output_tokens ?? 0;
+    }
+  }
+  const calls = Object.values(toolCalls).reduce((a, b) => a + b, 0);
+  return {
+    toolCalls,
+    error: errors.join("; ") || null,
+    result: completed
+      ? {
+          result: reply ?? "",
+          num_turns: calls + 1,
+          usage: {
+            input_tokens: usage.input - usage.cached - usage.cacheWrite,
+            cache_creation_input_tokens: usage.cacheWrite,
+            cache_read_input_tokens: usage.cached,
+            output_tokens: usage.output,
+            reasoning_output_tokens: usage.reasoning,
+          },
+        }
+      : null,
+  };
 }
 
 function parseStream(stdout) {
@@ -317,7 +490,7 @@ try {
             mcpServers: {
               [SERVER_NAME]: {
                 command: process.execPath,
-                args: [new URL("cli.mjs", REPO_ROOT).pathname, "serve"],
+                args: [fileURLToPath(new URL("cli.mjs", REPO_ROOT)), "serve"],
                 env: {
                   MCP_BROWSER_FAMILY: "chromium",
                   CDP_BASE_URL: cdpOrigin,
@@ -336,17 +509,31 @@ try {
           hint: MODES[mode].hint,
         });
         const startedAt = Date.now();
-        const claude = await runClaude({ prompt, mode, runDir, mcpConfigPath });
+        const claude = isCodex
+          ? await runCodex({ prompt, runDir, timingLog })
+          : await runClaude({ prompt, mode, runDir, mcpConfigPath });
         const wallMs = Date.now() - startedAt;
         await closeTab(targetId);
+        if (options.transcripts) {
+          await mkdir(options.transcripts, { recursive: true });
+          await writeFile(
+            path.join(
+              options.transcripts,
+              `${index}-${scenario.id}-${mode}-${repeat}.jsonl`,
+            ),
+            claude.stdout,
+          );
+        }
 
-        const { toolCalls, result } = parseStream(claude.stdout);
+        const { toolCalls, result, error } = isCodex
+          ? parseCodexStream(claude.stdout)
+          : parseStream(claude.stdout);
         const reply = result?.result ?? "";
         const verdict = result
           ? scenario.check({ state: fixtures.state(run), reply })
           : {
               ok: false,
-              detail: `no result (exit ${claude.exitCode}): ${claude.stderr.slice(0, 200)}`,
+              detail: `no result (exit ${claude.exitCode}): ${(error ?? claude.stderr).slice(0, 200)}`,
             };
         const usage = result?.usage ?? {};
         const record = {
@@ -355,6 +542,7 @@ try {
           dirty,
           packageVersion,
           chrome: chromeVersion.Browser,
+          agent: isCodex ? "codex" : "claude",
           model: options.model,
           effort: options.effort,
           scenario: scenario.id,
@@ -366,12 +554,20 @@ try {
           durationMs: result?.duration_ms ?? null,
           durationApiMs: result?.duration_api_ms ?? null,
           numTurns: result?.num_turns ?? null,
-          costUsd: result?.total_cost_usd ?? null,
+          costUsd: isCodex
+            ? result
+              ? estimateOpenAiCost(options.model, usage)
+              : null
+            : (result?.total_cost_usd ?? null),
+          ...(isCodex ? { costEstimated: true } : {}),
           tokens: {
             input: usage.input_tokens ?? 0,
             cacheCreation: usage.cache_creation_input_tokens ?? 0,
             cacheRead: usage.cache_read_input_tokens ?? 0,
             output: usage.output_tokens ?? 0,
+            ...(isCodex
+              ? { reasoning: usage.reasoning_output_tokens ?? 0 }
+              : {}),
           },
           toolCalls,
           server: await readTimingLog(timingLog),

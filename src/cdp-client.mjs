@@ -6,6 +6,7 @@ import {
 import { DEFAULT_CDP_BASE_URL } from "./config.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
 import {
+  assertEnabled,
   assertPointerTarget,
   buildPageContextExpression,
 } from "./page-context.mjs";
@@ -359,6 +360,21 @@ async function readWebSocketData(data) {
   return String(data);
 }
 
+// CDP reports a thrown value as text "Uncaught". An error's message is on
+// the first line of its description ("Error: message"); a thrown primitive
+// is in value.
+function pageExceptionMessage(details) {
+  const exception = details.exception;
+  const description = exception?.description;
+  if (typeof description === "string" && description.trim()) {
+    return description.split("\n")[0].replace(/^[A-Za-z]*Error: /, "");
+  }
+  if (exception && "value" in exception && exception.value !== undefined) {
+    return String(exception.value);
+  }
+  return details.text || "Page action failed";
+}
+
 export class CdpSession {
   constructor(target, options = {}) {
     this.id = crypto.randomUUID();
@@ -620,13 +636,67 @@ export class CdpSession {
     });
   }
 
+  // REPL mode allows top-level await but, like the DevTools console, returns
+  // a promise the expression evaluates to without awaiting it. So evaluate by
+  // reference, await a returned promise, and only then read the value.
   async evaluate(expression, options = {}) {
-    const result = await this.evaluateRuntime(expression, options);
-
-    return {
-      result: summarizeRemoteObject(result.result),
-      exceptionDetails: result.exceptionDetails ?? null,
+    const awaitPromise = options.awaitPromise ?? true;
+    const returnByValue = options.returnByValue ?? true;
+    let response = await this.evaluateRuntime(expression, {
+      ...options,
+      awaitPromise,
+      returnByValue: false,
+    });
+    const objectIds = new Set();
+    const hold = (reply) => {
+      for (const objectId of [
+        reply.result?.objectId,
+        reply.exceptionDetails?.exception?.objectId,
+      ]) {
+        if (objectId) {
+          objectIds.add(objectId);
+        }
+      }
     };
+    hold(response);
+
+    try {
+      if (
+        awaitPromise &&
+        !response.exceptionDetails &&
+        response.result?.subtype === "promise"
+      ) {
+        response = await this.send("Runtime.awaitPromise", {
+          promiseObjectId: response.result.objectId,
+          returnByValue,
+        });
+        hold(response);
+      } else if (
+        returnByValue &&
+        !response.exceptionDetails &&
+        response.result?.objectId &&
+        response.result.type !== "symbol"
+      ) {
+        response = await this.send("Runtime.callFunctionOn", {
+          functionDeclaration: "function () { return this; }",
+          objectId: response.result.objectId,
+          returnByValue: true,
+        });
+        hold(response);
+      }
+
+      // As on Firefox, a thrown error is reported only in exceptionDetails.
+      return {
+        result: response.exceptionDetails
+          ? null
+          : summarizeRemoteObject(response.result),
+        exceptionDetails: response.exceptionDetails ?? null,
+      };
+    } finally {
+      for (const objectId of objectIds) {
+        this.send("Runtime.releaseObject", { objectId }).catch(() => {});
+      }
+    }
   }
 
   async getDocument(depth = 2) {
@@ -653,7 +723,7 @@ export class CdpSession {
     );
 
     if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.text || "Page action failed");
+      throw new Error(pageExceptionMessage(result.exceptionDetails));
     }
 
     const value = result.result?.value ?? summarizeRemoteObject(result.result);
@@ -804,10 +874,15 @@ export class CdpSession {
     };
   }
 
-  async inspectElement(selector) {
+  async snapshotControls() {
+    return this.runPageAction({ action: "controls_snapshot" });
+  }
+
+  async inspectElement(selector, options = {}) {
     return this.runPageAction({
       action: "inspect",
       selector,
+      textChecks: options.textChecks,
     });
   }
 
@@ -840,6 +915,7 @@ export class CdpSession {
     if (!target.found) {
       return target;
     }
+    assertEnabled(target);
 
     const press = { button: "left", clickCount: 1 };
     await this.dispatchMouse("mouseMoved", target.point);
@@ -1484,7 +1560,9 @@ export class CdpSessionManager {
   async waitFor(sessionId, options = {}) {
     return waitForPageCondition({
       getPageState: () => this.getPageState(sessionId),
-      inspectElement: (selector) => this.inspectElement(sessionId, selector),
+      inspectElement: (selector, options) =>
+        this.inspectElement(sessionId, selector, options),
+      evaluate: (expression) => this.evaluate(sessionId, expression),
       options,
     });
   }
@@ -1561,8 +1639,12 @@ export class CdpSessionManager {
     return this.getSession(sessionId).restoreSessionSnapshot(snapshot, options);
   }
 
-  async inspectElement(sessionId, selector) {
-    return this.getSession(sessionId).inspectElement(selector);
+  async snapshotControls(sessionId) {
+    return this.getSession(sessionId).snapshotControls();
+  }
+
+  async inspectElement(sessionId, selector, options) {
+    return this.getSession(sessionId).inspectElement(selector, options);
   }
 
   getEvents(sessionId, limit) {

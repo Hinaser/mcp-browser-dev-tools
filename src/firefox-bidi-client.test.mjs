@@ -681,3 +681,28 @@ test("FirefoxBidiSessionManager type sends key actions for each character", asyn
     },
   ]);
 });
+
+test("FirefoxBidiSessionManager evaluate runs top-level await in an async function", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+  manager.sessions.set("session-1", { target: { targetId: "ctx-1" } });
+  const sent = [];
+  manager.send = async (method, params) => {
+    sent.push(params.expression);
+    return { type: "success", result: { type: "number", value: 6 } };
+  };
+
+  assert.equal(
+    (await manager.evaluate("session-1", "await Promise.resolve(6)")).result,
+    6,
+  );
+  await manager.evaluate("session-1", "document.title");
+
+  assert.equal(
+    sent[0],
+    "(async () => {\nreturn (\nawait Promise.resolve(6)\n);\n})()",
+  );
+  assert.equal(sent[1], "document.title");
+});

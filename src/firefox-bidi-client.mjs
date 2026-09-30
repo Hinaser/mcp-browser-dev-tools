@@ -4,8 +4,10 @@ import {
   summarizeNetworkRequests,
 } from "./session-events.mjs";
 import { DEFAULT_FIREFOX_BIDI_WS_URL } from "./config.mjs";
+import { wrapTopLevelAwait } from "./top-level-await.mjs";
 import { waitForPageCondition } from "./wait-for.mjs";
 import {
+  assertEnabled,
   assertPointerTarget,
   buildPageContextExpression,
 } from "./page-context.mjs";
@@ -869,7 +871,11 @@ export class FirefoxBidiSessionManager {
 
   async evaluate(sessionId, expression, options = {}) {
     const session = this.getSession(sessionId);
-    const result = await this.evaluateInContext(session, expression, options);
+    const result = await this.evaluateInContext(
+      session,
+      wrapTopLevelAwait(expression) ?? expression,
+      options,
+    );
 
     return {
       result:
@@ -980,7 +986,9 @@ export class FirefoxBidiSessionManager {
   async waitFor(sessionId, options = {}) {
     return waitForPageCondition({
       getPageState: () => this.getPageState(sessionId),
-      inspectElement: (selector) => this.inspectElement(sessionId, selector),
+      inspectElement: (selector, options) =>
+        this.inspectElement(sessionId, selector, options),
+      evaluate: (expression) => this.evaluate(sessionId, expression),
       options,
     });
   }
@@ -1060,6 +1068,7 @@ export class FirefoxBidiSessionManager {
     if (!target.found) {
       return target;
     }
+    assertEnabled(target);
 
     await this.performActions(session, [
       {
@@ -1358,10 +1367,17 @@ export class FirefoxBidiSessionManager {
     };
   }
 
-  async inspectElement(sessionId, selector) {
+  async snapshotControls(sessionId) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "controls_snapshot",
+    });
+  }
+
+  async inspectElement(sessionId, selector, options = {}) {
     return this.runPageAction(this.getSession(sessionId), {
       action: "inspect",
       selector,
+      textChecks: options.textChecks,
     });
   }
 

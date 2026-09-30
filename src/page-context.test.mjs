@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 
 import {
+  assertEnabled,
   assertPointerTarget,
   buildPageContextExpression,
+  ELEMENT_NOT_ACTIONABLE,
 } from "./page-context.mjs";
 
 class FakeHTMLElement {
@@ -143,7 +145,7 @@ function createPageContext({
         return descendants;
       }
 
-      return [];
+      return selectorMap[selector] ? [selectorMap[selector]] : [];
     },
     elementFromPoint() {
       return hit;
@@ -266,6 +268,44 @@ function runAction(context, payload) {
     ),
   );
 }
+
+test("inspect answers text checks against the full text, not the clipped node text", () => {
+  const long = `${"Order ".repeat(100)}  Paid\n in full`;
+  const status = new FakeHTMLElement({
+    tagName: "div",
+    textContent: long,
+    innerText: long,
+  });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [status],
+    selectorMap: { "#status": status },
+  });
+
+  const result = runAction(context, {
+    action: "inspect",
+    selector: "#status",
+    textChecks: [
+      { textIncludes: "Paid in full", textEquals: null, textExcludes: null },
+      { textExcludes: "Processing", textEquals: null, textIncludes: null },
+      { textExcludes: "Paid", textEquals: null, textIncludes: null },
+      {
+        textEquals: `${"Order ".repeat(100)}Paid in full`,
+        textIncludes: null,
+        textExcludes: null,
+      },
+    ],
+  });
+
+  assert.equal(result.node.innerText.endsWith("..."), true);
+  assert.deepEqual(result.textMatches, [true, true, false, true]);
+  assert.equal(
+    "textMatches" in
+      runAction(context, { action: "inspect", selector: "#status" }),
+    false,
+  );
+});
 
 function createButtonPage({ hit } = {}) {
   const button = new FakeHTMLElement({
@@ -483,4 +523,259 @@ test("focus refuses to report success when the selector cannot take focus", () =
     () => runAction(context, { action: "focus", selector: "button.cta" }),
     /Could not focus/,
   );
+});
+
+test("pointer and disabled errors are marked as retryable", () => {
+  assert.throws(
+    () =>
+      assertPointerTarget({
+        found: true,
+        selector: "#save",
+        point: { x: 1, y: 1 },
+        receivesEvents: false,
+        obscuredBy: null,
+      }),
+    (error) => error.code === ELEMENT_NOT_ACTIONABLE,
+  );
+  assert.throws(
+    () =>
+      assertEnabled({
+        found: true,
+        selector: "#save",
+        node: { disabled: true },
+      }),
+    (error) =>
+      error.code === ELEMENT_NOT_ACTIONABLE &&
+      error.message === 'Element "#save" is disabled',
+  );
+  assertEnabled({ found: true, selector: "#save", node: { disabled: false } });
+  assertEnabled({ found: false, selector: "#save" });
+});
+
+test("controls_snapshot lists visible controls with locators the tools accept", () => {
+  const save = new FakeHTMLElement({
+    tagName: "button",
+    attrs: { id: "save" },
+    textContent: "Save",
+  });
+  const email = new FakeHTMLInputElement({
+    attrs: { name: "email" },
+    value: "ada@example.com",
+  });
+  const terms = new FakeHTMLInputElement({
+    type: "checkbox",
+    attrs: { type: "checkbox", name: "terms", "aria-label": "Accept terms" },
+  });
+  const submit = new FakeHTMLElement({
+    tagName: "button",
+    textContent: "Create account",
+  });
+  submit.disabled = true;
+  const hidden = new FakeHTMLElement({
+    tagName: "button",
+    textContent: "Hidden",
+  });
+  hidden.hidden = true;
+  const text = new FakeHTMLElement({ tagName: "p", textContent: "Welcome" });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [save, email, terms, submit, hidden, text],
+    selectorMap: { "#save": save, 'input[name="email"]': email },
+  });
+
+  const result = runAction(context, { action: "controls_snapshot" });
+
+  assert.equal(result.url, "https://example.com/profile");
+  assert.equal(result.title, "Example");
+  assert.equal(result.moreControls, 0);
+  assert.deepEqual(result.controls, [
+    { locator: "#save", role: "button", name: "Save" },
+    {
+      locator: 'input[name="email"]',
+      role: "textbox",
+      value: "ada@example.com",
+    },
+    {
+      locator: 'role=checkbox[name="Accept terms"]',
+      role: "checkbox",
+      name: "Accept terms",
+      checked: false,
+    },
+    {
+      locator: 'role=button[name="Create account"]',
+      role: "button",
+      name: "Create account",
+      disabled: true,
+    },
+  ]);
+});
+
+test("a wrapping label names its control, without the control's own text", () => {
+  const email = new FakeHTMLInputElement({
+    attrs: { name: "email" },
+    value: "on",
+  });
+  const plan = new FakeHTMLSelectElement({
+    tagName: "select",
+    textContent: "Choose a plan Free Pro",
+  });
+  const emailLabel = new FakeHTMLElement({ tagName: "label" });
+  emailLabel.childNodes = [{ nodeType: 3, textContent: " Email " }, email];
+  const planLabel = new FakeHTMLElement({ tagName: "label" });
+  planLabel.childNodes = [{ nodeType: 3, textContent: "Plan" }, plan];
+  email.closest = (selector) => (selector === "label" ? emailLabel : null);
+  plan.closest = (selector) => (selector === "label" ? planLabel : null);
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [emailLabel, email, planLabel, plan],
+  });
+
+  const result = runAction(context, {
+    action: "inspect",
+    selector: 'role=textbox[name="Email"]',
+  });
+  assert.equal(result.found, true);
+  assert.equal(result.node.accessibleName, "Email");
+
+  const snapshot = runAction(context, { action: "controls_snapshot" });
+  assert.deepEqual(
+    snapshot.controls.map((control) => control.name),
+    ["Email", "Plan"],
+  );
+});
+
+test("controls_snapshot only suggests locators that resolve back to the control", () => {
+  const draft = new FakeHTMLElement({
+    tagName: "button",
+    textContent: "Save draft",
+  });
+  const save = new FakeHTMLElement({ tagName: "button", textContent: "Save" });
+  const decoy = new FakeHTMLInputElement({ attrs: { name: "ab" } });
+  const field = new FakeHTMLInputElement({
+    attrs: { name: "a\\b", "aria-label": "Code" },
+  });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [draft, save, decoy, field],
+    // The fake CSS.escape leaves the backslash alone, so this selector
+    // stands in for one that matches a different field.
+    selectorMap: { 'input[name="a\\b"]': decoy, 'input[name="ab"]': decoy },
+  });
+
+  const { controls } = runAction(context, { action: "controls_snapshot" });
+
+  assert.deepEqual(
+    controls.map((control) => control.locator),
+    [
+      'role=button[name="Save draft"]',
+      null,
+      'input[name="ab"]',
+      'role=textbox[name="Code"]',
+    ],
+  );
+});
+
+test("a nested wrapping label still names its control", () => {
+  const email = new FakeHTMLInputElement({ attrs: { name: "email" } });
+  const span = new FakeHTMLElement({ tagName: "span" });
+  span.nodeType = 1;
+  span.childNodes = [{ nodeType: 3, textContent: "Email " }, email];
+  span.contains = (node) => node === email;
+  const label = new FakeHTMLElement({ tagName: "label" });
+  label.childNodes = [span];
+  email.closest = (selector) => (selector === "label" ? label : null);
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [label, email] });
+
+  const result = runAction(context, {
+    action: "inspect",
+    selector: 'role=textbox[name="Email"]',
+  });
+  assert.equal(result.found, true);
+});
+
+test("elements matching :disabled count as disabled", () => {
+  const button = new FakeHTMLElement({
+    tagName: "button",
+    attrs: { id: "go" },
+    textContent: "Go",
+  });
+  button.matches = (selector) => selector === ":disabled";
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [button],
+    selectorMap: { "#go": button },
+  });
+
+  const result = runAction(context, { action: "inspect", selector: "#go" });
+  assert.equal(result.node.disabled, true);
+});
+
+test("controls_snapshot never reports a password's value", () => {
+  const password = new FakeHTMLInputElement({
+    type: "password",
+    attrs: { type: "password", name: "password", value: "hunter2" },
+    value: "hunter2",
+  });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [password],
+    selectorMap: { 'input[name="password"]': password },
+  });
+
+  const result = runAction(context, { action: "controls_snapshot" });
+  assert.deepEqual(result.controls, [
+    { locator: 'input[name="password"]', role: "textbox" },
+  ]);
+  assert.equal(JSON.stringify(result).includes("hunter2"), false);
+});
+
+test("wrapping label text keeps the page's own spacing", () => {
+  const email = new FakeHTMLInputElement({ attrs: { name: "email" } });
+  const span = new FakeHTMLElement({ tagName: "span", textContent: "mail" });
+  span.nodeType = 1;
+  span.contains = () => false;
+  const label = new FakeHTMLElement({ tagName: "label" });
+  label.childNodes = [{ nodeType: 3, textContent: "E" }, span, email];
+  email.closest = (selector) => (selector === "label" ? label : null);
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [label, email] });
+
+  const result = runAction(context, {
+    action: "inspect",
+    selector: 'role=textbox[name="Email"]',
+  });
+  assert.equal(result.found, true);
+  assert.equal(result.node.accessibleName, "Email");
+});
+
+test("name= skips a label that belongs to a control and finds the control", () => {
+  const input = new FakeHTMLInputElement({ attrs: { name: "username" } });
+  const label = new FakeHTMLElement({
+    tagName: "label",
+    textContent: "Username",
+  });
+  label.control = input;
+  label.childNodes = [{ nodeType: 3, textContent: "Username" }, input];
+  input.closest = (selector) => (selector === "label" ? label : null);
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [label, input] });
+
+  const result = runAction(context, {
+    action: "inspect",
+    selector: "name=Username",
+  });
+  assert.equal(result.node.tagName, "INPUT");
+  // A hidden input, as styled checkboxes use, leaves the label to click.
+  input.hidden = true;
+  const hidden = runAction(context, {
+    action: "inspect",
+    selector: "name=Username",
+  });
+  assert.equal(hidden.node.tagName, "LABEL");
 });

@@ -284,8 +284,8 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "setViewport", [options]);
   }
 
-  evaluate(sessionId, expression) {
-    return this.delegateSession(sessionId, "evaluate", [expression]);
+  evaluate(sessionId, expression, options) {
+    return this.delegateSession(sessionId, "evaluate", [expression, options]);
   }
 
   getDocument(sessionId, depth) {
@@ -300,8 +300,15 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "getNetworkRequests", [limit]);
   }
 
-  inspectElement(sessionId, selector) {
-    return this.delegateSession(sessionId, "inspectElement", [selector]);
+  snapshotControls(sessionId) {
+    return this.delegateSession(sessionId, "snapshotControls");
+  }
+
+  inspectElement(sessionId, selector, options) {
+    return this.delegateSession(sessionId, "inspectElement", [
+      selector,
+      options,
+    ]);
   }
 
   takeScreenshot(sessionId, format, options) {
