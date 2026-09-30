@@ -93,6 +93,40 @@ A `run_steps` call that dismisses a cookie banner if one is showing, fills in an
 
 The result has each step's outcome: which branch the `if` took, which `anyOf` alternative matched, and the message element with its text. Locators can be CSS, `text=`, `role=` with an accessible name, or `name=`. The full semantics of `run_steps`, `if`, `repeat`, and conditions are in [Tools](docs/tools.md#batched-steps).
 
+## Many Pages At Once
+
+![An AI agent sends one run_tabs call with four URLs, the browser loads and reads them side by side, and one reply comes back with every page's text](docs/images/run-tabs.svg)
+
+A research step usually means opening several pages and reading each one. `read_text` with `links: true` collects the result links from a search page; then one `run_tabs` call opens them all and reads them side by side:
+
+```json
+{
+  "browserFamily": "chromium",
+  "tabs": [
+    {
+      "url": "https://docs.example.com/a",
+      "steps": [{ "tool": "read_text", "arguments": { "maxChars": 4000 } }]
+    },
+    {
+      "url": "https://blog.example.com/b",
+      "steps": [{ "tool": "read_text", "arguments": { "maxChars": 4000 } }]
+    },
+    {
+      "url": "https://news.example.com/d",
+      "steps": [
+        { "tool": "wait_for", "arguments": { "selector": "article" } },
+        {
+          "tool": "read_text",
+          "arguments": { "selector": "article", "maxChars": 4000 }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The result lists every tab in the order given, each with its steps' results: here, each page's main text, cut to `maxChars`. Each tab opens a new tab, loads its URL, and runs its steps at the same time as the others, so the call takes about as long as the slowest page; the tabs close afterwards. Steps are the same as in `run_steps`, including `if` and `repeat`, and a tab that fails or runs past its `timeoutMs` does not stop the others. `browserFamily` picks the browser for the new tabs when the server runs in its default `auto` mode. The details are in [Tools](docs/tools.md#several-tabs-at-once).
+
 ## Measured
 
 Model turns per task, median of 3 runs, from the benchmark in [PERFORMANCE.md](PERFORMANCE.md):

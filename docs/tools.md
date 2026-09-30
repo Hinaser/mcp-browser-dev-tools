@@ -155,6 +155,7 @@ Text conditions compare the element's full visible text with whitespace collapse
 
 ```json
 {
+  "browserFamily": "chromium",
   "tabs": [
     {
       "url": "https://example.com/a",
