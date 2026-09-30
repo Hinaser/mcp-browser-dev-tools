@@ -8,6 +8,17 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-30
+
+This release makes the tool definitions sent on every model turn about 30%
+shorter, and explains `run_tabs` in the README.
+
+### Changed
+
+- The tool definitions are about 30% shorter (31.6k characters instead of 45.6k): the locator syntax is described once in the server instructions instead of in every tool that takes a selector, fields repeated inside `wait_for`'s `anyOf` and `run_tabs`'s steps no longer repeat their descriptions, and long descriptions are tighter. In the benchmark this saves about 4k input tokens per model turn, with no change in how agents use the tools
+- The server instructions suggest `run_tabs` with `read_text` for reading several pages
+- The README explains `run_tabs` with a diagram and an example, and the `run_tabs` example in `docs/tools.md` now gives `browserFamily`, which the default `auto` mode needs for tabs opened by URL
+
 ## [0.2.0] - 2026-09-30
 
 This release lets an agent work in several tabs at once and read their
