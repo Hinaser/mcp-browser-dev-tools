@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
+import { parseKeyCombo } from "./keyboard.mjs";
 import { createLogger } from "./logger.mjs";
 import {
   launchBrowser as launchLocalBrowser,
@@ -1880,6 +1881,9 @@ export class McpBrowserDevToolsServer {
               },
               ["key"],
             ),
+          },
+          validate: (args) => {
+            parseKeyCombo(args.key);
           },
           handler: async (args) =>
             this.browserAdapter.pressKey(

@@ -1462,6 +1462,15 @@ test("run_steps validates every step before running any", async () => {
   });
   assert.match(notSessionTool.error.message, /tool must be one of/);
 
+  const unknownKey = await callRunSteps(server, {
+    sessionId: "session-1",
+    steps: [
+      { tool: "click", arguments: { selector: "#save" } },
+      { tool: "press_key", arguments: { key: "Hyper+Enter" } },
+    ],
+  });
+  assert.match(unknownKey.error.message, /Unsupported modifier "Hyper"/);
+
   assert.equal(clicked, false);
 });
 
@@ -2002,6 +2011,19 @@ test("run_steps validates both if branches and limits before running", async () 
     { tool: "if", arguments: { condition: { selector: "#a", timeoutMs: 5 } } },
   ]);
   assert.match(unknownField.error.message, /timeoutMs is not allowed/);
+
+  const badKeyInElse = await run([
+    click,
+    {
+      tool: "if",
+      arguments: {
+        condition: { selector: "#a" },
+        then: [],
+        else: [{ tool: "press_key", arguments: { key: "Enterr" } }],
+      },
+    },
+  ]);
+  assert.match(badKeyInElse.error.message, /Unsupported key "Enterr"/);
 
   assert.equal((await run([nest(4)])).result.structuredContent.ok, true);
   assert.match((await run([nest(5)])).error.message, /deeper than 4 levels/);
