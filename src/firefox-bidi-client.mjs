@@ -1373,6 +1373,13 @@ export class FirefoxBidiSessionManager {
     });
   }
 
+  async readText(sessionId, options = {}) {
+    return this.runPageAction(this.getSession(sessionId), {
+      action: "read_text",
+      ...options,
+    });
+  }
+
   async inspectElement(sessionId, selector, options = {}) {
     return this.runPageAction(this.getSession(sessionId), {
       action: "inspect",

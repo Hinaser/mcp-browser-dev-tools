@@ -48,6 +48,7 @@
     "src/browser-requests.mjs",
     "src/json-schema.mjs",
     "src/run-steps.mjs",
+    "src/run-tabs.mjs",
     "src/screenshot-output.mjs",
     "src/tool-results.mjs",
     "src/tool-schemas.mjs",

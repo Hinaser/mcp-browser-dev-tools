@@ -779,3 +779,104 @@ test("name= skips a label that belongs to a control and finds the control", () =
   });
   assert.equal(hidden.node.tagName, "LABEL");
 });
+
+function readText(context, payload) {
+  return JSON.parse(
+    vm.runInContext(
+      buildPageContextExpression(
+        {
+          browserFamily: "chromium",
+          action: "read_text",
+          maxChars: 8000,
+          ...payload,
+        },
+        { serialize: true },
+      ),
+      context,
+    ),
+  );
+}
+
+test("read_text reads the body as lines with runs of spaces and blank lines collapsed", () => {
+  const body = new FakeHTMLElement({
+    tagName: "body",
+    innerText: "  Title \n\n\n\n Line \t two  end \nlast",
+  });
+  const result = readText(createPageContext({ body }), {});
+
+  assert.equal(result.source, "body");
+  assert.equal(result.text, "Title\n\nLine two end\nlast");
+  assert.equal(result.totalChars, result.text.length);
+  assert.equal(result.truncated, false);
+  assert.equal(result.url, "https://example.com/profile");
+  assert.equal(result.title, "Example");
+});
+
+test("read_text prefers the main content and clips to maxChars", () => {
+  const main = new FakeHTMLElement({
+    tagName: "main",
+    innerText: "Article text that is long",
+  });
+  const body = new FakeHTMLElement({
+    tagName: "body",
+    innerText: "Menu\nArticle text that is long\nFooter",
+  });
+  const context = createPageContext({
+    body,
+    descendants: [main],
+    selectorMap: { "main, [role=main]": main },
+  });
+
+  const result = readText(context, { maxChars: 7 });
+  assert.equal(result.source, "main");
+  assert.equal(result.text, "Article");
+  assert.equal(result.totalChars, 25);
+  assert.equal(result.truncated, true);
+});
+
+test("read_text reports a missing selector as not found", () => {
+  const body = new FakeHTMLElement({ tagName: "body", innerText: "x" });
+  const result = readText(createPageContext({ body }), {
+    selector: "#missing",
+  });
+  assert.equal(result.found, false);
+  assert.equal(result.selector, "#missing");
+});
+
+test("read_text reads an element that ignores the pointer", () => {
+  const overlay = new FakeHTMLElement({
+    tagName: "div",
+    innerText: "Status: saved",
+    style: { pointerEvents: "none" },
+  });
+  const body = new FakeHTMLElement({ tagName: "body", innerText: "x" });
+  const context = createPageContext({
+    body,
+    descendants: [overlay],
+    selectorMap: { "#status": overlay },
+  });
+
+  const result = readText(context, { selector: "#status" });
+  assert.equal(result.visible, true);
+  assert.equal(result.text, "Status: saved");
+});
+
+test("read_text returns no text for a hidden element", () => {
+  const hidden = new FakeHTMLElement({
+    tagName: "div",
+    attrs: { id: "secret" },
+    innerText: "not shown",
+    style: { display: "none" },
+  });
+  const body = new FakeHTMLElement({ tagName: "body", innerText: "shown" });
+  const context = createPageContext({
+    body,
+    descendants: [hidden],
+    selectorMap: { "#secret": hidden },
+  });
+
+  const result = readText(context, { selector: "#secret" });
+  assert.equal(result.found, true);
+  assert.equal(result.visible, false);
+  assert.equal(result.text, "");
+});

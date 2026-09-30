@@ -87,6 +87,30 @@ What the runs show:
 6. **Opus 5.5 at high effort (on `f153a94`) costs 1.6–1.9 times as much as Sonnet and takes 1.2–1.6 times as long**, with similar turn counts. The exception is batched `payment-retry`, where Opus was faster (24.5 s against 28.9 s) because Sonnet lost time to timed-out waits on that build.
 7. **Tool definitions are most of the input tokens.** About 33.7k characters of definitions are sent (and cached) on every turn, so cost grows with the number of turns more than with page content.
 
+## Several pages at once
+
+The `research` scenario reads five articles from a results page; each article takes 1.5 s to load and comes from another origin, as search results do. Sonnet 5.5 at medium effort on `73297b5`, median of 3 runs:
+
+```mermaid
+xychart-beta
+  title "research: wall time"
+  x-axis ["single (14 turns)", "batch (4)", "batch-hinted (4)", "Opus batch (4)"]
+  y-axis "Seconds" 0 --> 30
+  bar [28.0, 8.4, 8.8, 13.3]
+```
+
+| Mode                                   | Wall time | Turns | Server time | Cost   |
+| -------------------------------------- | --------- | ----- | ----------- | ------ |
+| `single`: `run_tabs` disallowed        | 28.0 s    | 14    | 9.2 s       | $0.078 |
+| `batch`: `run_tabs` available          | 8.4 s     | 4     | 1.7 s       | $0.049 |
+| `batch-hinted`: the prompt suggests it | 8.8 s     | 4     | 1.7 s       | $0.049 |
+| Opus 5.5 `batch`                       | 13.3 s    | 4     | 1.7 s       | $0.083 |
+
+1. **One call replaces ten.** Without being asked, every `batch` run read the results with `read_text` and `links`, then opened all five articles in one `run_tabs` call that read each with `read_text`: 3 tool calls, 70% less wall time, and 37% lower cost than `single`.
+2. **The pages load side by side.** Server time is 1.7 s for five 1.5 s pages; one after another it is 7.5 s plus navigation.
+3. **Without it, agents look for a shortcut first.** Every `single` run first tried to `fetch()` the articles from the page with `evaluate_js`, which the browser blocks across origins, then opened them one by one. One run navigated to the article site and fetched the rest from there, in 6 turns.
+4. **An earlier fixture served the articles from the results page's own origin**, so `single` runs fetched all five with one `evaluate_js` call and took 4 turns. That is not how search results work, so the articles now come from a second origin. The same series also showed that running 4 tabs at a time made five tabs take two rounds of loading; `run_tabs` now runs all tabs at once by default.
+
 ## Results by build
 
 Sonnet 5.5, medium effort. Each cell is the median wall time, turns, and server time; the full metrics are in [Full results](#full-results).
@@ -162,13 +186,14 @@ node bench/summarize.mjs bench/results/*.jsonl
 
 ## Scenarios
 
-The source of truth is `bench/scenarios.mjs` (task prompts and success checks) and `bench/fixtures/` (the pages). Every prompt starts with the tab's URL and target id and asks the agent to attach to it and not open other tabs.
+The source of truth is `bench/scenarios.mjs` (task prompts and success checks) and `bench/fixtures/` (the pages). Every prompt starts with the tab's URL and target id and asks the agent to attach to it; except in `research`, it also asks the agent not to open other tabs. In `batch-hinted` mode, the `research` prompt also suggests `run_tabs`.
 
 | Id               | What the agent must do                                                                                                                                                                                                                                       | Passes when                                                                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `signup`         | Dismiss a cookie banner that covers the form 500 ms after load, fill in the name, email, and plan select, tick the terms checkbox, submit, wait for the account to be created (800 ms), and report the confirmation code.                                    | The server recorded exactly "Ada Lovelace", `ada@example.com`, the Pro plan, and accepted terms, and the reply contains the confirmation code. |
 | `payment-retry`  | Pay, see the first two attempts get declined (1.2 s each), retry without starting a new attempt while one is processing, and report the receipt number from the third attempt.                                                                               | The payment completed, no attempts overlapped, and the reply contains the receipt number.                                                      |
 | `settings-login` | Open settings, get redirected to a login form, sign in, come back, turn email notifications off and the weekly digest on, set the language to Japanese, save (600 ms), and report the revision shown after saving. The "saved" toast disappears after 2.5 s. | The saved settings match, and the reply contains the latest revision number.                                                                   |
+| `research`       | From a results page listing five component overviews, find each component's release codename, near the end of its article. Each article takes 1.5 s to load and is served from a second origin without CORS headers.                                         | The reply contains all five random codenames in the listed order.                                                                              |
 
 ## Full results
 
@@ -287,5 +312,17 @@ GPT costs are estimates; see [Method](#method).
 | 36ca114 | gpt-6-astra      | medium | settings-login | batch | 3/3 | 80.5 s (42.0 s–93.2 s) | 8 (6–9) | 7 (5–8)    | 10.1 s (0.7 s–20.9 s) | 25.3k (23.7k–28.1k) | 204.3k (149.5k–236.1k) | 1.0k (0.7k–1.2k) | $0.521 ($0.445–$0.667) |
 
 GPT costs are estimates; see [Method](#method).
+
+</details>
+
+<details>
+<summary>The <code>research</code> scenario on <code>73297b5</code>: Sonnet 5.5 in three modes and Opus 5.5 in <code>batch</code>, medium effort, 12 runs, $0.97</summary>
+
+| Model      | Mode           | OK  | Wall time              | Turns     | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------- | -------------- | --- | ---------------------- | --------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| Sonnet 5.5 | `single`       | 3/3 | 28.0 s (27.7 s–39.2 s) | 14 (6–14) | 13 (5–13)  | 9.2 s (9.1 s–16.6 s) | 12.5k (8.3k–12.9k)  | 135.2k (110.2k–198.1k) | 1.6k (0.9k–1.6k) | $0.078 ($0.055–$0.092) |
+| Sonnet 5.5 | `batch`        | 3/3 | 8.4 s (8.3 s–9.8 s)    | 4         | 3          | 1.7 s (1.6 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.5k (85.4k–85.5k)    | 0.5k (0.5k–0.6k) | $0.049 ($0.049–$0.115) |
+| Sonnet 5.5 | `batch-hinted` | 3/3 | 8.8 s (8.7 s–9.2 s)    | 4         | 3          | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.8k (85.8k–85.9k)    | 0.5k (0.5k–0.5k) | $0.049 ($0.049–$0.049) |
+| Opus 5.5   | `batch`        | 3/3 | 13.3 s (12.4 s–14.0 s) | 4 (4–5)   | 3 (3–4)    | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.9k (85.9k–86.5k)    | 0.6k (0.6k–0.7k) | $0.083 ($0.082–$0.224) |
 
 </details>

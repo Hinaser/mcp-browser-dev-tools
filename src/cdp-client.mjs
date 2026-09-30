@@ -584,6 +584,10 @@ export class CdpSession {
       waiter = { method, predicate, resolve, reject, timer };
       this.eventWaiters.add(waiter);
     });
+    // Callers await the promise only after sending their command, so a
+    // rejection before then (the tab closing, or a timeout) must not count as
+    // unhandled; it still reaches the caller when it awaits.
+    promise.catch(() => {});
 
     return {
       promise,
@@ -876,6 +880,10 @@ export class CdpSession {
 
   async snapshotControls() {
     return this.runPageAction({ action: "controls_snapshot" });
+  }
+
+  async readText(options = {}) {
+    return this.runPageAction({ action: "read_text", ...options });
   }
 
   async inspectElement(selector, options = {}) {
@@ -1637,6 +1645,10 @@ export class CdpSessionManager {
 
   async restoreSessionSnapshot(sessionId, snapshot, options = {}) {
     return this.getSession(sessionId).restoreSessionSnapshot(snapshot, options);
+  }
+
+  async readText(sessionId, options) {
+    return this.getSession(sessionId).readText(options);
   }
 
   async snapshotControls(sessionId) {

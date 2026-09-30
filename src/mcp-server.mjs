@@ -13,6 +13,7 @@ import { validateValue } from "./json-schema.mjs";
 import { createLogger } from "./logger.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 import { StepRunner, runStepsTool, stepSchema } from "./run-steps.mjs";
+import { TabRunner, runTabsTool } from "./run-tabs.mjs";
 import { asToolResult } from "./tool-results.mjs";
 
 const SERVER_NAME = PACKAGE_NAME;
@@ -237,6 +238,13 @@ export class McpBrowserDevToolsServer {
       conditionOptions: { expression: this.config.enableEvaluate },
     });
     tools.push(runStepsTool(this.stepRunner, stepTools));
+    this.tabRunner = new TabRunner({
+      stepRunner: this.stepRunner,
+      browserAdapter: this.browserAdapter,
+    });
+    tools.push(
+      runTabsTool(this.tabRunner, stepTools, this.config.browserFamily),
+    );
 
     return new Map(tools);
   }

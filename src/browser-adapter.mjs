@@ -300,6 +300,10 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "getNetworkRequests", [limit]);
   }
 
+  readText(sessionId, options) {
+    return this.delegateSession(sessionId, "readText", [options]);
+  }
+
   snapshotControls(sessionId) {
     return this.delegateSession(sessionId, "snapshotControls");
   }

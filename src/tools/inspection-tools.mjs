@@ -13,6 +13,11 @@ import {
 } from "../tool-results.mjs";
 import { selectorProperty, sessionWithLimitSchema } from "../tool-schemas.mjs";
 
+const DEFAULT_READ_CHARS = 8000;
+const MAX_READ_CHARS = 100_000;
+const DEFAULT_READ_LINKS = 50;
+const MAX_READ_LINKS = 200;
+
 export function inspectionTools(server) {
   const tools = [
     [
@@ -99,6 +104,50 @@ export function inspectionTools(server) {
         },
         handler: async (args) =>
           server.browserAdapter.inspectElement(args.sessionId, args.selector),
+      },
+    ],
+    [
+      "read_text",
+      {
+        definition: {
+          name: "read_text",
+          description: `Read the visible text of the page's main content (main or role=main, else a single article, else the body), or of one element with selector, as plain lines up to maxChars. With links, also list the links in it with their text and absolute URL, for example to collect search results. Use it to read articles and results pages; inspect_element clips text to 400 characters.`,
+          inputSchema: {
+            type: "object",
+            properties: {
+              sessionId: {
+                type: "string",
+                description: "Session id returned by attach_tab.",
+              },
+              selector: selectorProperty(),
+              maxChars: {
+                type: "integer",
+                minimum: 1,
+                maximum: MAX_READ_CHARS,
+                description: `Most characters of text to return (default ${DEFAULT_READ_CHARS}, at most ${MAX_READ_CHARS}); totalChars and truncated tell whether there was more.`,
+              },
+              links: {
+                type: "boolean",
+                description: `Also return the http(s) links inside, deduplicated, at most maxLinks (default false).`,
+              },
+              maxLinks: {
+                type: "integer",
+                minimum: 1,
+                maximum: MAX_READ_LINKS,
+                description: `Most links to return (default ${DEFAULT_READ_LINKS}, at most ${MAX_READ_LINKS}); moreLinks counts the rest.`,
+              },
+            },
+            required: ["sessionId"],
+            additionalProperties: false,
+          },
+        },
+        handler: async (args) =>
+          server.browserAdapter.readText(args.sessionId, {
+            selector: args.selector,
+            maxChars: args.maxChars ?? DEFAULT_READ_CHARS,
+            links: args.links === true,
+            maxLinks: args.maxLinks ?? DEFAULT_READ_LINKS,
+          }),
       },
     ],
     [

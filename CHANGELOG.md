@@ -10,6 +10,8 @@ release history retroactively.
 
 ### Added
 
+- `run_tabs` runs step lists in several tabs at the same time (up to 8, all at once unless `concurrency` is lower), opening a tab for each URL and closing it afterwards unless `keepTabs` is true, and returns every tab's results in one reply; a failing or timed-out tab does not stop the others
+- `read_text` returns the readable text of the page's main content or of one element, as plain lines up to `maxChars`, and with `links` the links inside it
 - `run_steps` accepts a `repeat` step (`steps`, `until`, `max`) that runs its steps, checks `until` once, and repeats until it holds, at most `max` passes (default 5, at most 10), so retry and polling flows need no round trip per attempt
 - `wait_for` and `run_steps` conditions accept `anyOf` to hold when any one of several conditions holds, reporting `matchedIndex`, and `textExcludes` to hold once a selector's text no longer contains a string
 - `click`, `hover`, `type`, `select`, and `press_key` (with `selector`) retry while their element is missing, for up to `timeoutMs` (default 2000; `0` fails at once), and report `waitedMs` when they retried; `click` and `hover` also retry while it is covered or outside the viewport, and `click` while it is disabled
@@ -24,6 +26,8 @@ release history retroactively.
 - Text conditions (`textEquals`, `textIncludes`, `textExcludes`) compare the element's full visible text in the page instead of the first 400 characters, so they work on long elements such as `body`; results still report text clipped to 400 characters
 
 ### Fixed
+
+- On Chromium, closing a tab while `navigate` or `reload` waited for it to load no longer ends the server with an unhandled promise rejection
 
 - On Chromium, `evaluate_js` awaits a promise the expression returns, as `awaitPromise` describes, instead of returning `{}`; a rejected promise is reported in `exceptionDetails`, and a thrown error leaves `result` null as on Firefox
 - On Firefox, `evaluate_js` accepts top-level `await`, as it already did on Chromium: such code runs inside an async function that returns the value of its last expression statement

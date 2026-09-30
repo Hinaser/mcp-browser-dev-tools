@@ -36,11 +36,12 @@ Then ask the agent for browser work, for example "open example.com and check the
 
 ![An AI agent sends one run_steps call with five steps to the browser and gets one reply with every result](docs/images/overview.svg)
 
-Your agent gets 36 browser tools over MCP: open or attach to tabs, click, type, and navigate, read the console and network, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once.
+Your agent gets 38 browser tools over MCP: open or attach to tabs, click, type, and navigate, read the console and network, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once. `run_tabs` does the same in several tabs at the same time.
 
 ## Why This One
 
 - **Fewer round trips.** Every model turn costs thinking time and tokens, so the agent does more with each call. In our benchmark, batching halved the turns Sonnet 5.5 needed to sign up through a form.
+- **Many pages at once.** Research over several pages happens side by side: `run_tabs` opens them together and `read_text` brings back what they say. In our benchmark, reading five slow pages took Sonnet 5.5 8.4 s and 4 turns instead of 28 s and 14.
 - **Calm on real pages.** Waits end on whichever outcome shows up, actions wait out a covering banner or a button that isn't enabled yet, and if a step fails the reply lists the page's controls, so the next try is an informed one.
 - **Right where you work.** It attaches to the browser you already use, with its logins, tabs, and extensions, and speaks to Chrome, Edge, and Firefox with the same tools.
 - **A debugger at hand.** Console messages with stack traces, network requests and HAR export, cookies and storage, and a one-call debug report.
@@ -96,22 +97,23 @@ The result has each step's outcome: which branch the `if` took, which `anyOf` al
 
 Model turns per task, median of 3 runs, from the benchmark in [PERFORMANCE.md](PERFORMANCE.md):
 
-| Task                            | Sonnet 5.5, one action per call | Sonnet 5.5 with `run_steps` | Opus 5.5 with `run_steps` |
-| ------------------------------- | ------------------------------- | --------------------------- | ------------------------- |
-| Sign up through a form          | 10                              | 5                           | 4                         |
-| Pay, retrying declined attempts | 12                              | 11                          | 4                         |
-| Sign in, then change settings   | 16                              | 9                           | 7                         |
+| Task                                | Sonnet 5.5, one action per call | Sonnet 5.5 with `run_steps` | Opus 5.5 with `run_steps` |
+| ----------------------------------- | ------------------------------- | --------------------------- | ------------------------- |
+| Sign up through a form              | 10                              | 5                           | 4                         |
+| Pay, retrying declined attempts     | 12                              | 11                          | 4                         |
+| Sign in, then change settings       | 16                              | 9                           | 7                         |
+| Read five pages from a results list | 14                              | 4                           | 4                         |
 
-Opus retried the payment inside a single `repeat` step. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) completed all 63 benchmark runs; PERFORMANCE.md has the time, cost, and turns for each, and how the runs were set up.
+Opus retried the payment inside a single `repeat` step. The last row uses `run_tabs` in place of `run_steps`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) completed all 63 runs of the first three tasks; PERFORMANCE.md has the time, cost, and turns for each, and how the runs were set up.
 
 ## Tools
 
-36 tools, described in [docs/tools.md](docs/tools.md):
+38 tools, described in [docs/tools.md](docs/tools.md):
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `type`, `select`, `press_key`, `scroll`, `set_viewport`
-- **Wait and batch:** `wait_for`, `run_steps`
-- **Inspect:** `get_page_state`, `get_document`, `inspect_element`, `take_screenshot`, `evaluate_js`
+- **Wait and batch:** `wait_for`, `run_steps`, `run_tabs`
+- **Inspect:** `get_page_state`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
 - **Console and network:** `get_console_messages`, `get_network_requests`, `get_events`, `get_har`
 - **Session state:** `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `compare_page_state`, `compare_selector`, `capture_debug_report`
 
