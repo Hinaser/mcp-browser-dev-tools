@@ -14,6 +14,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -85,7 +86,35 @@ function git(args) {
   return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" }).trim();
 }
 
+async function cdpAnswers() {
+  try {
+    const response = await fetch(`${cdpOrigin}/json/version`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function portIsFree(port) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen(Number(port), "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
 async function startChrome(workDir) {
+  // Refuse a port that is already taken, so the run never drives someone
+  // else's browser.
+  if (!(await portIsFree(options["cdp-port"]))) {
+    throw new Error(
+      `Port ${options["cdp-port"]} is already in use; pass --cdp-port with a free port`,
+    );
+  }
   const profile = path.join(workDir, "chrome-profile");
   const chrome = spawn(
     options.chrome,
@@ -100,14 +129,19 @@ async function startChrome(workDir) {
     ],
     { stdio: "ignore" },
   );
+  let exited = null;
+  chrome.on("error", (error) => {
+    exited = error.message;
+  });
+  chrome.on("exit", (code, signal) => {
+    exited = `exit ${signal ?? code}`;
+  });
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      const response = await fetch(`${cdpOrigin}/json/version`);
-      if (response.ok) {
-        return chrome;
-      }
-    } catch {
-      // Not listening yet.
+    if (exited) {
+      throw new Error(`Chrome stopped before exposing ${cdpOrigin}: ${exited}`);
+    }
+    if (await cdpAnswers()) {
+      return chrome;
     }
     await sleep(200);
   }
