@@ -65,7 +65,7 @@ export function actionTools(server) {
         definition: {
           name: "click",
           description:
-            "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
+            "Click an element with real mouse input at its center; fails if another element covers that point. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Check the result in the same call with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -113,19 +113,19 @@ export function actionTools(server) {
         definition: {
           name: "type",
           description:
-            "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
+            "Type into an input, textarea, or contenteditable with real text input, replacing its content unless clear is false. Check the result in the same call with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
               text: {
                 type: "string",
                 description:
-                  "Text to enter. Each newline is sent as an Enter key press: a line break in a textarea, implicit form submission in a single-line input. Date, time, datetime-local, month, week, color, and range inputs get the value set directly, so pass it in that input's value format (for example 2026-09-27). An empty string with clear empties the field.",
+                  "Text to enter; each newline is an Enter press (a line break in a textarea, form submission in a single-line input). Date, time, datetime-local, month, week, color, and range inputs get the value set directly, in their value format (for example 2026-09-27). An empty string with clear empties the field.",
               },
               clear: {
                 type: "boolean",
                 description:
-                  "Replace the existing content (default true). When false, the text is inserted at the end of the current content. Ignored for date, time, datetime-local, month, week, color, and range inputs, whose value is always replaced.",
+                  "Replace the existing content (default true); false inserts at the end. The picker inputs listed under text are always replaced.",
               },
               timeoutMs: actionTimeoutProperty(""),
             },
@@ -151,7 +151,7 @@ export function actionTools(server) {
         definition: {
           name: "select",
           description:
-            "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
+            "Select an option in a native <select> by value or label (the first option matching either) and fire input and change events; fails if none matches. Use click for custom dropdowns. Check the result in the same call with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -192,7 +192,7 @@ export function actionTools(server) {
         definition: {
           name: "press_key",
           description:
-            "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
+            "Press a key or combination with real keyboard input on the focused element, or on selector after focusing it (fails if it cannot take focus). Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Check the result in the same call with run_steps.",
           inputSchema: sessionSchema(
             {
               key: {

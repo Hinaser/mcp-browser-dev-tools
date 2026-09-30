@@ -1,6 +1,6 @@
 import { MAX_RUN_STEPS, stepSchema } from "./run-steps.mjs";
 import { asImageToolResult } from "./tool-results.mjs";
-import { waitUntilProperty } from "./tool-schemas.mjs";
+import { waitUntilProperty, withoutDescriptions } from "./tool-schemas.mjs";
 
 export const MAX_TABS = 8;
 export const DEFAULT_TAB_TIMEOUT_MS = 60_000;
@@ -14,7 +14,7 @@ export function runTabsInputSchema(stepTools, browserFamily) {
         type: "array",
         minItems: 1,
         maxItems: MAX_TABS,
-        description: `Tabs to run at the same time (at most ${MAX_TABS}). Each gives either url, to open a new tab there, or sessionId, to use an attached tab, plus the steps to run in it.`,
+        description: `At most ${MAX_TABS}, each with url (opens a new tab there) or sessionId (an attached tab), plus its steps.`,
         items: {
           type: "object",
           properties: {
@@ -33,7 +33,7 @@ export function runTabsInputSchema(stepTools, browserFamily) {
               type: "array",
               maxItems: MAX_RUN_STEPS,
               description: `Steps to run in this tab, as in run_steps (at most ${MAX_RUN_STEPS}, default none).`,
-              items: stepSchema(stepTools),
+              items: withoutDescriptions(stepSchema(stepTools)),
             },
           },
           additionalProperties: false,
@@ -281,7 +281,7 @@ export function runTabsTool(runner, stepTools, configuredFamily) {
     {
       definition: {
         name: "run_tabs",
-        description: `Run step lists in several tabs at the same time, in one call, and return every tab's results together. Use it to read or check several pages at once, for example to open search results side by side: {"tabs":[{"url":"https://example.com/a","steps":[{"tool":"read_text","arguments":{"maxChars":4000}}]},{"url":"https://example.com/b","steps":[{"tool":"read_text","arguments":{"maxChars":4000}}]}]}. A tab with url opens a new tab, loads the URL (waitUntil, default complete), and runs its steps; a tab with sessionId runs its steps in that attached tab. Steps are the same as in run_steps (including if and repeat) and are all validated before any tab opens. All tabs run at once by default (at most ${MAX_TABS}; concurrency lowers that); each has timeoutMs (default ${DEFAULT_TAB_TIMEOUT_MS}) and fails on its own without stopping the others, with page controls reported as in run_steps. Tabs opened for a url are closed afterwards unless keepTabs is true.`,
+        description: `Run step lists in several tabs at the same time and return every tab's results in one reply, for example to read search results side by side: {"tabs":[{"url":"https://example.com/a","steps":[{"tool":"read_text"}]},{"url":"https://example.com/b","steps":[{"tool":"read_text"}]}]}. A url tab opens a new tab, loads it, runs its steps, and closes unless keepTabs; a sessionId tab uses that attached tab. Steps are as in run_steps and are all validated first. Tabs run at once (at most ${MAX_TABS}; concurrency lowers that); each has timeoutMs (default ${DEFAULT_TAB_TIMEOUT_MS}) and fails without stopping the others.`,
         inputSchema: runTabsInputSchema(stepTools, configuredFamily),
       },
       handler: async (args) => runner.runTabs(args, configuredFamily),

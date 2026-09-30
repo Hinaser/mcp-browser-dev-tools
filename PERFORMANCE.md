@@ -85,7 +85,7 @@ What the runs show:
 4. **A failed batch now tells the agent how to fix it.** When a `run_steps` batch fails, it returns the page's visible controls with working locators; in the one run that needed it, the agent fixed the batch in the next turn. Action retries were never needed, because the agent always looks at the page before its first batch.
 5. **Wall time varies by several seconds between runs.** Across the last three builds, `settings-login` medians ranged from 13.7 s to 19.7 s with 8–9 turns and about 1 s of server time; the difference is model response time. With 3 runs per build, turns and server time are the more reliable signals.
 6. **Opus 5.5 at high effort (on `f153a94`) costs 1.6–1.9 times as much as Sonnet and takes 1.2–1.6 times as long**, with similar turn counts. The exception is batched `payment-retry`, where Opus was faster (24.5 s against 28.9 s) because Sonnet lost time to timed-out waits on that build.
-7. **Tool definitions are most of the input tokens.** About 33.7k characters of definitions are sent (and cached) on every turn, so cost grows with the number of turns more than with page content.
+7. **Tool definitions are most of the input tokens.** About 33.7k characters of definitions were sent (and cached) on every turn at the time, so cost grows with the number of turns more than with page content. They reached 45.6k characters in v0.2.0 and are 31.6k after [Shorter tool definitions](#shorter-tool-definitions).
 
 ## Several pages at once
 
@@ -110,6 +110,22 @@ xychart-beta
 2. **The pages load side by side.** Server time is 1.7 s for five 1.5 s pages; one after another it is 7.5 s plus navigation.
 3. **Without it, agents look for a shortcut first.** Every `single` run first tried to `fetch()` the articles from the page with `evaluate_js`, which the browser blocks across origins, then opened them one by one. One run navigated to the article site and fetched the rest from there, in 6 turns.
 4. **An earlier fixture served the articles from the results page's own origin**, so `single` runs fetched all five with one `evaluate_js` call and took 4 turns. That is not how search results work, so the articles now come from a second origin. The same series also showed that running 4 tabs at a time made five tabs take two rounds of loading; `run_tabs` now runs all tabs at once by default.
+
+## Shorter tool definitions
+
+`7e08336` shortens the tool definitions that clients send to the model on every turn from 45.6k to 31.6k characters. The locator rules are stated once in the server instructions instead of in 12 tools, repeated sub-schemas drop their descriptions, and the longest descriptions are tighter. Sonnet 5.5, medium effort, `batch` mode, median of 3 runs, against v0.2.0 (`ba4b63e`; `research` from `73297b5`, which has the same definitions):
+
+| Scenario         | v0.2.0: wall time · turns · input tokens · cost | `7e08336`                     |
+| ---------------- | ----------------------------------------------- | ----------------------------- |
+| `signup`         | 9.9 s · 5 · 90.6k · $0.062                      | 11.1 s · 7 · 97.1k · $0.071   |
+| `payment-retry`  | 27.9 s · 12 · 197.0k · $0.078                   | 19.2 s · 10 · 128.1k · $0.070 |
+| `settings-login` | 13.9 s · 7 · 174.2k · $0.093                    | 17.6 s · 9 · 150.7k · $0.101  |
+| `research`       | 8.4 s · 4 · 85.5k · $0.049                      | 8.8 s · 4 · 69.0k · $0.046    |
+
+1. **About 4k fewer input tokens per turn.** `research` took 4 turns on both builds, and its input fell from 85.5k to 69.0k tokens (19%). Across all 24 runs, the median input per turn fell from 18.3k to 15.7k tokens; that figure mixes in the runs' different turn counts.
+2. **The agent works the same way.** Every `signup` and `settings-login` run still batched its form with `run_steps`, and every `research` run used one `run_tabs` call. On v0.2.0 alone, `signup` took 5–7 turns, `payment-retry` 10–13, and `settings-login` 7–10, and every run on the new build falls in those ranges except one. The 7-turn `signup` runs, which read the page with `read_text` twice, occur on both builds.
+3. **One `settings-login` run took 15 turns because clicks did nothing.** Its transcript, which the benchmark saves outside the repository, shows its clicks on the two checkboxes and on Save reporting success while the checkboxes kept their state and no save request was sent, until the agent used JavaScript `click()` and `requestSubmit()`. The calls used the same selectors as the passing runs, so the likely cause is the clicks not reaching the page rather than the definitions, though that is not confirmed. It matches the unexplained GPT-6-Astra `settings-login` runs in the model comparison, and is not solved yet.
+4. **Cost per task did not measurably change at 3 runs per scenario** ($0.92 against $0.97 for 12 runs each), because turn counts vary more than the per-turn saving. The saving shows most on long tasks, where every turn carries the definitions again, and in clients with a small context window.
 
 ## Results by build
 
@@ -324,5 +340,20 @@ GPT costs are estimates; see [Method](#method).
 | Sonnet 5.5 | `batch`        | 3/3 | 8.4 s (8.3 s–9.8 s)    | 4         | 3          | 1.7 s (1.6 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.5k (85.4k–85.5k)    | 0.5k (0.5k–0.6k) | $0.049 ($0.049–$0.115) |
 | Sonnet 5.5 | `batch-hinted` | 3/3 | 8.8 s (8.7 s–9.2 s)    | 4         | 3          | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.8k (85.8k–85.9k)    | 0.5k (0.5k–0.5k) | $0.049 ($0.049–$0.049) |
 | Opus 5.5   | `batch`        | 3/3 | 13.3 s (12.4 s–14.0 s) | 4 (4–5)   | 3 (3–4)    | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 85.9k (85.9k–86.5k)    | 0.6k (0.6k–0.7k) | $0.083 ($0.082–$0.224) |
+
+</details>
+
+<details>
+<summary>Shorter tool definitions: Sonnet 5.5, medium effort, <code>batch</code> mode, on v0.2.0 (<code>ba4b63e</code>, 9 runs, $0.71) and <code>7e08336</code> (12 runs, $0.97)</summary>
+
+| Build     | Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| --------- | ---------------- | --- | ---------------------- | ---------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `ba4b63e` | `signup`         | 3/3 | 9.9 s (9.5 s–13.5 s)   | 5 (5–7)    | 4 (4–6)    | 0.9 s (0.6 s–0.9 s) | 17.3k (16.7k–17.3k) | 90.6k (90.5k–118.3k)   | 0.7k (0.7k–0.9k) | $0.062 ($0.062–$0.076) |
+| `ba4b63e` | `payment-retry`  | 3/3 | 27.9 s (22.7 s–28.6 s) | 12 (10–13) | 11 (9–12)  | 1.9 s (1.8 s–3.5 s) | 7.0k (6.4k–13.6k)   | 197.0k (156.7k–197.8k) | 1.3k (1.1k–1.4k) | $0.078 ($0.075–$0.079) |
+| `ba4b63e` | `settings-login` | 3/3 | 13.9 s (13.5 s–19.4 s) | 7 (7–10)   | 6 (6–9)    | 1.1 s (0.6 s–1.2 s) | 33.9k (20.3k–37.3k) | 174.2k (147.8k–184.4k) | 1.2k (1.1k–1.4k) | $0.093 ($0.090–$0.094) |
+| `7e08336` | `signup`         | 3/3 | 11.1 s (10.7 s–11.4 s) | 7 (5–7)    | 6 (4–6)    | 0.2 s (0.2 s–2.0 s) | 15.9k (15.9k–17.3k) | 97.1k (74.1k–97.2k)    | 0.8k (0.7k–0.8k) | $0.071 ($0.070–$0.110) |
+| `7e08336` | `payment-retry`  | 3/3 | 19.2 s (14.2 s–38.7 s) | 10 (10–12) | 9 (9–11)   | 2.0 s (1.5 s–4.7 s) | 13.6k (6.9k–13.6k)  | 128.1k (128.0k–160.5k) | 1.1k (1.1k–1.2k) | $0.070 ($0.070–$0.071) |
+| `7e08336` | `settings-login` | 3/3 | 17.6 s (17.2 s–41.3 s) | 9 (9–15)   | 8 (8–14)   | 0.7 s (0.7 s–6.5 s) | 40.2k (36.9k–61.0k) | 150.7k (149.0k–350.0k) | 1.4k (1.4k–2.7k) | $0.101 ($0.097–$0.176) |
+| `7e08336` | `research`       | 3/3 | 8.8 s (8.8 s–11.0 s)   | 4          | 3          | 1.6 s (1.6 s–1.7 s) | 10.7k (10.7k–10.7k) | 69.0k (68.9k–69.1k)    | 0.5k (0.5k–0.6k) | $0.046 ($0.046–$0.046) |
 
 </details>

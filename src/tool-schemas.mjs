@@ -32,7 +32,25 @@ export function sessionWithLimitSchema(description) {
 }
 
 export const LOCATOR_DESCRIPTION =
-  'Element locator. Plain CSS (or css=...) resolves to the first document.querySelector match. text=Foo resolves to the first visible element whose whitespace-normalized text equals Foo, falling back to the first whose text contains Foo; elements are scanned in document order, so this can resolve to a wrapper around the element you want. role=button or role=button[name="Save"] matches by explicit or implicit ARIA role and, optionally, accessible name (equal or containing), without a visibility check. name=Foo resolves to the first visible element whose accessible name (aria-label, aria-labelledby, associated label, alt, and so on) equals or contains Foo. Text comparisons are case-sensitive. Only the top-level document is searched: elements inside iframes or shadow roots are not found.';
+  'Locator: CSS, text=Visible text, role=button[name="Save"], or name=Accessible name.';
+
+// A copy of schema without descriptions, for a schema repeated inside another
+// whose fields are already described once; validation is unchanged.
+export function withoutDescriptions(schema) {
+  if (Array.isArray(schema)) {
+    return schema.map(withoutDescriptions);
+  }
+  if (!schema || typeof schema !== "object") {
+    return schema;
+  }
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(
+        ([key, value]) => key !== "description" || typeof value !== "string",
+      )
+      .map(([key, value]) => [key, withoutDescriptions(value)]),
+  );
+}
 
 export function selectorProperty() {
   return {
@@ -93,24 +111,24 @@ export function pageConditionProperties({ expression = false } = {}) {
     textEquals: {
       type: "string",
       description:
-        "The selector's full visible text equals this string, comparing with whitespace collapsed. Requires selector; not with state hidden.",
+        "The selector's full visible text equals this, with whitespace collapsed. Requires selector; not with state hidden.",
     },
     textIncludes: {
       type: "string",
       description:
-        "The selector's full visible text contains this string, comparing with whitespace collapsed. Requires selector; not with state hidden.",
+        "The selector's full visible text contains this, with whitespace collapsed. Requires selector; not with state hidden.",
     },
     textExcludes: {
       type: "string",
       description:
-        "The selector's visible text does not contain this string, for example to wait until a status no longer says Processing. Never holds for a missing element. Requires selector; not with state hidden.",
+        "The selector's visible text no longer contains this, for example Processing; never holds for a missing element. Requires selector; not with state hidden.",
     },
     ...(expression
       ? {
           expression: {
             type: "string",
             description:
-              "JavaScript expression evaluated in the page's main world; holds when its result, awaited if it is a promise, is truthy, for example document.querySelectorAll('.row').length >= 5. An expression that throws fails the check. Each evaluation must settle within the wait's remaining time, or 5000ms in if and repeat.",
+              "JavaScript in the page's main world; holds when its result (awaited if a promise) is truthy, for example document.querySelectorAll('.row').length >= 5. Throwing fails the check; each evaluation must settle within the remaining wait (5000ms in if and repeat).",
           },
         }
       : {}),
@@ -134,11 +152,11 @@ export function anyOfProperty(options) {
     minItems: 1,
     items: {
       type: "object",
-      properties: pageConditionProperties(options),
+      properties: withoutDescriptions(pageConditionProperties(options)),
       additionalProperties: false,
     },
     description:
-      "Alternative conditions, each with the fields above; holds when any one holds, checked in order. Use instead of the fields above, for example to wait until a status says either Paid or Declined. The result reports matchedIndex.",
+      "Alternative conditions with the fields above, instead of them; holds when any one holds, checked in order, for example a status of either Paid or Declined. The result reports matchedIndex.",
   };
 }
 
@@ -338,7 +356,7 @@ export function launchBrowserInputSchema(
     userDataDir: {
       type: "string",
       description:
-        "Browser profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR when set). Without either, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
+        "Profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR). Without either, Chromium and Edge use a temporary profile if already running, else the default one.",
     },
     waitMs: {
       type: "integer",
@@ -404,7 +422,7 @@ export function ensureBrowserInputSchema(
     userDataDir: {
       type: "string",
       description:
-        "Browser profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR when set). Without either, Chromium and Edge get a fresh temporary profile if that browser is already running, and the default profile otherwise.",
+        "Profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR). Without either, Chromium and Edge use a temporary profile if already running, else the default one.",
     },
     waitMs: {
       type: "integer",
