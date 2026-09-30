@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Checkout</h1>
+    <p>Order #1042: Noise-cancelling headphones</p>
+    <p>Total: $42.00</p>
+    <button id="pay">Pay $42.00</button>
+    <p id="status" role="status">Not paid yet.</p>
+    <script>
+      const run = new URLSearchParams(location.search).get("run");
+      const pay = document.getElementById("pay");
+      const status = document.getElementById("status");
+
+      pay.onclick = async () => {
+        pay.disabled = true;
+        pay.textContent = "Processing…";
+        status.textContent = "Processing payment…";
+        const response = await fetch(`/api/pay?run=${run}`, {
+          method: "POST",
+        });
+        const result = await response.json();
+        if (result.ok) {
+          pay.remove();
+          status.textContent = `Paid. Receipt: ${result.receipt}`;
+          return;
+        }
+
+        pay.disabled = false;
+        pay.textContent = "Retry payment";
+        status.textContent = `Payment failed: ${result.error}. Please try again.`;
+      };
+    </script>
+  </body>
+</html>

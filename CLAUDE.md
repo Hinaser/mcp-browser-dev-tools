@@ -30,4 +30,5 @@ This repository's canonical agent memory is in `AGENTS.md`. Keep both files alig
 
 - Repo memory and conventions: `AGENTS.md`
 - Public usage docs: `README.md`
+- Benchmark method, scenarios, and results: `PERFORMANCE.md`
 - GitHub protection model: `docs/repository-settings.md`

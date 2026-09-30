@@ -237,6 +237,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
+- `MCP_BROWSER_TIMING_LOG` names a file that gets one JSON line per tool call with the tool name, duration, success, and response size (text characters and image count); the benchmark in `PERFORMANCE.md` uses it
 - `MCP_BROWSER_ENABLE_EVAL=0` (or `false`) disables `evaluate_js`, which is enabled by default
 - `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1` exposes the `unsafeArgs` launch option on `launch_browser` and `ensure_browser`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints

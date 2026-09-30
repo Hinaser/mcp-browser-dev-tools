@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { encodeMessage, MessageBuffer } from "./json-rpc-stdio.mjs";
+import { parseKeyCombo } from "./keyboard.mjs";
 import { createLogger } from "./logger.mjs";
 import {
   launchBrowser as launchLocalBrowser,
@@ -1759,7 +1767,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "click",
             description:
-              "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
+              "Click a single element located by CSS, text=..., role=..., or name=... syntax. Sends real mouse input at the element center and fails if another element covers that point. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1795,7 +1803,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "type",
             description:
-              "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false.",
+              "Type text into an input, textarea, or contenteditable element using real text input, replacing existing content unless clear is false. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1825,7 +1833,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "select",
             description:
-              "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead.",
+              "Select an option in a native <select> element and fire input and change events. Provide value, label, or both; the first option matching either is selected, and the call fails if none matches. Custom dropdowns built from other elements need click instead. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 selector: selectorProperty(),
@@ -1861,7 +1869,7 @@ export class McpBrowserDevToolsServer {
           definition: {
             name: "press_key",
             description:
-              "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event.",
+              "Press a key or key combination (for example Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a) with real keyboard input on the focused element, or on selector after focusing it. Fails if selector cannot take focus. A JavaScript alert or confirm dialog that this opens is accepted automatically and a prompt is dismissed; get_events reports it as a dialog event. To check the result in the same call, run it as a run_steps step followed by wait_for, inspect_element, or take_screenshot.",
             inputSchema: sessionSchema(
               {
                 key: {
@@ -1873,6 +1881,9 @@ export class McpBrowserDevToolsServer {
               },
               ["key"],
             ),
+          },
+          validate: (args) => {
+            parseKeyCombo(args.key);
           },
           handler: async (args) =>
             this.browserAdapter.pressKey(
@@ -2300,7 +2311,7 @@ export class McpBrowserDevToolsServer {
               version: SERVER_VERSION,
             },
             instructions:
-              "Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi.",
+              'Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To act on a page and check the result, prefer run_steps: send the actions you already know (such as every field of a form), a wait_for, and the check (take_screenshot with output image, or inspect_element) in one call instead of several round trips, for example {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"#search","text":"headphones"}},{"tool":"press_key","arguments":{"key":"Enter"}},{"tool":"wait_for","arguments":{"selector":"#results"}},{"tool":"take_screenshot","arguments":{"output":"image"}}]}. Add an if step when the page can be in more than one state.',
           });
         case "notifications/initialized":
           return null;
@@ -2324,15 +2335,54 @@ export class McpBrowserDevToolsServer {
   }
 
   async callTool(params = {}) {
-    const tool = this.tools.get(params.name);
-    if (!tool) {
-      throw new Error(`Unknown tool: ${params.name}`);
+    const startedAt = Date.now();
+    let response = null;
+    try {
+      const tool = this.tools.get(params.name);
+      if (!tool) {
+        throw new Error(`Unknown tool: ${params.name}`);
+      }
+
+      const args = params.arguments ?? {};
+      validateValue("arguments", args, tool.definition.inputSchema);
+      tool.validate?.(args);
+      const result = await tool.handler(args);
+      response = (tool.formatResult ?? asToolResult)(result, args);
+      return response;
+    } finally {
+      await this.logTiming(params.name, startedAt, response);
+    }
+  }
+
+  // Appends one JSON line per tool call when MCP_BROWSER_TIMING_LOG is set.
+  // responseChars and images approximate what the call costs the client.
+  async logTiming(name, startedAt, response) {
+    if (!this.config.timingLogFile) {
+      return;
     }
 
-    const args = params.arguments ?? {};
-    validateValue("arguments", args, tool.definition.inputSchema);
-    tool.validate?.(args);
-    const result = await tool.handler(args);
-    return (tool.formatResult ?? asToolResult)(result, args);
+    const content = response?.content ?? [];
+    const entry = {
+      ts: new Date(startedAt).toISOString(),
+      tool: name ?? null,
+      ms: Date.now() - startedAt,
+      ok: response !== null,
+      responseChars: content
+        .filter((block) => block.type === "text")
+        .reduce((total, block) => total + block.text.length, 0),
+      images: content.filter((block) => block.type === "image").length,
+    };
+    // ok is whether the call returned; a batch that stopped at a failing
+    // step still returns, so its own outcome is logged as stepsOk.
+    if (name === "run_steps" && response?.structuredContent) {
+      entry.steps = response.structuredContent.ranSteps;
+      entry.stepsOk = response.structuredContent.ok;
+    }
+
+    try {
+      await appendFile(this.config.timingLogFile, `${JSON.stringify(entry)}\n`);
+    } catch (error) {
+      this.logger.error(`failed to write timing log: ${error.message}`);
+    }
   }
 }

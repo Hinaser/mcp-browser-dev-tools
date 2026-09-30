@@ -249,6 +249,7 @@ test("initialize returns MCP server metadata", async () => {
   assert.equal(response.result.serverInfo.name, "mcp-browser-dev-tools");
   assert.equal(response.result.serverInfo.version, PACKAGE_VERSION);
   assert.deepEqual(response.result.capabilities, { tools: {} });
+  assert.match(response.result.instructions, /prefer run_steps/);
 });
 
 test("start resumes the input stream so spawned stdio servers stay alive", () => {
@@ -1461,6 +1462,15 @@ test("run_steps validates every step before running any", async () => {
   });
   assert.match(notSessionTool.error.message, /tool must be one of/);
 
+  const unknownKey = await callRunSteps(server, {
+    sessionId: "session-1",
+    steps: [
+      { tool: "click", arguments: { selector: "#save" } },
+      { tool: "press_key", arguments: { key: "Hyper+Enter" } },
+    ],
+  });
+  assert.match(unknownKey.error.message, /Unsupported modifier "Hyper"/);
+
   assert.equal(clicked, false);
 });
 
@@ -2002,6 +2012,19 @@ test("run_steps validates both if branches and limits before running", async () 
   ]);
   assert.match(unknownField.error.message, /timeoutMs is not allowed/);
 
+  const badKeyInElse = await run([
+    click,
+    {
+      tool: "if",
+      arguments: {
+        condition: { selector: "#a" },
+        then: [],
+        else: [{ tool: "press_key", arguments: { key: "Enterr" } }],
+      },
+    },
+  ]);
+  assert.match(badKeyInElse.error.message, /Unsupported key "Enterr"/);
+
   assert.equal((await run([nest(4)])).result.structuredContent.ok, true);
   assert.match((await run([nest(5)])).error.message, /deeper than 4 levels/);
 
@@ -2042,4 +2065,71 @@ test("wait_for passes text conditions to the adapter", async () => {
     textEquals: "Saved",
   });
   assert.match(invalid.error.message, /require selector/);
+});
+
+test("tool calls append timing entries when MCP_BROWSER_TIMING_LOG is set", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "timing-log-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const logFile = path.join(dir, "timing.jsonl");
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_TIMING_LOG: logFile }),
+    browserAdapter: createFakeManager(),
+  });
+
+  await callTool(server, "take_screenshot", {
+    sessionId: "session-1",
+    output: "image",
+  });
+  await callTool(server, "wait_for", { sessionId: "session-1" });
+  await callTool(server, "run_steps", {
+    sessionId: "session-1",
+    steps: [{ tool: "inspect_element", arguments: { selector: "#a" } }],
+  });
+
+  const entries = (await readFile(logFile, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(entries.length, 3);
+  assert.equal(entries[0].tool, "take_screenshot");
+  assert.equal(entries[0].ok, true);
+  assert.equal(entries[0].images, 1);
+  assert.ok(entries[0].responseChars > 0);
+  assert.equal(entries[1].tool, "wait_for");
+  assert.equal(entries[1].ok, false);
+  assert.equal(typeof entries[1].ms, "number");
+  assert.equal(entries[2].steps, 1);
+  assert.equal(entries[2].stepsOk, true);
+});
+
+test("the run_steps example in the server instructions is a valid call", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+  const { instructions } = (
+    await server.handleRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {},
+    })
+  ).result;
+  const example = JSON.parse(
+    instructions.slice(
+      instructions.indexOf("{"),
+      instructions.lastIndexOf("}") + 1,
+    ),
+  );
+
+  const response = await callRunSteps(server, {
+    ...example,
+    sessionId: "session-1",
+  });
+
+  assert.equal(response.error, undefined);
+  assert.equal(
+    response.result.structuredContent.ranSteps,
+    example.steps.length,
+  );
 });

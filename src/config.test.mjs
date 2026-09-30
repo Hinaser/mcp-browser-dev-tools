@@ -86,6 +86,7 @@ test("loadConfig applies defaults", () => {
     debugStdio: false,
     logFile: null,
     userDataDir: null,
+    timingLogFile: null,
     protocolVersion: "2024-11-05",
   });
 });
