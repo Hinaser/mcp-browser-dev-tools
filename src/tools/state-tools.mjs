@@ -190,8 +190,8 @@ export function stateTools(server) {
         definition: {
           name: "wait_for",
           description: server.config.enableEvaluate
-            ? "Wait until every given condition holds on an attached session: selector state, selector text (textEquals, textIncludes, textExcludes), exact url, urlIncludes substring, readyState, and a JavaScript expression. Give at least one of selector, url, urlIncludes, readyState, or expression, or give anyOf to wait until any one of several conditions holds. Polls until the conditions match or timeoutMs passes, then fails with the last observed state. A selector check scrolls the matched element into view on each poll."
-            : "Wait until every given condition holds on an attached session: selector state, selector text (textEquals, textIncludes, textExcludes), exact url, urlIncludes substring, and readyState. Give at least one of selector, url, urlIncludes, or readyState, or give anyOf to wait until any one of several conditions holds. Polls until the conditions match or timeoutMs passes, then fails with the last observed state. A selector check scrolls the matched element into view on each poll.",
+            ? "Wait until every given condition holds: selector state, its text (textEquals, textIncludes, textExcludes), url, urlIncludes, readyState, or expression; or give anyOf to end on the first of several. Polls until they hold or timeoutMs passes, then fails with the last observed state. Selector checks scroll the element into view."
+            : "Wait until every given condition holds: selector state, its text (textEquals, textIncludes, textExcludes), url, urlIncludes, or readyState; or give anyOf to end on the first of several. Polls until they hold or timeoutMs passes, then fails with the last observed state. Selector checks scroll the element into view.",
           inputSchema: waitForInputSchema({
             expression: server.config.enableEvaluate,
           }),

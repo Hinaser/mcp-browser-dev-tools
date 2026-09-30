@@ -51,7 +51,7 @@ export function browserTools(server) {
         definition: {
           name: "launch_browser",
           description:
-            "Launch a local debug-enabled browser process that matches the current broker configuration and return launch details plus an optional doctor report. When port, address, userDataDir, and unsafeArgs are all omitted and a browser of this family is already reachable, returns it with reused: true instead of launching, opening url in a new tab if given. On macOS and Linux it never starts a second browser on a profile that is already open. Prefer ensure_browser.",
+            "Launch a local debug-enabled browser for this server's configuration and return launch details and an optional doctor report. When port, address, userDataDir, and unsafeArgs are omitted and a browser of this family is reachable, returns it with reused: true, opening url in a new tab if given. On macOS and Linux it never opens a second browser on a profile already in use. Prefer ensure_browser.",
           inputSchema: launchBrowserInputSchema(
             server.config.browserFamily,
             server.config.enableUnsafeLaunchArgs,
@@ -110,7 +110,7 @@ export function browserTools(server) {
         definition: {
           name: "ensure_browser",
           description:
-            "Ensure a compatible browser is reachable through the current broker, reusing a running one when possible. If none answers after three status checks, launch one locally, using the MCP_BROWSER_USER_DATA_DIR profile when set, and optionally open a tab for the requested URL. Will not launch again for 30 seconds while a browser it launched is still starting, and on macOS and Linux never starts a second browser on a profile that is already open.",
+            "Reuse a reachable browser or launch one (with the MCP_BROWSER_USER_DATA_DIR profile when set), optionally opening url in a new tab. Checks three times before launching, does not launch again for 30 seconds while a browser it launched is starting, and on macOS and Linux never opens a second browser on a profile already in use.",
           inputSchema: ensureBrowserInputSchema(
             server.config.browserFamily,
             server.config.enableUnsafeLaunchArgs,

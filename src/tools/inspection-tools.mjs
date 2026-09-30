@@ -88,7 +88,7 @@ export function inspectionTools(server) {
         definition: {
           name: "inspect_element",
           description:
-            "Inspect a single DOM element located by CSS, text=..., role=..., or name=... syntax and return normalized element details. Scrolls the element into view first, so the returned box reflects the scrolled position.",
+            "Describe one element: its box, visibility, role, accessible name, state, and styles. Scrolls it into view first, so the box reflects the scrolled position.",
           inputSchema: {
             type: "object",
             properties: {
@@ -111,7 +111,7 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "read_text",
-          description: `Read the visible text of the page's main content (main or role=main, else a single article, else the body), or of one element with selector, as plain lines up to maxChars. With links, also list the links in it with their text and absolute URL, for example to collect search results. Use it to read articles and results pages; inspect_element clips text to 400 characters.`,
+          description: `Read the visible text of the main content (main or role=main, else a single article, else the body), or of selector, as plain lines up to maxChars. With links, also list its links with text and absolute URL, for example search results. inspect_element clips text to 400 characters.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -156,7 +156,7 @@ export function inspectionTools(server) {
         definition: {
           name: "take_screenshot",
           description:
-            "Capture a screenshot from an attached page or a single element when selector is provided. By default the image comes back as base64 data in the JSON result; output image returns it as image content instead, and output file (or path) writes it to a file and returns the path.",
+            "Screenshot the page, or one element with selector. Returns base64 data in the JSON by default; output image returns image content instead, and output file (or path) writes a file and returns its path.",
           inputSchema: {
             type: "object",
             properties: {
@@ -175,11 +175,11 @@ export function inspectionTools(server) {
                 type: "string",
                 enum: ["data", "image", "file"],
                 description:
-                  "How to return the image: data puts base64 data in the JSON result, image returns an image content block with only metadata in the JSON, file writes the decoded image to a file and returns its path (default data, or file when path is given).",
+                  "data (default) puts base64 in the JSON, image returns image content with metadata in the JSON, file writes a file and returns its path (the default when path is given).",
               },
               path: {
                 type: "string",
-                description: `Absolute file path for output file, ending in ${screenshotFileExtensions(server.config.browserFamily).join(", ")}; the extension sets the format. Missing parent directories are created. Default: a new file in a private directory under the system temp directory.`,
+                description: `Absolute path for output file, ending in ${screenshotFileExtensions(server.config.browserFamily).join(", ")} (the extension sets the format); parent directories are created. Default: a new file in a private temp directory.`,
               },
               overwrite: {
                 type: "boolean",
@@ -267,7 +267,7 @@ export function inspectionTools(server) {
               returnByValue: {
                 type: "boolean",
                 description:
-                  "Return the result as a JSON value (default true). When false, only a short description of the resulting object is returned. Chromium and Edge only; Firefox always returns a serialized value.",
+                  "Return a JSON value (default true); false returns a short description of the object. Chromium and Edge only; Firefox always returns a serialized value.",
               },
             },
             required: ["sessionId", "expression"],
