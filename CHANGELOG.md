@@ -8,6 +8,12 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-30
+
+This release lets an agent work in several tabs at once and read their
+text, end waits on the outcome that actually happens, and retry inside a
+batch, so browser tasks need fewer model turns.
+
 ### Added
 
 - `run_tabs` runs step lists in several tabs at the same time (up to 8, all at once unless `concurrency` is lower), opening a tab for each URL and closing it afterwards unless `keepTabs` is true, and returns every tab's results in one reply; a failing or timed-out tab does not stop the others
@@ -17,6 +23,7 @@ release history retroactively.
 - `click`, `hover`, `type`, `select`, and `press_key` (with `selector`) retry while their element is missing, for up to `timeoutMs` (default 2000; `0` fails at once), and report `waitedMs` when they retried; `click` and `hover` also retry while it is covered or outside the viewport, and `click` while it is disabled
 - `wait_for` and `run_steps` conditions accept `expression`, JavaScript that holds when its result (awaited if it is a promise) is truthy; an expression that throws fails at once with the error, and the field is left out when `MCP_BROWSER_ENABLE_EVAL=0`
 - A failed `run_steps` batch returns a `page` field with the URL, title, and up to 40 visible controls, each with a locator the tools accept
+- The benchmark can run GPT models through the Codex CLI and gains a `research` scenario that reads five slow pages from a results list; `PERFORMANCE.md` compares seven models
 
 ### Changed
 
@@ -28,7 +35,6 @@ release history retroactively.
 ### Fixed
 
 - On Chromium, closing a tab while `navigate` or `reload` waited for it to load no longer ends the server with an unhandled promise rejection
-
 - On Chromium, `evaluate_js` awaits a promise the expression returns, as `awaitPromise` describes, instead of returning `{}`; a rejected promise is reported in `exceptionDetails`, and a thrown error leaves `result` null as on Firefox
 - On Firefox, `evaluate_js` accepts top-level `await`, as it already did on Chromium: such code runs inside an async function that returns the value of its last expression statement
 - With `MCP_BROWSER_FAMILY=auto` (the default), `evaluate_js` passes its `awaitPromise` and `returnByValue` options to the browser instead of dropping them
