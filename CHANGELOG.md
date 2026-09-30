@@ -8,6 +8,14 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Fixed
+
+- `click`, `type`, and `press_key` no longer report success for input the browser dropped. In the benchmark, Chrome sometimes acknowledged every click and key press to a tab after a login redirect without delivering any of them, so clicks on checkboxes and a Save button returned `clicked: true` while nothing changed. The server now counts trusted input events in each page from the start of the document, and the tools check that their input arrived; if it did not, they bring the tab to the front (Chromium) and send it once more, reporting `resent: true`, and otherwise fail with an error that says the input had no effect. On a page already loaded when the tab was attached, where page listeners could hide input from the count, a failure is reported without sending the input again
+
+### Changed
+
+- `click` returns the element's state after the click, so a checkbox's `checked` is its new value rather than the value before the click
+
 ## [0.2.1] - 2026-09-30
 
 This release makes the tool definitions sent on every model turn about 30%

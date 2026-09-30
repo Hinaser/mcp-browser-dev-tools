@@ -892,6 +892,86 @@ export function pageScript(payload) {
     return Boolean(label && label.control === element);
   }
 
+  // Tells input the browser silently dropped apart from input the page
+  // received, from the trusted events inputRecorder counted between arming
+  // the probe and reading it. A recorder installed when the document started
+  // runs before every page listener, so no count means nothing arrived. One
+  // installed later can miss events that earlier page listeners stopped, so
+  // there a click also counts as delivered when the element under the pointer
+  // becomes hovered, and typing when the field's content changes: the
+  // browser does both before any page listener runs.
+  const INPUT_PROBE_KEY = Symbol.for("mcp-browser-dev-tools.inputProbe");
+  const INPUT_RECORDER_KEY = Symbol.for("mcp-browser-dev-tools.inputRecorder");
+
+  // Input aimed at a frame goes to the frame's own document, whose events
+  // this window does not see.
+  function hostsDocument(element) {
+    return ["IFRAME", "FRAME", "OBJECT", "EMBED"].includes(element?.tagName);
+  }
+
+  function isHovered(element) {
+    try {
+      return element.matches(":hover");
+    } catch {
+      return false;
+    }
+  }
+
+  function editedContent(element) {
+    if (!element) {
+      return null;
+    }
+    return typeof element.value === "string"
+      ? element.value
+      : element.textContent;
+  }
+
+  function armInputProbe(token, kind, options = {}) {
+    const recorder = window[INPUT_RECORDER_KEY];
+    if (!recorder) {
+      delete window[INPUT_PROBE_KEY];
+      return;
+    }
+    const hovered = options.pointerAt ?? null;
+    window[INPUT_PROBE_KEY] = {
+      token,
+      kind,
+      count: recorder[kind],
+      early: recorder.early,
+      element: options.element ?? null,
+      locator: options.locator ?? null,
+      hovered: hovered && !isHovered(hovered) ? hovered : null,
+      edited: options.edited ?? null,
+      content: editedContent(options.edited),
+    };
+  }
+
+  // Unarmed means delivery cannot be checked, for example after the page
+  // navigated. conclusive says whether "not delivered" can be trusted.
+  function readInputProbe(token, disarm) {
+    const probe = window[INPUT_PROBE_KEY];
+    const recorder = window[INPUT_RECORDER_KEY];
+    if (!probe || probe.token !== token || !recorder) {
+      return { armed: false, delivered: false, conclusive: false };
+    }
+    const delivered =
+      recorder[probe.kind] > probe.count ||
+      Boolean(probe.hovered && isHovered(probe.hovered)) ||
+      (probe.edited !== null && editedContent(probe.edited) !== probe.content);
+    if (disarm || delivered) {
+      delete window[INPUT_PROBE_KEY];
+    }
+    return {
+      armed: true,
+      delivered,
+      conclusive: probe.early,
+      node:
+        delivered && probe.element?.isConnected
+          ? describeElement(probe.element, probe.locator)
+          : null,
+    };
+  }
+
   // Whether the page renders the element at all. innerText falls back to the
   // raw text content for an element inside display: none, which the page
   // does not show; unlike isVisible, size and pointer events do not matter.
@@ -1046,6 +1126,18 @@ export function pageScript(payload) {
         const receivesEvents = Boolean(
           hit && receivesPointerAt(resolved.element, hit),
         );
+        if (
+          receivesEvents &&
+          typeof payload.inputProbe === "string" &&
+          !hostsDocument(hit) &&
+          !isDisabled(resolved.element)
+        ) {
+          armInputProbe(payload.inputProbe, "pointer", {
+            element: resolved.element,
+            locator: resolved,
+            pointerAt: hit,
+          });
+        }
 
         return {
           browserFamily: payload.browserFamily,
@@ -1057,6 +1149,8 @@ export function pageScript(payload) {
           node: describeElement(resolved.element, resolved),
         };
       }
+      case "input_probe":
+        return readInputProbe(payload.token, payload.disarm === true);
       case "prepare_type": {
         const resolved = ensureResolved(payload.selector);
         if (!resolved.element) {
@@ -1122,6 +1216,14 @@ export function pageScript(payload) {
           selection.addRange(range);
         }
 
+        if (typeof payload.inputProbe === "string") {
+          armInputProbe(payload.inputProbe, "keyboard", {
+            element,
+            locator: resolved,
+            edited: element,
+          });
+        }
+
         return {
           browserFamily: payload.browserFamily,
           selector: payload.selector,
@@ -1181,11 +1283,18 @@ export function pageScript(payload) {
           }
         }
 
+        const focused = getDeepActiveElement() ?? document.body;
+        if (typeof payload.inputProbe === "string" && !hostsDocument(focused)) {
+          armInputProbe(payload.inputProbe, "keyboard", {
+            edited: isEditable(focused) ? focused : null,
+          });
+        }
+
         return {
           browserFamily: payload.browserFamily,
           selector: payload.selector ?? null,
           found: true,
-          target: summarizeTarget(getDeepActiveElement() ?? document.body),
+          target: summarizeTarget(focused),
         };
       }
       case "scroll": {
@@ -1369,4 +1478,36 @@ export function pageScript(payload) {
   }
 
   return runAction();
+}
+
+// Counts trusted pointer and keyboard events in the page from the moment it
+// runs, for the input probe in pageScript. Registered to run when each new
+// document starts (early), it sees every event before page listeners can
+// stop it; run on a document that is already loaded, it misses what
+// listeners added before it stop. Like pageScript, it is serialized with
+// toString() and must not reference anything outside itself.
+export function inputRecorder(early) {
+  const key = Symbol.for("mcp-browser-dev-tools.inputRecorder");
+  if (window[key]) {
+    return;
+  }
+  const counts = { pointer: 0, keyboard: 0, early };
+  const kinds = {
+    pointer: ["pointerdown", "mousedown", "pointerup", "mouseup", "click"],
+    keyboard: ["keydown", "keyup", "beforeinput", "input"],
+  };
+  for (const [kind, types] of Object.entries(kinds)) {
+    for (const type of types) {
+      window.addEventListener(
+        type,
+        (event) => {
+          if (event.isTrusted) {
+            counts[kind] += 1;
+          }
+        },
+        true,
+      );
+    }
+  }
+  Object.defineProperty(window, key, { value: counts });
 }

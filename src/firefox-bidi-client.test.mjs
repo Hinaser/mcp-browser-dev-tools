@@ -659,6 +659,55 @@ test("FirefoxBidiSessionManager click performs pointer actions at the element ce
   ]);
 });
 
+test("FirefoxBidiSessionManager installs the input recorder and removes it on detach", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  manager.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    return method === "script.addPreloadScript" ? { script: "preload-1" } : {};
+  };
+  const session = manager.getSession("session-1");
+
+  await manager.installInputRecorder(session);
+  await manager.detachSession("session-1");
+
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    [
+      "script.addPreloadScript",
+      "script.evaluate",
+      "script.removePreloadScript",
+    ],
+  );
+  assert.deepEqual(sentCommands[0].params.contexts, ["ctx-1"]);
+  assert.match(sentCommands[0].params.functionDeclaration, /\(true\)$/);
+  assert.match(sentCommands[1].params.expression, /\(false\)$/);
+  assert.deepEqual(sentCommands[2].params, { script: "preload-1" });
+});
+
+test("FirefoxBidiSessionManager click reports an error when the page never receives it", async () => {
+  const readings = [];
+  const { manager, sentCommands } = createBidiInputManager({
+    pointer_target: (payload) => ({
+      found: true,
+      selector: "button",
+      point: { x: 70, y: 40 },
+      receivesEvents: true,
+      node: {},
+      armed: payload.inputProbe,
+    }),
+    input_probe: (payload) => {
+      readings.push(payload.disarm);
+      return { armed: true, delivered: false, conclusive: true };
+    },
+  });
+
+  await assert.rejects(manager.click("session-1", "button"), {
+    code: "INPUT_NOT_DELIVERED",
+  });
+  assert.equal(sentCommands.length, 2);
+  assert.equal(readings.at(-1), true);
+});
+
 test("FirefoxBidiSessionManager type sends key actions for each character", async () => {
   const { manager, sentCommands } = createBidiInputManager({
     prepare_type: () => ({ found: true, method: "native", node: {} }),

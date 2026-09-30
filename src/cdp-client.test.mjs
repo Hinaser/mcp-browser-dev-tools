@@ -468,6 +468,224 @@ test("CdpSession click returns not-found results without dispatching input", asy
   assert.equal(sentCommands.length, 0);
 });
 
+// A page probe that sees no input for the first `dropped` readings, as when
+// Chrome acknowledges input it never delivers.
+function inputProbe({ dropped = 0, conclusive = true, node = null } = {}) {
+  const readings = [];
+  return {
+    readings,
+    input_probe(payload) {
+      readings.push({ token: payload.token, disarm: payload.disarm });
+      const delivered = readings.length > dropped;
+      return { armed: true, delivered, conclusive, node };
+    },
+  };
+}
+
+test("CdpSession installs the input recorder for new documents and the current one", async () => {
+  const { session, sentCommands } = createInputSession({});
+
+  await session.installInputRecorder();
+
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    ["Page.addScriptToEvaluateOnNewDocument", "Runtime.evaluate"],
+  );
+  assert.match(sentCommands[0].params.source, /\(true\)$/);
+  assert.match(sentCommands[1].params.expression, /\(false\)$/);
+
+  session.send = async () => {
+    throw new Error("Page domain unavailable");
+  };
+  await session.installInputRecorder();
+});
+
+test("CdpSession click arms an input probe and reports the element after the click", async () => {
+  const probe = inputProbe({ node: { tagName: "INPUT", checked: false } });
+  let armed = null;
+  const { session, sentCommands, runActions } = createInputSession({
+    pointer_target: (payload) => {
+      armed = payload.inputProbe;
+      return { ...pointerTarget(payload), node: { checked: true } };
+    },
+    input_probe: probe.input_probe,
+  });
+
+  const result = await session.click("input[name=email]");
+
+  assert.equal(typeof armed, "string");
+  assert.deepEqual(runActions, ["pointer_target", "input_probe"]);
+  assert.deepEqual(probe.readings, [{ token: armed, disarm: false }]);
+  assert.equal(sentCommands.length, 3);
+  assert.equal(result.clicked, true);
+  assert.equal(result.resent, undefined);
+  assert.equal(result.node.checked, false);
+});
+
+test("CdpSession click brings the tab to the front and resends a click the page never received", async () => {
+  const probe = inputProbe({ dropped: 4 });
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: probe.input_probe,
+  });
+
+  const result = await session.click("button.cta");
+
+  assert.equal(result.clicked, true);
+  assert.equal(result.resent, true);
+  assert.deepEqual(
+    sentCommands.map(({ method, params }) => params?.type ?? method),
+    [
+      "mouseMoved",
+      "mousePressed",
+      "mouseReleased",
+      "Page.bringToFront",
+      "mouseMoved",
+      "mousePressed",
+      "mouseReleased",
+    ],
+  );
+});
+
+test("CdpSession click reports an error when the browser never delivers the click", async () => {
+  const probe = inputProbe({ dropped: Infinity });
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: probe.input_probe,
+  });
+
+  await assert.rejects(session.click("button.cta"), (error) => {
+    assert.equal(error.code, "INPUT_NOT_DELIVERED");
+    assert.match(
+      error.message,
+      /^The click on "button\.cta" was sent twice, but the browser delivered no input events to the page/,
+    );
+    return true;
+  });
+  assert.equal(
+    sentCommands.filter(({ method }) => method === "Input.dispatchMouseEvent")
+      .length,
+    6,
+  );
+  assert.equal(probe.readings.at(-1).disarm, true);
+});
+
+test("CdpSession click never resends when page listeners could have hidden the click", async () => {
+  const probe = inputProbe({ dropped: Infinity, conclusive: false });
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: probe.input_probe,
+  });
+
+  await assert.rejects(session.click("button.cta"), {
+    code: "INPUT_NOT_DELIVERED",
+    message:
+      /^The click on "button\.cta" was sent, but no input events reached the page, so it most likely had no effect\. It was not sent again/,
+  });
+  assert.equal(sentCommands.length, 3);
+  assert.equal(probe.readings.at(-1).disarm, true);
+});
+
+test("CdpSession click does not resend a click that arrived while bringing the tab to the front", async () => {
+  const probe = inputProbe({ dropped: 3 });
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: probe.input_probe,
+  });
+
+  const result = await session.click("button.cta");
+
+  assert.equal(result.resent, undefined);
+  assert.deepEqual(
+    sentCommands.map(({ method, params }) => params?.type ?? method),
+    ["mouseMoved", "mousePressed", "mouseReleased", "Page.bringToFront"],
+  );
+});
+
+test("CdpSession click removes the probe when sending the click fails", async () => {
+  const probe = inputProbe();
+  const { session } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: probe.input_probe,
+  });
+  session.send = async () => {
+    throw new Error("CDP session target-1 is not connected");
+  };
+
+  await assert.rejects(session.click("button.cta"), /not connected/);
+  assert.deepEqual(
+    probe.readings.map(({ disarm }) => disarm),
+    [true],
+  );
+});
+
+test("CdpSession click succeeds when the page navigated before the probe was read", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: () => ({ armed: false, delivered: false, conclusive: false }),
+  });
+
+  const result = await session.click("a.next");
+
+  assert.equal(result.clicked, true);
+  assert.equal(result.node.tagName, "BUTTON");
+  assert.equal(sentCommands.length, 3);
+});
+
+test("CdpSession pressKey reports an error when the key never reaches the page", async () => {
+  const probe = inputProbe({ dropped: Infinity });
+  let armed = null;
+  const { session } = createInputSession({
+    focus: (payload) => {
+      armed = payload.inputProbe;
+      return { found: true, target: null };
+    },
+    input_probe: probe.input_probe,
+  });
+
+  await assert.rejects(session.pressKey("Space", "#email"), {
+    code: "INPUT_NOT_DELIVERED",
+    message: /^The key press "Space" was sent twice/,
+  });
+  assert.equal(probe.readings[0].token, armed);
+});
+
+test("CdpSession type resends text the page never received", async () => {
+  const probe = inputProbe({ dropped: 4, node: { value: "demo" } });
+  const { session, sentCommands, runActions } = createInputSession({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    input_probe: probe.input_probe,
+  });
+
+  const result = await session.type("#user", "demo");
+
+  assert.equal(result.resent, true);
+  assert.equal(result.node.value, "demo");
+  assert.ok(!runActions.includes("inspect"));
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    ["Input.insertText", "Page.bringToFront", "Input.insertText"],
+  );
+});
+
+test("CdpSession type skips the delivery check when it sends nothing", async () => {
+  const probe = inputProbe({ dropped: Infinity });
+  const { session, sentCommands } = createInputSession({
+    prepare_type: () => ({ found: true, method: "native", node: {} }),
+    input_probe: probe.input_probe,
+    inspect: () => ({ found: true, node: { value: "kept" } }),
+  });
+
+  const result = await session.type("#user", "", { clear: false });
+
+  assert.equal(result.node.value, "kept");
+  assert.equal(sentCommands.length, 0);
+  assert.deepEqual(
+    probe.readings.map(({ disarm }) => disarm),
+    [true],
+  );
+});
+
 test("CdpSession type inserts text through the browser editing pipeline", async () => {
   const { session, sentCommands, runActions } = createInputSession({
     prepare_type: () => ({ found: true, method: "native", node: {} }),
@@ -476,7 +694,7 @@ test("CdpSession type inserts text through the browser editing pipeline", async 
 
   const result = await session.type("#field", "hello");
 
-  assert.deepEqual(runActions, ["prepare_type", "inspect"]);
+  assert.deepEqual(runActions, ["prepare_type", "input_probe", "inspect"]);
   assert.deepEqual(sentCommands, [
     { method: "Input.insertText", params: { text: "hello" } },
   ]);

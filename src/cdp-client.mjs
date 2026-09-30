@@ -8,9 +8,11 @@ import { waitForPageCondition } from "./wait-for.mjs";
 import {
   assertEnabled,
   assertPointerTarget,
+  buildInputRecorderExpression,
   buildPageContextExpression,
 } from "./page-context.mjs";
 import { buildCdpKeyEvents } from "./keyboard.mjs";
+import { sendCheckedInput } from "./input-delivery.mjs";
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -466,6 +468,7 @@ export class CdpSession {
       this.send("Network.enable"),
     ]);
 
+    await this.installInputRecorder();
     await this.seedBufferedState();
 
     return this.getSummary();
@@ -894,13 +897,34 @@ export class CdpSession {
     });
   }
 
-  async resolvePointerTarget(selector) {
+  async resolvePointerTarget(selector, options = {}) {
     const target = await this.runPageAction({
       action: "pointer_target",
       selector,
+      ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
     });
     assertPointerTarget(target);
     return target;
+  }
+
+  async readInputProbe(token, disarm) {
+    try {
+      const probe = await this.runPageAction({
+        action: "input_probe",
+        token,
+        disarm,
+      });
+      return probe.armed ? probe : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async dispatchClick(point) {
+    const press = { button: "left", clickCount: 1 };
+    await this.dispatchMouse("mouseMoved", point);
+    await this.dispatchMouse("mousePressed", point, { ...press, buttons: 1 });
+    await this.dispatchMouse("mouseReleased", point, { ...press, buttons: 0 });
   }
 
   async dispatchMouse(type, point, extra = {}) {
@@ -919,21 +943,20 @@ export class CdpSession {
   }
 
   async click(selector) {
-    const target = await this.resolvePointerTarget(selector);
+    const token = crypto.randomUUID();
+    const target = await this.resolvePointerTarget(selector, {
+      inputProbe: token,
+    });
     if (!target.found) {
       return target;
     }
     assertEnabled(target);
 
-    const press = { button: "left", clickCount: 1 };
-    await this.dispatchMouse("mouseMoved", target.point);
-    await this.dispatchMouse("mousePressed", target.point, {
-      ...press,
-      buttons: 1,
-    });
-    await this.dispatchMouse("mouseReleased", target.point, {
-      ...press,
-      buttons: 0,
+    const delivery = await sendCheckedInput({
+      send: () => this.dispatchClick(target.point),
+      readProbe: (disarm) => this.readInputProbe(token, disarm),
+      recover: () => this.bringToFront(),
+      describe: `The click on "${selector}"`,
     });
 
     return {
@@ -941,9 +964,16 @@ export class CdpSession {
       selector,
       found: true,
       clicked: true,
+      ...(delivery.resent ? { resent: true } : {}),
       point: target.point,
-      node: target.node,
+      node: delivery.node ?? target.node,
     };
+  }
+
+  // Bringing the tab to the front makes Chrome render it again, which is
+  // the one recovery tried before resending input the page never received.
+  async bringToFront() {
+    await this.send("Page.bringToFront").catch(() => {});
   }
 
   async hover(selector) {
@@ -965,12 +995,14 @@ export class CdpSession {
   }
 
   async type(selector, text, options = {}) {
+    const token = crypto.randomUUID();
     const prepared = await this.runPageAction(
       {
         action: "prepare_type",
         selector,
         text,
         clear: options.clear,
+        inputProbe: token,
       },
       { userGesture: true },
     );
@@ -982,32 +1014,51 @@ export class CdpSession {
     // see trusted beforeinput/input events and the real value change.
     // Newlines become Enter presses, matching the Firefox path: a line break
     // in a textarea, implicit submission in a single-line input.
-    if (text) {
-      const lines = text.replace(/\r\n?/g, "\n").split("\n");
-      for (const [index, line] of lines.entries()) {
-        if (index > 0) {
-          await this.dispatchKeyEvents(buildCdpKeyEvents("Enter"));
+    const sendText = async () => {
+      if (text) {
+        const lines = text.replace(/\r\n?/g, "\n").split("\n");
+        for (const [index, line] of lines.entries()) {
+          if (index > 0) {
+            await this.dispatchKeyEvents(buildCdpKeyEvents("Enter"));
+          }
+          if (line) {
+            await this.send("Input.insertText", { text: line });
+          }
         }
-        if (line) {
-          await this.send("Input.insertText", { text: line });
-        }
+      } else if (options.clear !== false) {
+        await this.dispatchKeyEvents(buildCdpKeyEvents("Delete"));
       }
-    } else if (options.clear !== false) {
-      await this.dispatchKeyEvents(buildCdpKeyEvents("Delete"));
+    };
+
+    let delivery = { node: null, resent: false };
+    if (text || options.clear !== false) {
+      delivery = await sendCheckedInput({
+        send: sendText,
+        readProbe: (disarm) => this.readInputProbe(token, disarm),
+        recover: () => this.bringToFront(),
+        describe: `The text for "${selector}"`,
+      });
+    } else {
+      await this.readInputProbe(token, true);
     }
 
-    const typed = await this.runPageAction({
-      action: "inspect",
-      selector,
-      scrollIntoView: false,
-    });
+    let node = delivery.node;
+    if (!node) {
+      const typed = await this.runPageAction({
+        action: "inspect",
+        selector,
+        scrollIntoView: false,
+      });
+      node = typed.found ? typed.node : prepared.node;
+    }
 
     return {
       browserFamily: cdpBrowserFamily(this.config),
       selector,
       found: true,
       typedText: text,
-      node: typed.found ? typed.node : prepared.node,
+      ...(delivery.resent ? { resent: true } : {}),
+      node,
     };
   }
 
@@ -1025,10 +1076,12 @@ export class CdpSession {
 
   async pressKey(key, selector = null) {
     const events = buildCdpKeyEvents(key);
+    const token = crypto.randomUUID();
     const focused = await this.runPageAction(
       {
         action: "focus",
         selector,
+        inputProbe: token,
       },
       { userGesture: true },
     );
@@ -1036,12 +1089,18 @@ export class CdpSession {
       return focused;
     }
 
-    await this.dispatchKeyEvents(events);
+    const delivery = await sendCheckedInput({
+      send: () => this.dispatchKeyEvents(events),
+      readProbe: (disarm) => this.readInputProbe(token, disarm),
+      recover: () => this.bringToFront(),
+      describe: `The key press "${key}"`,
+    });
 
     return {
       browserFamily: cdpBrowserFamily(this.config),
       key,
       dispatched: true,
+      ...(delivery.resent ? { resent: true } : {}),
       target: focused.target,
     };
   }
@@ -1151,6 +1210,23 @@ export class CdpSession {
       viewport: this.viewportOverride,
       page: await this.getPageState(),
     };
+  }
+
+  // Counts trusted input from the start of every later document, and from
+  // now on in the current one, so input actions can check that their input
+  // arrived. Without it they are reported as sent, unchecked.
+  async installInputRecorder() {
+    try {
+      await this.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: buildInputRecorderExpression(true),
+      });
+      await this.evaluateRuntime(buildInputRecorderExpression(false), {
+        awaitPromise: false,
+        replMode: false,
+      });
+    } catch {
+      // Ignore recorder failures so attach still succeeds.
+    }
   }
 
   async seedBufferedState() {
