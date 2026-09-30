@@ -124,7 +124,7 @@ xychart-beta
 
 1. **About 4k fewer input tokens per turn.** `research` took 4 turns on both builds, and its input fell from 85.5k to 69.0k tokens (19%). Across all 24 runs, the median input per turn fell from 18.3k to 15.7k tokens; that figure mixes in the runs' different turn counts.
 2. **The agent works the same way.** Every `signup` and `settings-login` run still batched its form with `run_steps`, and every `research` run used one `run_tabs` call. On v0.2.0 alone, `signup` took 5–7 turns, `payment-retry` 10–13, and `settings-login` 7–10, and every run on the new build falls in those ranges except one. The 7-turn `signup` runs, which read the page with `read_text` twice, occur on both builds.
-3. **One `settings-login` run took 15 turns because clicks did nothing.** Its transcript, which the benchmark saves outside the repository, shows its clicks on the two checkboxes and on Save reporting success while the checkboxes kept their state and no save request was sent, until the agent used JavaScript `click()` and `requestSubmit()`. The calls used the same selectors as the passing runs, so the likely cause is the clicks not reaching the page rather than the definitions, though that is not confirmed. It matches the unexplained GPT-6-Astra `settings-login` runs in the model comparison, and is not solved yet.
+3. **One `settings-login` run took 15 turns because Chrome dropped its input.** Its clicks on the two checkboxes and on Save reported success while the checkboxes kept their state and no save request was sent, until the agent used JavaScript `click()` and `requestSubmit()`. The two GPT-6-Astra `settings-login` runs in the model comparison whose Save did nothing show the same thing. In all three, the clicks, and in one Astra run a `press_key` fallback, did nothing while JavaScript in the same page kept working, and every click returned in 1–4 ms, where the later clicks of passing runs took 14–18 ms: after the login redirect, Chrome acknowledged mouse and keyboard events to the tab without delivering them. What puts a tab in that state is still unknown. About 50 scripted runs of the login flow against the benchmark's headless Chrome, 28 of them replaying the failing run's calls through the server with varied timing, and 9 new GPT-6-Astra runs did not reproduce it; CDP's `Input.setIgnoreInputEvents` produces the same symptom, and the fix is tested with it. Since `aaf8b5b`, `click`, `type`, and `press_key` check that their input reached the page, and send it once more or fail with an error instead of reporting success. 6 more `settings-login` runs on that build (in [Full results](#full-results)) all passed in 7–9 turns; none of them hit the dropped input, so they show no regression rather than the fix at work.
 4. **Cost per task did not measurably change at 3 runs per scenario** ($0.92 against $0.97 for 12 runs each), because turn counts vary more than the per-turn saving. The saving shows most on long tasks, where every turn carries the definitions again, and in clients with a small context window.
 
 ## Results by build
@@ -355,5 +355,14 @@ GPT costs are estimates; see [Method](#method).
 | `7e08336` | `payment-retry`  | 3/3 | 19.2 s (14.2 s–38.7 s) | 10 (10–12) | 9 (9–11)   | 2.0 s (1.5 s–4.7 s) | 13.6k (6.9k–13.6k)  | 128.1k (128.0k–160.5k) | 1.1k (1.1k–1.2k) | $0.070 ($0.070–$0.071) |
 | `7e08336` | `settings-login` | 3/3 | 17.6 s (17.2 s–41.3 s) | 9 (9–15)   | 8 (8–14)   | 0.7 s (0.7 s–6.5 s) | 40.2k (36.9k–61.0k) | 150.7k (149.0k–350.0k) | 1.4k (1.4k–2.7k) | $0.101 ($0.097–$0.176) |
 | `7e08336` | `research`       | 3/3 | 8.8 s (8.8 s–11.0 s)   | 4          | 3          | 1.6 s (1.6 s–1.7 s) | 10.7k (10.7k–10.7k) | 69.0k (68.9k–69.1k)    | 0.5k (0.5k–0.6k) | $0.046 ($0.046–$0.046) |
+
+</details>
+
+<details>
+<summary>Input delivery check: Sonnet 5.5, medium effort, <code>batch</code> mode, <code>settings-login</code> on <code>aaf8b5b</code> (6 runs, $0.68)</summary>
+
+| Build     | Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| --------- | ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `aaf8b5b` | `settings-login` | 6/6 | 15.9 s (13.6 s–20.7 s) | 9 (7–9) | 8 (6–8)    | 0.7 s (0.7 s–2.8 s) | 39.1k (22.8k–65.7k) | 164.3k (125.6k–194.9k) | 1.4k (1.1k–1.6k) | $0.109 ($0.089–$0.151) |
 
 </details>
