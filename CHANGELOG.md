@@ -8,6 +8,11 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-01
+
+This release makes `click`, `type`, and `press_key` fail with an error
+instead of reporting success when the browser never delivers their input.
+
 ### Fixed
 
 - `click`, `type`, and `press_key` no longer report success for input the browser dropped. In the benchmark, Chrome sometimes acknowledged every click and key press to a tab after a login redirect without delivering any of them, so clicks on checkboxes and a Save button returned `clicked: true` while nothing changed. The server now counts trusted input events in each page from the start of the document, and the tools check that their input arrived; if it did not, they bring the tab to the front (Chromium) and send it once more, reporting `resent: true`, and otherwise fail with an error that says the input had no effect. On a page already loaded when the tab was attached, where page listeners could hide input from the count, a failure is reported without sending the input again
