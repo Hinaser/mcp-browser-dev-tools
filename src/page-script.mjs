@@ -892,8 +892,113 @@ export function pageScript(payload) {
     return Boolean(label && label.control === element);
   }
 
+  // Whether the page renders the element at all. innerText falls back to the
+  // raw text content for an element inside display: none, which the page
+  // does not show; unlike isVisible, size and pointer events do not matter.
+  function isRendered(element) {
+    for (let node = element; node; node = node.parentElement) {
+      if (getComputedStyle(node).display === "none") {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Rendered and not hidden by visibility, for choosing the main content and
+  // links; computed visibility already reflects hidden ancestors.
+  function isShown(element) {
+    const visibility = getComputedStyle(element).visibility;
+    return (
+      isRendered(element) &&
+      visibility !== "hidden" &&
+      visibility !== "collapse"
+    );
+  }
+
+  // Readable text of one element, or of the page's main content: main or
+  // role=main, else a single article, else the body. Lines keep their
+  // breaks with runs of spaces and blank lines collapsed.
+  function readText() {
+    let root;
+    let source;
+    if (payload.selector) {
+      const resolved = ensureResolved(payload.selector);
+      if (!resolved.element) {
+        return resolved;
+      }
+      root = resolved.element;
+      source = "selector";
+    } else {
+      const main = [...document.querySelectorAll("main, [role=main]")].find(
+        isShown,
+      );
+      const articles = [...document.querySelectorAll("article")].filter(
+        isShown,
+      );
+      if (main) {
+        root = main;
+        source = "main";
+      } else if (articles.length === 1) {
+        root = articles[0];
+        source = "article";
+      } else {
+        root = document.body ?? document.documentElement;
+        source = "body";
+      }
+    }
+
+    const shown = source !== "selector" || isRendered(root);
+    const raw = !shown
+      ? ""
+      : typeof root.innerText === "string"
+        ? root.innerText
+        : root.textContent;
+    const text = (raw ?? "")
+      .split("\n")
+      .map((line) => line.replace(/[ \t\u00a0]+/g, " ").trim())
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    const result = {
+      browserFamily: payload.browserFamily,
+      url: location.href,
+      title: document.title,
+      source,
+      ...(payload.selector
+        ? { selector: payload.selector, found: true, visible: shown }
+        : {}),
+      text: text.slice(0, payload.maxChars),
+      totalChars: text.length,
+      truncated: text.length > payload.maxChars,
+    };
+
+    if (payload.links) {
+      const seen = new Set();
+      const links = [];
+      for (const anchor of root.querySelectorAll("a[href]")) {
+        const href = anchor.href;
+        if (!/^https?:/i.test(href) || seen.has(href) || !isShown(anchor)) {
+          continue;
+        }
+        seen.add(href);
+        links.push({
+          text: normalizeText(
+            anchor.innerText || anchor.getAttribute("aria-label") || "",
+          ),
+          href,
+        });
+      }
+      result.links = links.slice(0, payload.maxLinks);
+      result.moreLinks = Math.max(0, links.length - payload.maxLinks);
+    }
+
+    return result;
+  }
+
   function runAction() {
     switch (payload.action) {
+      case "read_text":
+        return readText();
       case "controls_snapshot":
         return {
           browserFamily: payload.browserFamily,

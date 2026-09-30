@@ -1,6 +1,6 @@
 # Tools
 
-The server exposes 36 tools. Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server exposes 38 tools. Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
 
 ## Tool List
 
@@ -19,8 +19,10 @@ The server exposes 36 tools. Tools that take `sessionId` work on a tab attached 
 |                     | `scroll`, `set_viewport`                                     | Scroll the page or an element into view; override the viewport size.                                                                  |
 | Wait and batch      | `wait_for`                                                   | Waits for selector state, element text, URL, ready state, or a JavaScript expression, or for the first of several outcomes (`anyOf`). |
 |                     | `run_steps`                                                  | Runs up to 50 steps in one call, with `sleep`, `if`/`elseIf`/`else`, and `repeat … until`.                                            |
+|                     | `run_tabs`                                                   | Runs step lists in up to 8 tabs at once, opening tabs for URLs, and returns every tab's results together.                             |
 | Inspect             | `get_page_state`                                             | URL, title, ready state, viewport, and scroll position.                                                                               |
 |                     | `get_document`, `inspect_element`                            | The DOM tree, or one element's box, visibility, role, accessible name, and styles.                                                    |
+|                     | `read_text`                                                  | The readable text of the page's main content or one element, and optionally its links.                                                |
 |                     | `take_screenshot`                                            | The page or one element, as base64, an image block, or a file.                                                                        |
 |                     | `evaluate_js`                                                | Runs JavaScript in the page (on by default; `MCP_BROWSER_ENABLE_EVAL=0` removes it).                                                  |
 | Console and network | `get_console_messages`, `get_network_requests`, `get_events` | Buffered console messages, network requests (including ones the page made before it was attached), and events.                        |
@@ -146,6 +148,44 @@ It runs `steps`, then checks `until` once without waiting, and runs the steps ag
 A condition can also give `expression`, JavaScript evaluated in the page's main world, which holds when its result is truthy; a returned promise is awaited first. For example, `{ "expression": "document.querySelectorAll('.row').length >= 20" }` waits for a list to fill, and `{ "expression": "window.appReady === true" }` waits for an app's own readiness flag. An expression that throws fails the wait or step at once with the error instead of waiting out the timeout, so use optional chaining (`?.`) where an element may not exist yet. Each evaluation must settle within the wait's remaining time, or within 5000ms in `if` and `repeat`. Like `evaluate_js`, `expression` is removed from every condition when `MCP_BROWSER_ENABLE_EVAL=0`.
 
 Text conditions compare the element's full visible text with whitespace collapsed; `textExcludes` never holds for a missing element. The text reported back in results is clipped to 400 characters.
+
+## Several Tabs At Once
+
+`run_tabs` runs step lists in several tabs at the same time and returns every tab's results in one reply. Reading five pages then takes about as long as the slowest one, in one call:
+
+```json
+{
+  "tabs": [
+    {
+      "url": "https://example.com/a",
+      "steps": [{ "tool": "read_text", "arguments": { "maxChars": 4000 } }]
+    },
+    {
+      "url": "https://example.com/b",
+      "steps": [{ "tool": "read_text", "arguments": { "maxChars": 4000 } }]
+    },
+    {
+      "sessionId": "chromium:1f0c…",
+      "steps": [
+        { "tool": "take_screenshot", "arguments": { "output": "image" } }
+      ]
+    }
+  ]
+}
+```
+
+- A tab with `url` opens a new tab, attaches to it, loads the URL (`waitUntil`, default `complete`), and runs its steps. A tab with `sessionId` runs its steps in that attached tab; each session can appear once.
+- Steps are the same as in `run_steps`, including `if` and `repeat`, at most 50 per tab. Every tab's steps are validated before any tab opens.
+- Tabs run 4 at a time by default (`concurrency`, at most 8 tabs in all). Each tab has `timeoutMs` (default 60000) from opening to its last step. A tab that times out starts no more steps (a running `sleep` ends at once), a tab opened for it is closed, and the call waits for the step in progress to end; its result reports the steps that ran. A tab that fails or times out does not stop the others, and a failed tab reports the page's controls as in `run_steps`.
+- Tabs opened for a `url` are closed afterwards, and each result's `closed` says whether that worked (with `closeError` if not). With `keepTabs`, they stay open and attached, and each result reports its `sessionId`.
+- In `auto` browser mode, give `browserFamily` for the tabs opened by URL, as with `new_tab`.
+- The results list the tabs in the order given, each with `ok`, its step results, and `durationMs`; screenshots from any tab come back as numbered image content.
+
+Tabs in the background of a visible browser can run timers late and pause rendering. Loading, reading text, and waiting work there; for screenshots or lazy-loaded content, keep the tab in view or use a headless browser.
+
+## Reading Page Text
+
+`read_text` returns the visible text of the page's main content as plain lines, with runs of spaces and blank lines collapsed. It reads the first visible `main` or `[role=main]`, else the only visible `article`, else the body; `source` says which. With `selector`, it reads that element instead, and returns no text if the element is hidden (`visible: false`). `maxChars` caps the text (default 8000, at most 100000), and `totalChars` and `truncated` tell whether there was more. With `links: true`, it also lists the http(s) links inside, with their text and absolute URL, deduplicated, up to `maxLinks` (default 50, at most 200); use it to collect search results before opening them with `run_tabs`.
 
 ## Session State And Network
 

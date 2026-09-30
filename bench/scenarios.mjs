@@ -82,13 +82,46 @@ export const SCENARIOS = [
       return { ok: true, detail: `saves=${revision}` };
     },
   },
+  {
+    id: "research",
+    title: "Read five slow pages from a results list",
+    path: "/research",
+    tabs: true,
+    summary:
+      "A results page lists five articles; each takes 1.5 s to load and states a random release codename near its end. The agent has to open every article and report the five codenames in the listed order.",
+    task: "The results page lists five component overviews. Find the current release codename of each component. Reply with only the five codenames, in the order the results are listed, separated by commas.",
+    check({ state, reply }) {
+      const { codenames, opened } = state.research;
+      const positions = codenames.map((codename) => reply.indexOf(codename));
+      const found = positions.filter((position) => position >= 0).length;
+      if (found < codenames.length) {
+        return {
+          ok: false,
+          detail: `reply has ${found} of ${codenames.length} codenames`,
+        };
+      }
+      if (
+        positions.some((position, i) => i > 0 && position < positions[i - 1])
+      ) {
+        return { ok: false, detail: "codenames are out of order" };
+      }
+      return { ok: true, detail: `articles opened=${opened.length}` };
+    },
+  },
 ];
 
 export function scenarioPrompt(scenario, { url, targetId, hint }) {
   return [
     `A Chrome tab is already open at ${url} (target id ${targetId}).`,
-    "Use the browser tools to attach to that tab and complete the task there. Do not open other tabs.",
+    scenario.tabs
+      ? "Use the browser tools to attach to that tab and start there. You may open other tabs."
+      : "Use the browser tools to attach to that tab and complete the task there. Do not open other tabs.",
     ...(hint ? [hint] : []),
+    ...(hint && scenario.tabs
+      ? [
+          "To read several pages, prefer the run_tabs tool, which works in several tabs at once.",
+        ]
+      : []),
     "",
     `Task: ${scenario.task}`,
   ].join("\n");

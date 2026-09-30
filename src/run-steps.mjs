@@ -3,9 +3,18 @@ import { checkPageCondition, normalizeWaitForOptions } from "./wait-for.mjs";
 import { asImageToolResult, moveScreenshotImage } from "./tool-results.mjs";
 import { conditionSchema } from "./tool-schemas.mjs";
 
-function sleep(ms) {
+// Resolves after ms, or at once when signal aborts.
+function sleep(ms, signal) {
   return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }
 
@@ -311,6 +320,10 @@ export class StepRunner {
     });
     for (let pass = 1; pass <= step.max; pass += 1) {
       const steps = await this.executeSteps(step.steps, context);
+      if (context.signal?.aborted) {
+        runs.push({ pass, steps });
+        return finish(false, false, { error: "stopped: the tab timed out" });
+      }
       if (!steps.every((result) => result.ok)) {
         runs.push({ pass, steps });
         return finish(false, false);
@@ -378,10 +391,14 @@ export class StepRunner {
 
     let result;
     if (step.tool === "sleep") {
-      await sleep(step.args.ms);
+      await sleep(step.args.ms, context.signal);
       result = { sleptMs: step.args.ms };
     } else {
-      result = await this.getTools().get(step.tool).handler(step.args);
+      // run_tabs prepares steps before it opens their tab, so the session
+      // comes from the context rather than the prepared arguments.
+      result = await this.getTools()
+        .get(step.tool)
+        .handler({ ...step.args, sessionId: context.sessionId });
     }
 
     const entry = {
@@ -402,6 +419,10 @@ export class StepRunner {
   async executeSteps(steps, context) {
     const results = [];
     for (const [index, step] of steps.entries()) {
+      // run_tabs aborts the signal when a tab times out; start nothing more.
+      if (context.signal?.aborted) {
+        break;
+      }
       const startedAt = Date.now();
       let entry;
       try {

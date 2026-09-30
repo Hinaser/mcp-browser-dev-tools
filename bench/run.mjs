@@ -27,9 +27,16 @@ import { SCENARIOS, scenarioPrompt } from "./scenarios.mjs";
 const REPO_ROOT = new URL("../", import.meta.url);
 const SERVER_NAME = "browser";
 const MODES = {
-  // Only single-action tools: every check needs its own round trip.
-  single: { args: ["--disallowedTools", `mcp__${SERVER_NAME}__run_steps`] },
-  // run_steps is available; the prompt does not ask for it.
+  // Only single-action tools: every check needs its own round trip, and
+  // every tab its own calls.
+  single: {
+    args: [
+      "--disallowedTools",
+      `mcp__${SERVER_NAME}__run_steps`,
+      `mcp__${SERVER_NAME}__run_tabs`,
+    ],
+  },
+  // run_steps and run_tabs are available; the prompt does not ask for them.
   batch: { args: [] },
   // run_steps is available and the prompt asks the agent to prefer it.
   "batch-hinted": {

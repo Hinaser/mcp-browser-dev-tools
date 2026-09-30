@@ -705,3 +705,29 @@ test("CdpSession evaluate releases exception objects too", async () => {
     ["promise-1", "error-1"],
   );
 });
+
+test("closing a tab while navigate waits does not leave an unhandled rejection", async () => {
+  const { session } = createEvaluateSession({});
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  let rejectNavigate;
+  session.send = (method) =>
+    method === "Page.navigate"
+      ? new Promise((_, reject) => {
+          rejectNavigate = reject;
+        })
+      : Promise.resolve({});
+
+  const navigation = session.navigate("https://example.com/", {
+    waitUntil: "complete",
+  });
+  // The tab closes: pending commands and event waiters are rejected.
+  session.markClosed();
+  rejectNavigate(new Error("CDP session closed"));
+
+  await assert.rejects(navigation, /CDP session closed/);
+  await new Promise((resolve) => setImmediate(resolve));
+  process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
+});
