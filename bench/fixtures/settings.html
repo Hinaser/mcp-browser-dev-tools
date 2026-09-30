@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Settings</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 40px;
+      }
+      label {
+        display: block;
+        margin: 12px 0;
+      }
+      #toast {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        padding: 12px;
+        background: #222;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Settings</h1>
+    <p id="loading">Loading…</p>
+    <form id="settings" hidden>
+      <label><input type="checkbox" name="email" /> Email notifications</label>
+      <label><input type="checkbox" name="digest" /> Weekly digest</label>
+      <label
+        >Language
+        <select name="language">
+          <option value="en">English</option>
+          <option value="ja">Japanese</option>
+          <option value="fr">French</option>
+        </select>
+      </label>
+      <button type="submit">Save changes</button>
+    </form>
+    <p id="revision"></p>
+    <div id="toast" role="status" hidden></div>
+    <script>
+      const run = new URLSearchParams(location.search).get("run");
+      const form = document.getElementById("settings");
+      const toast = document.getElementById("toast");
+      const revision = document.getElementById("revision");
+
+      async function load() {
+        const response = await fetch(`/api/session?run=${run}`);
+        const session = await response.json();
+        if (!session.signedIn) {
+          location.replace(`/login?run=${run}&next=/app/settings`);
+          return;
+        }
+
+        form.email.checked = session.settings.email;
+        form.digest.checked = session.settings.digest;
+        form.language.value = session.settings.language;
+        revision.textContent = `Settings revision: ${session.revision}`;
+        document.getElementById("loading").remove();
+        form.hidden = false;
+      }
+
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const button = form.querySelector("button");
+        button.disabled = true;
+        button.textContent = "Saving…";
+        const response = await fetch(`/api/settings?run=${run}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: form.email.checked,
+            digest: form.digest.checked,
+            language: form.language.value,
+          }),
+        });
+        const result = await response.json();
+        button.disabled = false;
+        button.textContent = "Save changes";
+        revision.textContent = `Settings revision: ${result.revision}`;
+        // The confirmation only shows briefly, like most toasts.
+        toast.textContent = `Settings saved (revision ${result.revision})`;
+        toast.hidden = false;
+        setTimeout(() => {
+          toast.hidden = true;
+        }, 2500);
+      };
+
+      load();
+    </script>
+  </body>
+</html>

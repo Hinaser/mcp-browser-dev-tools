@@ -31,7 +31,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 
 - Keep browser endpoints loopback-only by default.
 - Do not allow non-loopback `open --address` unless `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1`.
-- Keep arbitrary page evaluation behind `MCP_BROWSER_ENABLE_EVAL`.
+- `evaluate_js` is on by default; keep `MCP_BROWSER_ENABLE_EVAL=0` working as the way to turn it off.
 - Keep inbound JSON-RPC/stdin message size bounded.
 - Prefer trusted publishing over long-lived npm tokens.
 - Keep `package-lock.json` out of the repo; `pnpm-lock.yaml` is the canonical lockfile.
@@ -47,6 +47,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 
 - Public docs: `README.md`, `CHANGELOG.md`, `docs/architecture.md`, `docs/setup.md`, `docs/repository-settings.md`, `PUBLISHING.md`
 - Maintainer scripts: `scripts/`
+- Benchmark: `bench/` (scenarios, fixture pages, runner) with results and method in `PERFORMANCE.md`; raw results in `bench/results/` stay uncommitted
 - Runtime source: `src/`
 - GitHub automation: `.github/workflows/`
 - Repo ruleset definitions: `.github/rulesets/`

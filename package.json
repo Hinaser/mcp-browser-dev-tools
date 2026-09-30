@@ -1,6 +1,6 @@
 {
   "name": "mcp-browser-dev-tools",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "description": "Local MCP server for Chromium DevTools Protocol and Firefox WebDriver BiDi",
   "author": "Hinaser <rindo.hinase@gmail.com>",
   "license": "MIT",
@@ -75,6 +75,8 @@
     "check": "node --run lint && node --run format:check && node --run test",
     "prepare": "husky",
     "pack:check": "node scripts/pack-check.mjs",
+    "bench": "node bench/run.mjs",
+    "bench:summary": "node bench/summarize.mjs",
     "prepublishOnly": "node --run check",
     "test": "node --test"
   },

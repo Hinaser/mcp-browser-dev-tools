@@ -16,9 +16,10 @@ It is designed for a local trust boundary:
 - Tab lifecycle tools to create and close browser tabs through MCP
 - Inspection tools for DOM lookup, richer element details, cookies, storage, console messages, network requests, HAR-like exports, screenshots, tab listing, and buffered events
 - Page interaction tools for navigation, reload, click, hover, type, select, key presses, scroll, and viewport overrides
-- Wait conditions for selector visibility, URL changes, and document ready state
+- Wait conditions for selector visibility, element text, URL changes, and document ready state
+- Batched steps that run several actions and checks in one call, with `if`/`else` branches on the page state
 - One-shot debug bundle capture for page state, storage summary, recent console, recent network, and screenshots
-- Optional JavaScript evaluation behind an explicit environment flag
+- JavaScript evaluation in the page, on by default and removable with an environment flag
 - Helper commands to check browser connectivity, launch a debug-enabled browser, and relay CDP traffic across a local machine boundary
 
 ## Requirements
@@ -208,11 +209,11 @@ Manual Windows browser relay into WSL:
 
 If you only want a single CDP browser, switch `MCP_BROWSER_FAMILY` back to `chromium` or `edge` and omit `FIREFOX_BIDI_WS_URL`.
 
-Enable `evaluate_js`:
+Disable `evaluate_js`:
 
 ```json
 {
-  "MCP_BROWSER_ENABLE_EVAL": "1"
+  "MCP_BROWSER_ENABLE_EVAL": "0"
 }
 ```
 
@@ -236,7 +237,8 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
-- `MCP_BROWSER_ENABLE_EVAL=1` enables `evaluate_js`
+- `MCP_BROWSER_TIMING_LOG` names a file that gets one JSON line per tool call with the tool name, duration, success, and response size (text characters and image count); the benchmark in `PERFORMANCE.md` uses it
+- `MCP_BROWSER_ENABLE_EVAL=0` (or `false`) disables `evaluate_js`, which is enabled by default
 - `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1` exposes the `unsafeArgs` launch option on `launch_browser` and `ensure_browser`
 - `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1` allows non-loopback CDP or BiDi endpoints
 - `MCP_BROWSER_ALLOW_REMOTE_CDP=1` is still accepted as a legacy alias
@@ -292,10 +294,11 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `inspect_element`
 - `take_screenshot`
 - `get_events`
+- `run_steps`
 
-`evaluate_js` is intentionally disabled by default. Enable it only when you want the broker to allow page-side code execution.
+`evaluate_js` is enabled by default, as page evaluation is in most browser MCP servers. Set `MCP_BROWSER_ENABLE_EVAL=0` to remove it from the tool list. Treat that as a way to narrow the tool surface, not as a security boundary: the other tools already read page content, cookies, and storage and can navigate anywhere, and any local process that reaches the debugging port can evaluate code through the browser protocol directly. To control page-side code execution per call, use your MCP client's tool permissions.
 
-Unsafe browser launch flags are also disabled by default. If you enable `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`, pass only full flag strings such as `--remote-allow-origins=http://localhost:9222`. This does not enable `evaluate_js`, and it still does not let callers replace broker-managed launch flags like `--remote-debugging-port` or `--user-data-dir`.
+Unsafe browser launch flags are also disabled by default. If you enable `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=1`, pass only full flag strings such as `--remote-allow-origins=http://localhost:9222`. It still does not let callers replace broker-managed launch flags like `--remote-debugging-port` or `--user-data-dir`.
 
 For tools that take `sessionId`, call `attach_tab` first and reuse the returned session.
 
@@ -313,6 +316,50 @@ Interaction and inspection tools accept these locator forms:
 ### Screenshot Output
 
 `take_screenshot` returns base64 image data plus metadata such as `mimeType`, `byteLength`, and `scope`. Pass `selector` to capture a single element instead of the full page.
+
+`output` changes how the image comes back. `image` returns an MCP image content block, with only the metadata in the JSON. `file` writes the decoded image to a file and returns its `path` instead of base64 data; passing `path` implies `file`. `path` must be absolute and end in `.png`, `.jpg`, `.jpeg`, or `.webp` (not `.webp` on Firefox), which also sets the format; missing parent directories are created. An existing file is only replaced with `overwrite: true`, and a symlink at `path` is replaced rather than written through. Without `path`, the image goes to a new private directory under the system temp directory. Files are created readable only by the current user. Without `output` or `path`, `take_screenshot` returns base64 data as before.
+
+### Batched Steps
+
+`run_steps` runs several session tools in order in one call, so an action and the check of its result take one round trip instead of several:
+
+```json
+{
+  "sessionId": "chromium:session-1",
+  "steps": [
+    { "tool": "click", "arguments": { "selector": "text=Save" } },
+    { "tool": "sleep", "arguments": { "ms": 300 } },
+    { "tool": "take_screenshot" }
+  ]
+}
+```
+
+Any tool that takes `sessionId` can be a step, with its arguments minus `sessionId`, plus `sleep` (`ms`, at most 30000). Up to 50 steps are validated before any of them runs. A step fails when its tool throws or reports `found: false` for a missing element (`inspect_element` excepted, since it may be checking that an element is gone). The call stops at the first failing step unless `continueOnError` is true, and reports each step's result or error. Screenshots come back as image content blocks instead of base64 text; the step result keeps the metadata and an `image` field with the 1-based position of its image.
+
+An `if` step branches on the page state without a round trip back to the client:
+
+```json
+{
+  "tool": "if",
+  "arguments": {
+    "condition": { "selector": "#status", "textIncludes": "failed" },
+    "then": [{ "tool": "click", "arguments": { "selector": "text=Retry" } }],
+    "elseIf": [
+      {
+        "condition": { "urlIncludes": "/login" },
+        "then": [
+          { "tool": "take_screenshot", "arguments": { "output": "image" } }
+        ]
+      }
+    ],
+    "else": [{ "tool": "get_page_state" }]
+  }
+}
+```
+
+Each condition takes the same fields as `wait_for` (`selector` with `state`, `textEquals`, `textIncludes`, plus `url`, `urlIncludes`, `readyState`), and all given fields must hold. `condition` and then each `elseIf` entry are checked in order, once and without waiting, and the first one that holds runs its `then`; `else` runs when none does. Put a `wait_for` or `sleep` step first if the page may still be changing. Every branch is validated up front, the 50-step limit counts steps inside branches, and an `if` placed inside a branch nests at most 4 levels deep. The `if` result reports the `branch` taken (`then`, `elseIf[i]`, or `else`), each condition it `checked` with what was observed (URL, whether the element was found and visible, its text), and the branch's step results; a failing step inside a branch fails the `if` and stops the batch like any other step.
+
+Text conditions compare the element's visible text with whitespace collapsed, and only its first 400 characters are read: `textIncludes` does not see text past that point, and `textEquals` never matches an element with longer text.
 
 ### Session Snapshots
 
@@ -339,7 +386,7 @@ Playwright is still the stronger choice for deterministic browser automation and
 
 - it is MCP-native, so AI clients call a bounded tool surface instead of generating and executing Playwright scripts
 - it can inspect an already-open browser tab or create a fresh one, then inspect the current session state, cookies, login state, extensions, console, and network history
-- it is designed for local AI debugging workflows, including loopback-only defaults, opt-in evaluation, and the Windows-to-WSL relay path
+- it is designed for local AI debugging workflows, including loopback-only defaults and the Windows-to-WSL relay path
 - it presents one MCP interface across Chromium CDP and Firefox BiDi instead of requiring the AI client to know browser protocol details
 
 Use Playwright when you want reproducible automation. Use this project when you want an AI assistant to inspect and manipulate a live browser session through MCP.
@@ -354,8 +401,8 @@ Use Playwright when you want reproducible automation. Use this project when you 
 ## Safety Defaults
 
 - The broker only allows loopback browser endpoints unless you opt in
-- The default tool surface is read-focused
-- Arbitrary page evaluation is opt-in
+- Tools can both read and act on the page: they click, type, navigate, and run page JavaScript through `evaluate_js`, using whatever session the browser profile is signed in to, so point the broker at a profile you are willing to let an agent use
+- `evaluate_js` can be removed from the tool surface with `MCP_BROWSER_ENABLE_EVAL=0`
 - Clients interact with a bounded MCP tool surface instead of raw browser protocol calls
 
 ## Development
