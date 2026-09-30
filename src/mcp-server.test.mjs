@@ -1,235 +1,21 @@
 import test from "node:test";
+
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { loadConfig } from "./config.mjs";
 import { McpBrowserDevToolsServer } from "./mcp-server.mjs";
 import { PACKAGE_VERSION } from "./package-info.mjs";
-
-function createFakeManager() {
-  return {
-    async getBrowserStatus() {
-      return { available: true };
-    },
-    async listTargets() {
-      return [
-        { targetId: "tab-1", title: "Example", url: "https://example.com" },
-      ];
-    },
-    listSessions() {
-      return [{ sessionId: "session-1", targetId: "tab-1" }];
-    },
-    async createTab(url = "about:blank", options = {}) {
-      return {
-        targetId: "tab-2",
-        url,
-        browserFamily: options.browserFamily ?? "chromium",
-      };
-    },
-    async closeTarget(targetId) {
-      return {
-        targetId,
-        closed: true,
-        detachedSessions: [{ sessionId: "session-1" }],
-      };
-    },
-    async attachToTarget(targetId) {
-      return { sessionId: "session-2", targetId };
-    },
-    async detachSession(sessionId) {
-      return { detached: true, sessionId };
-    },
-    async getPageState(sessionId) {
-      return {
-        sessionId,
-        url: "https://example.com/dashboard",
-        viewport: { width: 1280, height: 720 },
-        readyState: "complete",
-      };
-    },
-    async waitFor(sessionId, options) {
-      return {
-        sessionId,
-        matched: true,
-        condition: options,
-      };
-    },
-    async navigate(sessionId, url, options) {
-      return { sessionId, url, waitUntil: options.waitUntil ?? "complete" };
-    },
-    async reload(sessionId, options) {
-      return {
-        sessionId,
-        url: "https://example.com/dashboard",
-        ignoreCache: options.ignoreCache ?? false,
-      };
-    },
-    async getCookies(sessionId) {
-      return {
-        sessionId,
-        cookies: {
-          totalEntries: 1,
-          returnedEntries: 1,
-          truncated: false,
-          entries: [{ name: "sid", value: "abc123" }],
-          source: "document.cookie",
-        },
-      };
-    },
-    async getStorage(sessionId) {
-      return {
-        sessionId,
-        storage: {
-          localStorage: {
-            type: "localStorage",
-            totalEntries: 1,
-            returnedEntries: 1,
-            truncated: false,
-            entries: [{ key: "theme", value: "light" }],
-          },
-          sessionStorage: {
-            type: "sessionStorage",
-            totalEntries: 0,
-            returnedEntries: 0,
-            truncated: false,
-            entries: [],
-          },
-        },
-      };
-    },
-    async captureDebugReport(sessionId, options) {
-      return {
-        sessionId,
-        capturedAt: "2026-03-11T00:00:00.000Z",
-        page: {
-          url: "https://example.com/dashboard",
-          title: "Dashboard",
-        },
-        cookies: {
-          totalEntries: 1,
-          sampleNames: ["sid"],
-        },
-        storage: {
-          localStorage: {
-            totalEntries: 1,
-            sampleKeys: ["theme"],
-          },
-        },
-        console: [{ kind: "console", text: "hello" }],
-        network: [{ requestId: "req-1", url: "https://example.com/api" }],
-        screenshot:
-          options.includeScreenshot === false ? null : { format: "png" },
-      };
-    },
-    async captureSessionSnapshot(sessionId) {
-      return {
-        sessionId,
-        capturedAt: "2026-03-11T00:00:00.000Z",
-        page: {
-          url: "https://example.com/dashboard",
-          title: "Dashboard",
-        },
-        cookies: {
-          entries: [{ name: "sid", value: "abc123" }],
-        },
-        storage: {
-          localStorage: {
-            entries: [{ key: "theme", value: "light" }],
-          },
-          sessionStorage: {
-            entries: [],
-          },
-        },
-      };
-    },
-    async restoreSessionSnapshot(sessionId, snapshot, options) {
-      return {
-        sessionId,
-        restoredAt: "2026-03-11T00:00:00.000Z",
-        snapshot,
-        clearStorage: options.clearStorage ?? false,
-      };
-    },
-    getHar(sessionId, options) {
-      return {
-        sessionId,
-        limit: options.limit,
-        log: {
-          version: "1.2",
-          entries: [],
-        },
-      };
-    },
-    async click(sessionId, selector) {
-      return { sessionId, selector, clicked: true };
-    },
-    async hover(sessionId, selector) {
-      return { sessionId, selector, hovered: true };
-    },
-    async type(sessionId, selector, text, options) {
-      return {
-        sessionId,
-        selector,
-        typedText: text,
-        clear: options.clear ?? true,
-      };
-    },
-    async select(sessionId, selector, options) {
-      return {
-        sessionId,
-        selector,
-        selectedValue: options.value ?? null,
-        selectedLabel: options.label ?? null,
-      };
-    },
-    async pressKey(sessionId, key, selector) {
-      return { sessionId, key, selector: selector ?? null, dispatched: true };
-    },
-    async scroll(sessionId, options) {
-      return { sessionId, ...options, scrolled: true };
-    },
-    async setViewport(sessionId, options) {
-      return { sessionId, applied: true, viewport: options };
-    },
-    async evaluate(sessionId, expression) {
-      return { sessionId, result: expression };
-    },
-    async getDocument(sessionId, depth) {
-      return { sessionId, depth, root: { nodeName: "HTML" } };
-    },
-    getConsoleMessages(sessionId, limit) {
-      return [{ sessionId, limit, kind: "console", text: "hello" }];
-    },
-    getNetworkRequests(sessionId, limit) {
-      return [
-        { sessionId, limit, requestId: "req-1", url: "https://example.com" },
-      ];
-    },
-    async inspectElement(sessionId, selector) {
-      return { sessionId, selector, found: true, node: { nodeName: "DIV" } };
-    },
-    async takeScreenshot(sessionId, format, options) {
-      return {
-        sessionId,
-        format,
-        selector: options.selector ?? null,
-        data: "ZmFrZQ==",
-      };
-    },
-    getEvents(sessionId, limit) {
-      return [{ sessionId, limit, method: "Runtime.consoleAPICalled" }];
-    },
-  };
-}
+import {
+  callRunSteps,
+  callTool,
+  createFakeManager,
+  createFlakyClickManager,
+  createLaunchServer,
+} from "./mcp-test-support.mjs";
 
 test("initialize returns MCP server metadata", async () => {
   const server = new McpBrowserDevToolsServer({
@@ -702,28 +488,6 @@ test("navigate delegates to the browser adapter", async () => {
   assert.equal(response.result.structuredContent.waitUntil, "interactive");
 });
 
-test("take_screenshot forwards the optional selector", async () => {
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: createFakeManager(),
-  });
-
-  const response = await server.handleRequest({
-    jsonrpc: "2.0",
-    id: 35,
-    method: "tools/call",
-    params: {
-      name: "take_screenshot",
-      arguments: {
-        sessionId: "session-1",
-        selector: "text=Open modal",
-      },
-    },
-  });
-
-  assert.equal(response.result.structuredContent.selector, "text=Open modal");
-});
-
 test("evaluate_js is exposed by default and hidden when disabled", async () => {
   for (const [env, exposed] of [
     [{}, true],
@@ -742,6 +506,54 @@ test("evaluate_js is exposed by default and hidden when disabled", async () => {
 
     const toolNames = response.result.tools.map((tool) => tool.name);
     assert.equal(toolNames.includes("evaluate_js"), exposed);
+  }
+});
+
+test("expression conditions follow MCP_BROWSER_ENABLE_EVAL", async () => {
+  for (const [env, exposed] of [
+    [{}, true],
+    [{ MCP_BROWSER_ENABLE_EVAL: "0" }, false],
+  ]) {
+    const server = new McpBrowserDevToolsServer({
+      config: loadConfig(env),
+      browserAdapter: createFakeManager(),
+    });
+
+    const list = await server.handleRequest({
+      jsonrpc: "2.0",
+      id: 32,
+      method: "tools/list",
+    });
+    const waitFor = list.result.tools.find((tool) => tool.name === "wait_for");
+    assert.equal("expression" in waitFor.inputSchema.properties, exposed);
+    assert.equal(
+      "expression" in waitFor.inputSchema.properties.anyOf.items.properties,
+      exposed,
+    );
+
+    const waited = await callTool(server, "wait_for", {
+      sessionId: "session-1",
+      expression: "true",
+      timeoutMs: 50,
+    });
+    assert.equal(waited.error === undefined, exposed);
+
+    const branched = await callTool(server, "run_steps", {
+      sessionId: "session-1",
+      steps: [
+        {
+          tool: "if",
+          arguments: { condition: { expression: "true" }, then: [] },
+        },
+      ],
+    });
+    assert.equal(branched.error === undefined, exposed);
+    if (!exposed) {
+      assert.match(
+        branched.error.message,
+        /condition\.expression is not allowed/,
+      );
+    }
   }
 });
 
@@ -1095,41 +907,6 @@ test("unsafe launch args are only exposed when explicitly enabled", async () => 
   }
 });
 
-function createLaunchServer({ chromiumAvailable, launches }) {
-  const browserAdapter = createFakeManager();
-  browserAdapter.getBrowserStatus = async () => {
-    const available = chromiumAvailable();
-    return {
-      available,
-      browserFamily: "auto",
-      browsers: {
-        chromium: { available },
-        firefox: { available: false },
-      },
-    };
-  };
-
-  return new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter,
-    statusProbeRetryMs: 0,
-    launchBrowser: async (args) => {
-      launches.push(args);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      return { browserFamily: args.browserFamily, launched: true };
-    },
-  });
-}
-
-function callTool(server, name, args, id = 1) {
-  return server.handleRequest({
-    jsonrpc: "2.0",
-    id,
-    method: "tools/call",
-    params: { name, arguments: args },
-  });
-}
-
 test("launch_browser reuses a reachable browser instead of launching another", async () => {
   const launches = [];
   const server = createLaunchServer({
@@ -1317,729 +1094,35 @@ test("a confirmed launch does not block the next explicit launch", async () => {
   assert.equal(launches.length, 2);
 });
 
-function callRunSteps(server, args) {
-  return server.handleRequest({
-    jsonrpc: "2.0",
-    id: 90,
-    method: "tools/call",
-    params: {
-      name: "run_steps",
-      arguments: args,
-    },
-  });
-}
-
-test("run_steps runs steps in order and returns screenshots as images", async () => {
+test("wait_for passes anyOf and textExcludes to the adapter", async () => {
   const manager = createFakeManager();
-  const calls = [];
-  const originalClick = manager.click;
-  manager.click = async (...args) => {
-    calls.push("click");
-    return originalClick.apply(manager, args);
-  };
-  manager.takeScreenshot = async (sessionId, format) => {
-    calls.push("take_screenshot");
-    return {
-      sessionId,
-      format,
-      mimeType: "image/png",
-      encoding: "base64",
-      data: "ZmFrZQ==",
-    };
-  };
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
     browserAdapter: manager,
   });
 
-  const response = await callRunSteps(server, {
-    sessionId: "session-1",
-    steps: [
-      { tool: "click", arguments: { selector: "text=Save" } },
-      { tool: "sleep", arguments: { ms: 1 } },
-      { tool: "take_screenshot" },
-    ],
-  });
-
-  const value = response.result.structuredContent;
-  assert.deepEqual(calls, ["click", "take_screenshot"]);
-  assert.equal(value.ok, true);
-  assert.equal(value.ranSteps, 3);
-  assert.equal(value.steps[0].result.selector, "text=Save");
-  assert.deepEqual(value.steps[1].result, { sleptMs: 1 });
-  assert.equal(value.steps[2].result.image, 1);
-  assert.equal(value.steps[2].result.data, undefined);
-  assert.deepEqual(response.result.content[1], {
-    type: "image",
-    data: "ZmFrZQ==",
-    mimeType: "image/png",
-  });
-  assert.doesNotMatch(response.result.content[0].text, /ZmFrZQ==/);
-});
-
-test("run_steps stops at the first failing step unless continueOnError", async () => {
-  const manager = createFakeManager();
-  manager.click = async () => {
-    throw new Error("element is covered");
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-  const steps = [
-    { tool: "click", arguments: { selector: "#save" } },
-    { tool: "get_page_state" },
+  const anyOf = [
+    { selector: "#status", textIncludes: "Paid" },
+    { selector: "#status", textExcludes: "Processing" },
   ];
-
-  const stopped = (
-    await callRunSteps(server, { sessionId: "session-1", steps })
-  ).result.structuredContent;
-  assert.equal(stopped.ok, false);
-  assert.equal(stopped.ranSteps, 1);
-  assert.equal(stopped.skippedSteps, 1);
-  assert.equal(stopped.steps[0].error, "element is covered");
-
-  const continued = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps,
-      continueOnError: true,
-    })
-  ).result.structuredContent;
-  assert.equal(continued.ok, false);
-  assert.equal(continued.ranSteps, 2);
-  assert.equal(continued.steps[1].ok, true);
-});
-
-test("run_steps validates every step before running any", async () => {
-  const manager = createFakeManager();
-  let clicked = false;
-  manager.click = async () => {
-    clicked = true;
-    return {};
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const badArgs = await callRunSteps(server, {
+  const response = await callTool(server, "wait_for", {
     sessionId: "session-1",
-    steps: [
-      { tool: "click", arguments: { selector: "#save" } },
-      { tool: "wait_for", arguments: { timeoutMs: "1000" } },
-    ],
+    anyOf,
   });
-  assert.match(
-    badArgs.error.message,
-    /arguments\.steps\[1\]\.arguments\.timeoutMs must be an integer/,
-  );
+  assert.deepEqual(response.result.structuredContent.condition.anyOf, anyOf);
 
-  const sessionOverride = await callRunSteps(server, {
+  const mixed = await callTool(server, "wait_for", {
     sessionId: "session-1",
-    steps: [{ tool: "click", arguments: { sessionId: "x", selector: "#a" } }],
+    selector: "#status",
+    anyOf,
   });
-  assert.match(sessionOverride.error.message, /sessionId is not allowed/);
+  assert.match(mixed.error.message, /anyOf cannot be combined with selector/);
 
-  const longSleep = await callRunSteps(server, {
+  const nested = await callTool(server, "wait_for", {
     sessionId: "session-1",
-    steps: [{ tool: "sleep", arguments: { ms: 60_000 } }],
+    anyOf: [{ anyOf }],
   });
-  assert.match(longSleep.error.message, /ms must be <= 30000/);
-
-  const missingCondition = await callRunSteps(server, {
-    sessionId: "session-1",
-    steps: [
-      { tool: "click", arguments: { selector: "#save" } },
-      { tool: "wait_for" },
-    ],
-  });
-  assert.match(missingCondition.error.message, /wait_for requires at least/);
-
-  const notSessionTool = await callRunSteps(server, {
-    sessionId: "session-1",
-    steps: [{ tool: "launch_browser" }],
-  });
-  assert.match(notSessionTool.error.message, /tool must be one of/);
-
-  const unknownKey = await callRunSteps(server, {
-    sessionId: "session-1",
-    steps: [
-      { tool: "click", arguments: { selector: "#save" } },
-      { tool: "press_key", arguments: { key: "Hyper+Enter" } },
-    ],
-  });
-  assert.match(unknownKey.error.message, /Unsupported modifier "Hyper"/);
-
-  assert.equal(clicked, false);
-});
-
-test("take_screenshot with path writes the decoded image and returns its path", async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "screenshot-as-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const manager = createFakeManager();
-  let requestedFormat;
-  manager.takeScreenshot = async (sessionId, format) => {
-    requestedFormat = format;
-    return {
-      format,
-      mimeType: "image/jpeg",
-      encoding: "base64",
-      data: Buffer.from("raw-image").toString("base64"),
-      scope: "page",
-    };
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-  const filePath = path.join(dir, "nested", "shot.JPG");
-
-  const response = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    path: filePath,
-  });
-
-  const value = response.result.structuredContent;
-  assert.equal(requestedFormat, "jpeg");
-  assert.equal(value.path, filePath);
-  assert.equal(value.data, undefined);
-  assert.equal(value.scope, "page");
-  assert.equal(await readFile(filePath, "utf8"), "raw-image");
-
-  const again = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    path: filePath,
-  });
-  assert.match(again.error.message, /already exists/);
-
-  const replaced = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    path: filePath,
-    overwrite: true,
-  });
-  assert.equal(replaced.result.structuredContent.path, filePath);
-  assert.equal((await stat(filePath)).mode & 0o777, 0o600);
-});
-
-test("take_screenshot replaces a symlink instead of writing through it", async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "screenshot-as-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const config = path.join(dir, ".bashrc");
-  const link = path.join(dir, "shot.png");
-  await writeFile(config, "keep");
-  await symlink(config, link);
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: createFakeManager(),
-  });
-
-  const refused = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    path: link,
-  });
-  assert.match(refused.error.message, /already exists/);
-
-  await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    path: link,
-    overwrite: true,
-  });
-  assert.equal(await readFile(config, "utf8"), "keep");
-  assert.equal(await readFile(link, "utf8"), "fake");
-});
-
-test("take_screenshot fails when the selector matches nothing", async () => {
-  const manager = createFakeManager();
-  manager.takeScreenshot = async (sessionId, format, options) => ({
-    format,
-    scope: "element",
-    selector: options.selector,
-    found: false,
-  });
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const response = await callRunSteps(server, {
-    sessionId: "session-1",
-    steps: [
-      { tool: "take_screenshot", arguments: { selector: "#missing" } },
-      { tool: "get_page_state" },
-    ],
-  });
-
-  const value = response.result.structuredContent;
-  assert.equal(value.ok, false);
-  assert.equal(value.skippedSteps, 1);
-  assert.match(value.steps[0].error, /No element matches selector #missing/);
-});
-
-test("take_screenshot output file defaults to a temp file", async (t) => {
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: createFakeManager(),
-  });
-
-  const response = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    output: "file",
-    format: "webp",
-  });
-
-  const filePath = response.result.structuredContent.path;
-  t.after(() => rm(path.dirname(filePath), { recursive: true, force: true }));
-  assert.ok(filePath.startsWith(tmpdir()));
-  assert.equal((await stat(path.dirname(filePath))).mode & 0o777, 0o700);
-  assert.equal((await stat(filePath)).mode & 0o777, 0o600);
-  assert.match(filePath, /\.webp$/);
-  assert.equal(await readFile(filePath, "utf8"), "fake");
-});
-
-test("take_screenshot rejects unsafe or mismatched paths before capturing", async (t) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "screenshot-as-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const manager = createFakeManager();
-  let captured = false;
-  manager.takeScreenshot = async () => {
-    captured = true;
-    return {};
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-  const config = path.join(dir, ".bashrc");
-  await writeFile(config, "keep");
-
-  const cases = [
-    [{ path: "shot.png" }, /must be absolute/],
-    [{ path: config }, /must end with \.png/],
-    [{ path: path.join(dir, "a.png"), format: "jpeg" }, /does not match/],
-    [{ path: path.join(dir, "b.png"), output: "image" }, /require output file/],
-    [{ overwrite: true }, /require output file/],
-  ];
-  for (const [args, pattern] of cases) {
-    const response = await callTool(server, "take_screenshot", {
-      sessionId: "session-1",
-      ...args,
-    });
-    assert.match(response.error.message, pattern);
-  }
-
-  const firefox = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "firefox" }),
-    browserAdapter: manager,
-  });
-  const webp = await callTool(firefox, "take_screenshot", {
-    sessionId: "session-1",
-    path: path.join(dir, "a.webp"),
-  });
-  assert.match(webp.error.message, /must end with \.png, \.jpg, \.jpeg$/);
-
-  assert.equal(captured, false);
-  assert.equal(await readFile(config, "utf8"), "keep");
-});
-
-test("run_steps treats a missing element as a failed step, except for inspect_element", async () => {
-  const manager = createFakeManager();
-  const clicked = [];
-  manager.click = async (sessionId, selector) => {
-    clicked.push(selector);
-    return { selector, found: selector !== "#missing" };
-  };
-  manager.inspectElement = async (sessionId, selector) => ({
-    selector,
-    found: false,
-  });
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const missingClick = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        { tool: "click", arguments: { selector: "#missing" } },
-        { tool: "click", arguments: { selector: "#submit" } },
-      ],
-    })
-  ).result.structuredContent;
-  assert.deepEqual(clicked, ["#missing"]);
-  assert.equal(missingClick.ok, false);
-  assert.equal(
-    missingClick.steps[0].error,
-    "No element matches selector #missing",
-  );
-  assert.equal(missingClick.steps[0].result.found, false);
-
-  const absenceCheck = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [{ tool: "inspect_element", arguments: { selector: "#gone" } }],
-    })
-  ).result.structuredContent;
-  assert.equal(absenceCheck.ok, true);
-});
-
-test("take_screenshot output image returns image content without base64 text", async () => {
-  const manager = createFakeManager();
-  manager.takeScreenshot = async (sessionId, format) => ({
-    format,
-    mimeType: "image/png",
-    encoding: "base64",
-    data: "ZmFrZQ==",
-  });
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const response = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-    output: "image",
-  });
-
-  assert.equal(response.result.structuredContent.data, undefined);
-  assert.equal(response.result.structuredContent.image, 1);
-  assert.doesNotMatch(response.result.content[0].text, /ZmFrZQ==/);
-  assert.deepEqual(response.result.content[1], {
-    type: "image",
-    data: "ZmFrZQ==",
-    mimeType: "image/png",
-  });
-});
-
-test("take_screenshot without new arguments still returns base64 data", async () => {
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: createFakeManager(),
-  });
-
-  const response = await callTool(server, "take_screenshot", {
-    sessionId: "session-1",
-  });
-
-  assert.equal(response.result.structuredContent.data, "ZmFrZQ==");
-  assert.equal(response.result.content.length, 1);
-});
-
-function createBranchingManager(elements) {
-  const manager = createFakeManager();
-  const calls = [];
-  manager.inspectElement = async (sessionId, selector) =>
-    elements[selector]
-      ? {
-          selector,
-          found: true,
-          node: { visible: true, ...elements[selector] },
-        }
-      : { selector, found: false };
-  manager.click = async (sessionId, selector) => {
-    calls.push(`click ${selector}`);
-    return { selector, found: true };
-  };
-  return { manager, calls };
-}
-
-test("run_steps if runs the then branch when the condition holds", async () => {
-  const { manager, calls } = createBranchingManager({
-    "text=Accept cookies": { innerText: "Accept cookies" },
-  });
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const value = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        {
-          tool: "if",
-          arguments: {
-            condition: { selector: "text=Accept cookies" },
-            then: [
-              { tool: "click", arguments: { selector: "text=Accept cookies" } },
-            ],
-            else: [{ tool: "click", arguments: { selector: "#other" } }],
-          },
-        },
-        { tool: "click", arguments: { selector: "#next" } },
-      ],
-    })
-  ).result.structuredContent;
-
-  assert.deepEqual(calls, ["click text=Accept cookies", "click #next"]);
-  assert.equal(value.ok, true);
-  assert.equal(value.steps[0].result.matched, true);
-  assert.equal(value.steps[0].result.branch, "then");
-  assert.deepEqual(value.steps[0].result.checked, [
-    { branch: "then", matched: true, observed: { found: true, visible: true } },
-  ]);
-  assert.equal(value.steps[0].result.steps[0].tool, "click");
-});
-
-test("run_steps if runs the first matching elseIf without nesting", async () => {
-  const { manager, calls } = createBranchingManager({
-    "#status": { innerText: "Payment failed: card declined" },
-  });
-  const inspected = [];
-  const inspect = manager.inspectElement;
-  manager.inspectElement = async (sessionId, selector) => {
-    inspected.push(selector);
-    return inspect(sessionId, selector);
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const value = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        {
-          tool: "if",
-          arguments: {
-            condition: { selector: "#status", textEquals: "Paid" },
-            then: [{ tool: "click", arguments: { selector: "#receipt" } }],
-            elseIf: [
-              {
-                condition: { selector: "#status", textIncludes: "failed" },
-                then: [{ tool: "click", arguments: { selector: "#retry" } }],
-              },
-              {
-                condition: { selector: "#banner" },
-                then: [{ tool: "click", arguments: { selector: "#banner" } }],
-              },
-            ],
-            else: [{ tool: "click", arguments: { selector: "#fallback" } }],
-          },
-        },
-      ],
-    })
-  ).result.structuredContent;
-
-  assert.deepEqual(calls, ["click #retry"]);
-  assert.deepEqual(inspected, ["#status", "#status"]);
-  const result = value.steps[0].result;
-  assert.equal(result.branch, "elseIf[0]");
-  assert.equal(result.matched, true);
-  assert.deepEqual(
-    result.checked.map((check) => [check.branch, check.matched]),
-    [
-      ["then", false],
-      ["elseIf[0]", true],
-    ],
-  );
-  assert.equal(
-    result.checked[1].observed.text,
-    "Payment failed: card declined",
-  );
-});
-
-test("run_steps if runs else when no condition holds", async () => {
-  const { manager, calls } = createBranchingManager({});
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const result = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        {
-          tool: "if",
-          arguments: {
-            condition: { selector: "#a" },
-            elseIf: [{ condition: { selector: "#b" } }],
-            else: [{ tool: "click", arguments: { selector: "#fallback" } }],
-          },
-        },
-      ],
-    })
-  ).result.structuredContent.steps[0].result;
-
-  assert.deepEqual(calls, ["click #fallback"]);
-  assert.equal(result.matched, false);
-  assert.equal(result.branch, "else");
-  assert.equal(result.checked.length, 2);
-});
-
-test("run_steps if with no matching branch runs nothing and succeeds", async () => {
-  const { manager, calls } = createBranchingManager({});
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const value = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        {
-          tool: "if",
-          arguments: {
-            condition: { urlIncludes: "/login" },
-            then: [{ tool: "click", arguments: { selector: "#login" } }],
-          },
-        },
-      ],
-    })
-  ).result.structuredContent;
-
-  assert.deepEqual(calls, []);
-  assert.equal(value.ok, true);
-  assert.equal(value.steps[0].result.branch, "else");
-  assert.deepEqual(value.steps[0].result.steps, []);
-  assert.equal(
-    value.steps[0].result.checked[0].observed.url,
-    "https://example.com/dashboard",
-  );
-});
-
-test("run_steps stops the whole batch when a step inside a branch fails", async () => {
-  const { manager, calls } = createBranchingManager({ "#open": {} });
-  manager.click = async (sessionId, selector) => {
-    calls.push(`click ${selector}`);
-    return { selector, found: selector !== "#missing" };
-  };
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-
-  const value = (
-    await callRunSteps(server, {
-      sessionId: "session-1",
-      steps: [
-        {
-          tool: "if",
-          arguments: {
-            condition: { selector: "#open", state: "present" },
-            then: [
-              { tool: "click", arguments: { selector: "#missing" } },
-              { tool: "click", arguments: { selector: "#inside" } },
-            ],
-          },
-        },
-        { tool: "click", arguments: { selector: "#after" } },
-      ],
-    })
-  ).result.structuredContent;
-
-  assert.deepEqual(calls, ["click #missing"]);
-  assert.equal(value.ok, false);
-  assert.equal(value.steps[0].ok, false);
-  assert.equal(value.skippedSteps, 1);
-});
-
-test("run_steps validates both if branches and limits before running", async () => {
-  const { manager, calls } = createBranchingManager({});
-  const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
-    browserAdapter: manager,
-  });
-  const run = (steps) =>
-    callRunSteps(server, { sessionId: "session-1", steps });
-  const click = { tool: "click", arguments: { selector: "#a" } };
-  const nest = (depth) =>
-    depth === 0
-      ? click
-      : {
-          tool: "if",
-          arguments: { condition: { url: "x" }, then: [nest(depth - 1)] },
-        };
-
-  const badElse = await run([
-    click,
-    {
-      tool: "if",
-      arguments: {
-        condition: { selector: "#a" },
-        then: [],
-        else: [{ tool: "scroll" }],
-      },
-    },
-  ]);
-  assert.match(badElse.error.message, /scroll requires either selector/);
-
-  const badCondition = await run([
-    { tool: "if", arguments: { condition: { state: "visible" } } },
-  ]);
-  assert.match(
-    badCondition.error.message,
-    /arguments\.steps\[0\]\.arguments\.condition requires at least one/,
-  );
-
-  const badElseIf = await run([
-    {
-      tool: "if",
-      arguments: {
-        condition: { selector: "#a" },
-        elseIf: [
-          { condition: { selector: "#b" }, then: [click] },
-          {
-            condition: { url: "x" },
-            then: [{ tool: "select", arguments: { selector: "#s" } }],
-          },
-        ],
-      },
-    },
-  ]);
-  assert.match(
-    badElseIf.error.message,
-    /select requires either value or label/,
-  );
-
-  const elseIfWithoutCondition = await run([
-    {
-      tool: "if",
-      arguments: { condition: { selector: "#a" }, elseIf: [{ then: [] }] },
-    },
-  ]);
-  assert.match(
-    elseIfWithoutCondition.error.message,
-    /elseIf\[0\]\.condition is required/,
-  );
-
-  const unknownField = await run([
-    { tool: "if", arguments: { condition: { selector: "#a", timeoutMs: 5 } } },
-  ]);
-  assert.match(unknownField.error.message, /timeoutMs is not allowed/);
-
-  const badKeyInElse = await run([
-    click,
-    {
-      tool: "if",
-      arguments: {
-        condition: { selector: "#a" },
-        then: [],
-        else: [{ tool: "press_key", arguments: { key: "Enterr" } }],
-      },
-    },
-  ]);
-  assert.match(badKeyInElse.error.message, /Unsupported key "Enterr"/);
-
-  assert.equal((await run([nest(4)])).result.structuredContent.ok, true);
-  assert.match((await run([nest(5)])).error.message, /deeper than 4 levels/);
-
-  const tooMany = await run([
-    {
-      tool: "if",
-      arguments: {
-        condition: { url: "x" },
-        then: Array.from({ length: 50 }, () => click),
-      },
-    },
-  ]);
-  assert.match(tooMany.error.message, /at most 50 steps/);
-
-  assert.equal(calls.length, 0);
+  assert.match(nested.error.message, /anyOf is not allowed/);
 });
 
 test("wait_for passes text conditions to the adapter", async () => {
@@ -2132,4 +1215,58 @@ test("the run_steps example in the server instructions is a valid call", async (
     response.result.structuredContent.ranSteps,
     example.steps.length,
   );
+});
+
+test("a failed run_steps batch reports the page and its controls", async () => {
+  const { manager } = createFlakyClickManager([{ found: false }]);
+  let snapshots = 0;
+  manager.snapshotControls = async () => {
+    snapshots += 1;
+    return {
+      url: "https://shop.test/pay",
+      title: "Pay",
+      controls: [{ locator: "#pay", role: "button", name: "Pay" }],
+      moreControls: 0,
+    };
+  };
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+
+  const failed = (
+    await callRunSteps(server, {
+      sessionId: "session-1",
+      steps: [{ tool: "click", arguments: { selector: "#buy", timeoutMs: 0 } }],
+    })
+  ).result.structuredContent;
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.page, {
+    url: "https://shop.test/pay",
+    title: "Pay",
+    controls: [{ locator: "#pay", role: "button", name: "Pay" }],
+    moreControls: 0,
+  });
+
+  const passed = (
+    await callRunSteps(server, {
+      sessionId: "session-1",
+      steps: [{ tool: "sleep", arguments: { ms: 0 } }],
+    })
+  ).result.structuredContent;
+  assert.equal(passed.ok, true);
+  assert.equal("page" in passed, false);
+  assert.equal(snapshots, 1);
+
+  manager.snapshotControls = async () => {
+    throw new Error("Session closed");
+  };
+  const snapshotFailed = (
+    await callRunSteps(server, {
+      sessionId: "session-1",
+      steps: [{ tool: "click", arguments: { selector: "#buy", timeoutMs: 0 } }],
+    })
+  ).result.structuredContent;
+  assert.equal(snapshotFailed.ok, false);
+  assert.equal("page" in snapshotFailed, false);
 });

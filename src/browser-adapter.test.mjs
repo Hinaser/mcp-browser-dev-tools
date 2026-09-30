@@ -268,3 +268,29 @@ test("MultiBrowserAdapter serves Edge requests through the Chromium adapter", as
   assert.deepEqual(created, ["https://example.com"]);
   assert.equal(tab.targetId, "chromium:t1");
 });
+
+test("MultiBrowserAdapter passes evaluate options to the browser", async () => {
+  const chromium = createFakeAdapter("chromium");
+  const calls = [];
+  chromium.evaluate = async (sessionId, expression, options) => {
+    calls.push({ sessionId, expression, options });
+    return { result: 1, exceptionDetails: null };
+  };
+  const adapter = new MultiBrowserAdapter({
+    chromium,
+    firefox: createFakeAdapter("firefox"),
+  });
+
+  await adapter.evaluate("chromium:session-1", "1", {
+    awaitPromise: false,
+    returnByValue: false,
+  });
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: "session-1",
+      expression: "1",
+      options: { awaitPromise: false, returnByValue: false },
+    },
+  ]);
+});

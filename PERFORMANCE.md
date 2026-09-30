@@ -1,21 +1,137 @@
 # Performance
 
-This file records how fast an AI agent completes browser tasks through this MCP server, and what it costs. It explains the method, lists the test scenarios, and keeps a dated log of results, one section per model and effort level.
+How fast an AI agent finishes browser tasks through this MCP server, and what it costs. The model comparison and the effect of each server change come first; the method, the scenarios, and every run's full numbers follow.
 
-## What is measured
+## Model comparison
 
-Two layers are measured separately, because they answer different questions.
+Seven models at medium effort, `batch` mode, 3 runs per scenario: 63 of 63 runs passed. Each value is the average over the three scenarios of that scenario's median. Five models ran on `c853f22`; Fable 5.1 and GPT-6-Astra ran later on `36ca114`, which has the same server and runner code apart from Astra's price. Claude models ran through Claude Code and GPT models through the Codex CLI, so each result covers the model and its CLI together; see [Method](#method).
 
-- **Server time.** How long each tool call takes inside the broker. With `MCP_BROWSER_TIMING_LOG=<file>` set, the server appends one JSON line per tool call: the tool name, duration, whether it returned, and the size of the response (text characters and image count). `run_steps` entries also carry the number of steps it ran and whether they all succeeded. This layer does not depend on the model.
-- **End-to-end runs.** How long an agent takes to finish a whole task, how many turns and tool calls it needs, and how many tokens and dollars that costs. Most of this time is the model thinking between calls, so it depends on the model and effort level.
+```mermaid
+xychart-beta
+  title "Wall time per task (s)"
+  x-axis ["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 4.5", "GPT-6-Astra", "GPT-6.1 Sol", "GPT-6-Luna"]
+  y-axis "Seconds" 0 --> 60
+  bar [19.1, 15.1, 18.9, 26.1, 52.2, 52.7, 36.0]
+```
+
+```mermaid
+xychart-beta
+  title "Cost per task (US cents; GPT estimated from list prices)"
+  x-axis ["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 4.5", "GPT-6-Astra", "GPT-6.1 Sol", "GPT-6-Luna"]
+  y-axis "Cents" 0 --> 50
+  bar [30.6, 10.8, 7.9, 5.6, 45.0, 6.7, 0.5]
+```
+
+```mermaid
+xychart-beta
+  title "Model turns per task"
+  x-axis ["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 4.5", "GPT-6-Astra", "GPT-6.1 Sol", "GPT-6-Luna"]
+  y-axis "Turns" 0 --> 12
+  bar [5.3, 5.0, 8.3, 7.3, 6.3, 6.7, 10.0]
+```
+
+| Model       | Via         | Wall time | Turns | Cost     | `signup`              | `payment-retry`        | `settings-login`       |
+| ----------- | ----------- | --------- | ----- | -------- | --------------------- | ---------------------- | ---------------------- |
+| Fable 5.1   | Claude Code | 19.1 s    | 5.3   | $0.306   | 15.5 s · 5 · $0.306   | 16.2 s · 4 · $0.237    | 25.6 s · 7 · $0.376    |
+| Opus 5.5    | Claude Code | 15.1 s    | 5.0   | $0.108   | 12.5 s · 4 · $0.094   | 13.3 s · 4 · $0.084    | 19.5 s · 7 · $0.145    |
+| Sonnet 5.5  | Claude Code | 18.9 s    | 8.3   | $0.079   | 19.1 s · 5 · $0.058   | 20.0 s · 11 · $0.077   | 17.7 s · 9 · $0.103    |
+| Haiku 4.5   | Claude Code | 26.1 s    | 7.3   | $0.056   | 18.9 s · 5 · $0.044   | 28.6 s · 7 · $0.052    | 31.0 s · 10 · $0.072   |
+| GPT-6-Astra | Codex CLI   | 52.2 s    | 6.3   | $0.450\* | 25.5 s · 4 · $0.381\* | 50.5 s · 7 · $0.448\*  | 80.5 s · 8 · $0.521\*  |
+| GPT-6.1 Sol | Codex CLI   | 52.7 s    | 6.7   | $0.067\* | 46.0 s · 6 · $0.076\* | 53.2 s · 7 · $0.060\*  | 58.8 s · 7 · $0.067\*  |
+| GPT-6-Luna  | Codex CLI   | 36.0 s    | 10.0  | $0.005\* | 33.7 s · 8 · $0.005\* | 37.3 s · 12 · $0.005\* | 37.0 s · 10 · $0.006\* |
+
+\* Estimated from OpenAI's standard list prices, because Codex under a ChatGPT login reports tokens but no cost.
+
+1. **Fable 5.1 and Opus 5.5 need the fewest turns, and only they used `repeat`.** Every `payment-retry` run of both retried the payment inside one batch and finished in 4 turns, where the other models took 7–12. Opus is the fastest (15.1 s per task); Fable took 19.1 s at about three times Opus's cost ($0.306 against $0.108), so on these tasks it gained nothing over Opus.
+2. **Sonnet 5.5 is the fastest per turn (2.6 s) but needs more turns**, 11 in `payment-retry`. Two of its `signup` runs lost 10 s each waiting for the message to include `"."`, which it never does; the third run took 9.4 s.
+3. **Haiku 4.5 is the cheapest Claude model and the slowest.** Much of its extra time is waits it chose: 15 s waiting for a `text=Receipt` element that never appears, and fixed 3 s sleeps.
+4. **The GPT models are slower per turn.** GPT-6-Astra and GPT-6.1 Sol took about 7.9 s per turn, against 2.6–3.6 s for the Claude models. Both need few turns (6.3 and 6.7) but are the slowest overall, at about 52 s per task. The Codex CLI's own startup accounts for 5–9 s of that (see [Method](#method)).
+5. **GPT-6-Astra is the most expensive**, an estimated $0.450 per task. In 2 of its 3 `settings-login` runs, the click on "Save changes" reported success but no save followed; its 10 s wait for the revision to change timed out, and it submitted the form again with `evaluate_js`. Replaying the same steps six times through the server saved every time, so the cause is not known.
+6. **GPT-6.1 Sol's estimated cost is below Sonnet's, and GPT-6-Luna costs about a tenth of Haiku** while passing every run. Luna takes the most turns (10) and 36 s per task.
+
+## Changes to the server
+
+Sonnet 5.5 at medium effort, median wall time of 3 runs per scenario. Each bar is one build or mode from [Results by build](#results-by-build), oldest first, with its median model turns in parentheses.
+
+```mermaid
+xychart-beta
+  title "signup"
+  x-axis ["single (10)", "no hint (11)", "hinted (4)", "guidance (4)", "example (5)", "waits (4)", "retries (5)", "fixes (5)"]
+  y-axis "Seconds" 0 --> 30
+  bar [11.4, 14.2, 8.3, 9.0, 10.0, 16.3, 8.7, 19.1]
+```
+
+```mermaid
+xychart-beta
+  title "payment-retry"
+  x-axis ["single (12)", "no hint (10)", "hinted (7)", "guidance (10)", "example (11)", "waits (11)", "retries (10)", "fixes (11)"]
+  y-axis "Seconds" 0 --> 30
+  bar [19.9, 14.2, 23.9, 26.2, 28.9, 16.1, 17.9, 20.0]
+```
+
+```mermaid
+xychart-beta
+  title "settings-login"
+  x-axis ["single (16)", "no hint (15)", "hinted (8)", "guidance (16)", "example (8)", "waits (8)", "retries (9)", "fixes (9)"]
+  y-axis "Seconds" 0 --> 30
+  bar [20.0, 17.5, 16.4, 19.1, 13.7, 16.7, 19.7, 17.7]
+```
+
+What the runs show:
+
+1. **Model time is most of the wall time**, a median 87% for Sonnet and 90% for Opus. Server time is typically under 3 s per task unless a wait runs into its timeout, so needing fewer turns matters far more than faster tools.
+2. **Batching halves the turns on form flows.** With `run_steps`, `signup` takes 4–5 turns instead of 10, and `settings-login` 8–9 instead of 16. Sonnet used `run_steps` without being asked in 0 of 9 runs, 5 of 9 once the server instructions recommended it, and 6 of 9 once they included an example. Opus used it in 9 of 9.
+3. **Waits that end on an outcome fixed `payment-retry`.** On `9f8f548`, the last build before `textExcludes`, every run lost 13–15 s to waits that ended at their timeout. After it, server time is under 3 s and the median wall time fell from 28.9 s to 16–18 s. Sonnet still handles each payment attempt in its own turns and has never used `repeat`.
+4. **A failed batch now tells the agent how to fix it.** When a `run_steps` batch fails, it returns the page's visible controls with working locators; in the one run that needed it, the agent fixed the batch in the next turn. Action retries were never needed, because the agent always looks at the page before its first batch.
+5. **Wall time varies by several seconds between runs.** Across the last three builds, `settings-login` medians ranged from 13.7 s to 19.7 s with 8–9 turns and about 1 s of server time; the difference is model response time. With 3 runs per build, turns and server time are the more reliable signals.
+6. **Opus 5.5 at high effort (on `f153a94`) costs 1.6–1.9 times as much as Sonnet and takes 1.2–1.6 times as long**, with similar turn counts. The exception is batched `payment-retry`, where Opus was faster (24.5 s against 28.9 s) because Sonnet lost time to timed-out waits on that build.
+7. **Tool definitions are most of the input tokens.** About 33.7k characters of definitions are sent (and cached) on every turn, so cost grows with the number of turns more than with page content.
+
+## Results by build
+
+Sonnet 5.5, medium effort. Each cell is the median wall time, turns, and server time; the full metrics are in [Full results](#full-results).
+
+| Build      | Mode           | Change                                                                    | `signup`            | `payment-retry`      | `settings-login`    |
+| ---------- | -------------- | ------------------------------------------------------------------------- | ------------------- | -------------------- | ------------------- |
+| `0a3318d*` | `single`       | Baseline: `run_steps` disallowed                                          | 11.4 s · 10 · 0.3 s | 19.9 s · 12 · 1.1 s  | 20.0 s · 16 · 0.3 s |
+| `0a3318d*` | `batch`        | `run_steps` available, not mentioned; never used                          | 14.2 s · 11 · 0.5 s | 14.2 s · 10 · 0.2 s  | 17.5 s · 15 · 0.3 s |
+| `0a3318d*` | `batch-hinted` | The prompt asks for `run_steps`                                           | 8.3 s · 4 · 0.9 s   | 23.9 s · 7 · 13.1 s  | 16.4 s · 8 · 1.6 s  |
+| `26a3d2d`  | `batch`        | Server instructions recommend `run_steps`                                 | 9.0 s · 4 · 0.9 s   | 26.2 s · 10 · 14.0 s | 19.1 s · 16 · 0.5 s |
+| `9f8f548`  | `batch`        | ...and show an example call                                               | 10.0 s · 5 · 0.9 s  | 28.9 s · 11 · 14.1 s | 13.7 s · 8 · 0.8 s  |
+| `dfee9f9`  | `batch`        | `anyOf`, `textExcludes`, `repeat`; text conditions read the full text     | 16.3 s · 4 · 0.9 s  | 16.1 s · 11 · 1.7 s  | 16.7 s · 8 · 1.2 s  |
+| `4fe0706`  | `batch`        | Actions retry until their element is usable; failed batches list controls | 8.7 s · 5 · 1.0 s   | 17.9 s · 10 · 1.9 s  | 19.7 s · 9 · 1.3 s  |
+| `c853f22`  | `batch`        | Page action errors carry their message; `name=` finds labelled fields     | 19.1 s · 5 · 10.1 s | 20.0 s · 11 · 1.8 s  | 17.7 s · 9 · 1.2 s  |
+
+Notes:
+
+- **`single` and unhinted `batch` on `0a3318d*` measured the same behavior**, since the agent never called `run_steps`; their differences show the run-to-run variation.
+- **`batch-hinted` and `26a3d2d` `payment-retry`** batched with fixed `sleep` steps or waited on timeouts, because a wait could not yet end on "no longer Processing". That is the 13–14 s of server time.
+- **`9f8f548`** made every `settings-login` run batch the form. Every `signup` run also started with a screenshot, likely prompted by the example.
+- **`dfee9f9` `signup`** includes one run that lost 10 s waiting for a `"."` the final message never contains; the other two took 11.8 s and 16.3 s with the same 4 turns. Every `payment-retry` run waited with `textExcludes`.
+- **`4fe0706`**: no action had to retry. One `settings-login` batch failed on `name=Username`, which resolved to the field's `<label>`, and its error said only "Uncaught"; the agent fixed it in one turn from the listed controls. `73692a2` reports the thrown message and resolves `name=` to the labelled control.
+- **`c853f22`** is `73692a2` plus the Codex runner, from the model comparison. No step failed with an unexplained error. Two `signup` runs again lost 10 s each waiting for a `"."`, which accounts for its 19.1 s and 10.1 s of server time.
+
+Opus 5.5, high effort, against Sonnet's `single` baseline and its `batch` runs on `9f8f548` (median wall time, turns, cost):
+
+| Scenario         | Sonnet `single`      | Sonnet `batch` (`9f8f548`) | Opus `single` (`857dfa3`)           | Opus `batch` (`f153a94`) |
+| ---------------- | -------------------- | -------------------------- | ----------------------------------- | ------------------------ |
+| `signup`         | 11.4 s · 10 · $0.060 | 10.0 s · 5 · $0.059        | 18.7 s · 11 · $0.113                | 12.4 s · 4 · $0.111      |
+| `payment-retry`  | 19.9 s · 12 · $0.072 | 28.9 s · 11 · $0.072       | 25.9 s · 9 · $0.120 (1 of 3 passed) | 24.5 s · 8 · $0.132      |
+| `settings-login` | 20.0 s · 16 · $0.103 | 13.7 s · 8 · $0.093        | 29.8 s · 17 · $0.164                | 21.2 s · 7 · $0.148      |
+
+- Opus `single` gave up on the payment in 2 of 3 runs after two "card declined" responses, a judgment about the decline rather than a tool failure.
+- Opus `batch` never hit a timed-out wait, where Sonnet lost 13–15 s per run on the same build.
+- The first run of each series costs about $0.20, because it writes about 21k tokens to the prompt cache; the medians hide this.
 
 ## Method
 
-`bench/run.mjs` runs every scenario through headless Claude Code, with a fresh MCP server per run.
+`bench/run.mjs` runs every scenario through headless Claude Code, or through the Codex CLI for `gpt-*` models, with a fresh MCP server per run.
 
 - **Browser.** A throwaway headless Chrome with its own temporary profile, on port 9333, so benchmark runs never touch a real profile.
 - **Pages.** `bench/fixture-server.mjs` serves the fixture pages from `bench/fixtures/` on loopback, with no network access. It keeps per-run state (what was submitted, how many attempts were made) so a run can be judged by what actually happened on the page.
 - **Agent.** `claude -p` with `--model` and `--effort`, isolated from the machine it runs on: `--setting-sources ""` (no user or project `CLAUDE.md` or settings), `--strict-mcp-config` with only this server, `--tools ""` (no built-in tools such as Bash or Read), and `--allowedTools mcp__browser`. The runner opens the tab and gives the agent its URL and target id.
+- **GPT models.** `codex exec --json` with `--ignore-user-config`, `--ephemeral`, a read-only sandbox, only this server (its tools approved in advance), and Codex's built-in browser, shell, web, app, and plugin tools turned off. Codex calls MCP tools through its code-mode `exec` tool, which stays on; no run used it for anything else. Codex also loads the user's global `~/.codex/AGENTS.md` whatever the flags, so that file was moved aside during the GPT runs, matching the Claude runs, which load no user instructions.
+- **Fixed overhead.** Answering "OK" with the same isolation and server took 2.2–4.2 s through Claude Code and 4.1–8.6 s through Codex, so the CLI accounts for a few seconds of each run, not the gap between the models.
 - **Modes.**
   - `single`: `run_steps` is disallowed, so every action and check is its own tool call.
   - `batch`: `run_steps` is available, but the prompt does not mention it.
@@ -25,23 +141,24 @@ Two layers are measured separately, because they answer different questions.
 
 Metrics in the tables:
 
-- **Wall time**: from starting `claude -p` until it exits.
-- **Turns**: model turns reported by Claude Code.
+- **Wall time**: from starting `claude -p` or `codex exec` until it exits.
+- **Turns**: model turns reported by Claude Code. Codex does not report turns, so for GPT models it is tool calls plus the final answer.
 - **Tool calls**: browser tool calls made by the agent.
 - **Server time**: total time the server spent inside tool calls.
 - **Response chars**: total text returned by the tools, a rough measure of how much the tools add to the context.
 - **Input tokens**: uncached, cache-write, and cache-read input tokens added together.
-- **Cost**: the `total_cost_usd` Claude Code reports.
+- **Cost**: the `total_cost_usd` Claude Code reports. For GPT models, an estimate from OpenAI's standard short-context list prices on 2026-09-30 (per 1M tokens: GPT-6-Astra $10.00 input, $1.00 cached input, $50.00 output; GPT-6.1 Sol $2.00, $0.10, $10.00; GPT-6-Luna $0.10, $0.01, $0.50), counting reasoning tokens as output.
 
 ### Running it
 
 ```sh
 node bench/run.mjs --model claude-sonnet-5-5 --effort medium --repeats 3
 node bench/run.mjs --model claude-sonnet-5-5 --effort medium --modes batch-hinted
+node bench/run.mjs --model gpt-6.1-sol --effort medium --modes batch
 node bench/summarize.mjs bench/results/*.jsonl
 ```
 
-`--scenarios` and `--modes` take comma-separated lists. Raw results go to `bench/results/`, which is not committed; each line records the build, model, effort, Chrome version, verdict, timings, token usage, tool calls, and (since the `batch-hinted` runs below) the per-call server timings. The runner needs macOS Chrome at its default path, or `--chrome <path>`, and a logged-in `claude` CLI.
+`--scenarios` and `--modes` take comma-separated lists, and `--transcripts <dir>` saves each run's stream-json transcript there. Raw results go to `bench/results/`, which is not committed; each line records the build, model, effort, Chrome version, verdict, timings, token usage, tool calls, and (since the `batch-hinted` runs below) the per-call server timings. The runner needs macOS Chrome at its default path, or `--chrome <path>`, and a logged-in `claude` CLI (or `codex` CLI for GPT models).
 
 ## Scenarios
 
@@ -53,14 +170,12 @@ The source of truth is `bench/scenarios.mjs` (task prompts and success checks) a
 | `payment-retry`  | Pay, see the first two attempts get declined (1.2 s each), retry without starting a new attempt while one is processing, and report the receipt number from the third attempt.                                                                               | The payment completed, no attempts overlapped, and the reply contains the receipt number.                                                      |
 | `settings-login` | Open settings, get redirected to a login form, sign in, come back, turn email notifications off and the weekly digest on, set the language to Japanese, save (600 ms), and report the revision shown after saving. The "saved" toast disappears after 2.5 s. | The saved settings match, and the reply contains the latest revision number.                                                                   |
 
-## Results
+## Full results
 
-### 2026-09-30: Sonnet 5.5, medium effort
+Every result so far was recorded on 2026-09-30 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Build `0a3318d*` is `0a3318d` plus the then-uncommitted timing log. Its `single` and `batch` runs used the fixtures from before two small fixes (the signup page now sends the terms checkbox, and a payment attempt decides its outcome by its own attempt number); neither changes what the agent sees or does.
 
-- **Model:** `claude-sonnet-5-5`, `--effort medium`, 3 runs per scenario and mode, 27 runs in total, $2.03 in total.
-- **Build:** commit `0a3318d` plus the uncommitted timing log (shown as `0a3318d*` by `summarize.mjs`).
-- **Environment:** Chrome 154 headless, Node.js 24.20, macOS 26.6 on Apple Silicon.
-- **Fixture change between modes:** the `single` and `batch` runs used the fixtures from before two small fixes. The signup page now also sends the terms checkbox to the server, and a payment attempt now decides its outcome by its own attempt number. Neither fix changes what an agent sees or has to do in these flows.
+<details>
+<summary>Sonnet 5.5, medium effort, on <code>0a3318d*</code>: all three modes, 27 runs, $2.03</summary>
 
 | Scenario         | Mode           | OK  | Wall time              | Turns      | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | ---------------- | -------------- | --- | ---------------------- | ---------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
@@ -74,29 +189,10 @@ The source of truth is `bench/scenarios.mjs` (task prompts and success checks) a
 | `settings-login` | `batch`        | 3/3 | 17.5 s (15.9 s–19.3 s) | 15 (15–16) | 14 (14–15) | 0.3 s (0.1 s–0.3 s)   | 29.1k (15.3k–29.1k) | 164.5k (164.0k–214.9k) | 1.7k (1.7k–1.9k) | $0.098 ($0.097–$0.099) |
 | `settings-login` | `batch-hinted` | 3/3 | 16.4 s (15.0 s–19.3 s) | 8 (7–9)    | 7 (6–8)    | 1.6 s (0.6 s–2.1 s)   | 26.3k (22.2k–37.6k) | 149.9k (138.2k–180.6k) | 1.4k (1.4k–1.5k) | $0.090 ($0.085–$0.098) |
 
-What the numbers show:
+</details>
 
-1. **Every run passed.** 27 of 27 runs completed the task correctly.
-2. **The model's time dominates, not the browser's.** Across all runs, the median share of wall time spent in model API calls was 87%. Browser operations took about 2 s of server time per run or less, except where the agent chose to wait (a long `wait_for` or `sleep`). Making the tools faster would barely help; needing fewer turns does.
-3. **Without a hint, Sonnet did not use `run_steps`.** In the `batch` mode it never called `run_steps` in any of the 9 runs, so `single` and `batch` measured the same behavior. Their differences, up to 5.7 s in median wall time (`payment-retry`, where one run in each mode waited about 14 s on the server), show how much results vary between runs of the same behavior.
-4. **When it batches, turns drop by 42–60%.** In `batch-hinted`, the agent used `run_steps` in 8 of 9 runs:
-   - `signup`: 11.4 s to 8.3 s (27% faster), 10 turns to 4, cost 17% lower.
-   - `settings-login`: 20.0 s to 16.4 s (18% faster), 16 turns to 8, cost 13% lower.
-   - `payment-retry`: 12 turns to 7 and cost 22% lower, but 19.9 s to 23.9 s, 20% slower. Its batches took 2–6 s each, mostly fixed `sleep` steps waiting for the payment to finish, because a `wait_for` condition cannot say "until the status is no longer Processing" or "until it says either Paid or failed". Those fixed sleeps account for the 13 s of server time.
-5. **Every run used `evaluate_js`** (median 2 calls per run), mostly to read the page structure before acting.
-6. **Tool definitions are most of the input tokens.** A turn used a median of about 12.3k input tokens, 93% of which were cache reads. The tool list alone is about 33.7k characters (36 tools; `run_steps` has the longest definition at 3.1k characters) and is sent on every turn. So input tokens grow with the number of turns more than with page content. `get_document` is the exception: a single call roughly doubled the response size in the `settings-login` runs that used it.
-
-What to try next, based on these results:
-
-- **Make `run_steps` easier to discover without a prompt hint**, for example by mentioning it in the server's `initialize` instructions, which Claude Code shows to the model. Then rerun the `batch` mode.
-- **Let a wait end on a change or on one of several outcomes**, for example a `textExcludes` condition or a list of alternative conditions, so flows like `payment-retry` don't need fixed sleeps inside a batch.
-- **Shorten the tool definitions.** They are paid for on every turn.
-- **Consider a compact page-text tool** to replace the opening `evaluate_js` or `get_document` read.
-
-### 2026-09-30: Sonnet 5.5, medium effort, with `run_steps` guidance
-
-- **Change under test:** commit `26a3d2d` adds a recommendation to use `run_steps` to the server's `initialize` instructions, and a one-line pointer to it in the `click`, `type`, `select`, and `press_key` descriptions. This was the first "what to try next" item above.
-- **Runs:** the `batch` mode only (the prompt does not mention `run_steps`), 3 runs per scenario, 9 runs in total, $0.70 in total. Same model, effort, and environment as above.
+<details>
+<summary>Sonnet 5.5, medium effort, on <code>26a3d2d</code>: 9 runs, $0.70</summary>
 
 | Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | ---------------- | ------- | --- | ---------------------- | --------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
@@ -104,23 +200,10 @@ What to try next, based on these results:
 | `payment-retry`  | `batch` | 3/3 | 26.2 s (19.4 s–41.7 s) | 10 (6–13) | 9 (5–12)   | 14.0 s (6.6 s–23.2 s) | 7.8k (5.1k–7.8k)    | 122.4k (103.4k–159.3k) | 1.1k (0.9k–1.6k) | $0.062 ($0.052–$0.072) |
 | `settings-login` | `batch` | 3/3 | 19.1 s (14.5 s–23.6 s) | 16 (7–16) | 15 (6–15)  | 0.5 s (0.4 s–1.3 s)   | 29.2k (17.5k–35.0k) | 216.5k (145.7k–236.9k) | 1.9k (1.2k–1.9k) | $0.103 ($0.091–$0.116) |
 
-What changed compared with the first results:
+</details>
 
-1. **Every run passed.** 9 of 9.
-2. **The agent now chooses `run_steps` without being asked, but not always.** It used `run_steps` in 5 of 9 runs, up from 0 of 9 before the guidance: every `signup` run, and one run each of `payment-retry` and `settings-login`.
-3. **`signup` now gets most of the hinted-mode gain.** Median 9.0 s against 11.4 s in `single` mode (21% faster), 4 turns instead of 10, 16% cheaper. With the explicit hint it was 8.3 s.
-4. **The other two scenarios are mixed.** Most of their runs still used single calls, so their medians barely moved: `settings-login` took 19.1 s against 20.0 s in `single` mode, within the run-to-run variation, with the same 16 turns, and `payment-retry` took 26.2 s against 19.9 s. The runs that did batch were among the fastest: 14.5 s with 7 turns for `settings-login`, and 19.4 s with 6 turns for `payment-retry`.
-5. **Timed-out waits cost the most in `payment-retry`.** In the two runs that did not batch, `wait_for` calls that ended at their timeout took 13 s and 23 s of server time. The timing log does not record what a wait was waiting for, so the cause is not certain. One of those waits started after the third, successful attempt. The hinted runs above point the same way: without a wait that can end on one of several outcomes, the agent falls back to fixed sleeps or long timeouts.
-
-Next steps:
-
-- **Add a wait that ends on a change or on one of several outcomes**, and record each wait's condition in the timing log so timeouts like the ones above can be explained.
-- **Consider more ways to get the agent to batch,** for example a short example in the instructions, then measure again. The current guidance works well when the task is a clear straight line (`signup`) and less well when the agent first wants to look around (`settings-login`).
-
-### 2026-09-30: Sonnet 5.5, medium effort, with a `run_steps` example in the instructions
-
-- **Change under test:** commit `9f8f548` adds an example `run_steps` call to the `initialize` instructions: a generic search flow of type, press Enter, `wait_for`, and `take_screenshot`, not one of the benchmark tasks. The instructions also now say to send the actions already known (such as every field of a form) together with the wait and the check.
-- **Runs:** the `batch` mode only (no hint in the prompt), 3 runs per scenario, 9 runs in total, $0.66 in total. Same model, effort, and environment as above.
+<details>
+<summary>Sonnet 5.5, medium effort, on <code>9f8f548</code>: 9 runs, $0.66</summary>
 
 | Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time            | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | ---------------- | ------- | --- | ---------------------- | --------- | ---------- | ---------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
@@ -128,33 +211,10 @@ Next steps:
 | `payment-retry`  | `batch` | 3/3 | 28.9 s (28.2 s–35.0 s) | 11 (9–13) | 10 (8–12)  | 14.1 s (14.1 s–15.2 s) | 8.0k (7.6k–9.8k)    | 131.6k (104.7k–169.7k) | 1.3k (1.0k–1.5k) | $0.072 ($0.057–$0.080) |
 | `settings-login` | `batch` | 3/3 | 13.7 s (13.2 s–14.9 s) | 8 (7–9)   | 7 (6–8)    | 0.8 s (0.7 s–1.2 s)    | 35.4k (23.1k–39.0k) | 147.4k (135.3k–175.3k) | 1.3k (1.2k–1.4k) | $0.093 ($0.080–$0.105) |
 
-Median wall time, turns, and cost for each configuration so far:
+</details>
 
-| Scenario         | `single`                 | `batch-hinted`          | Guidance (`26a3d2d`)     | Guidance and example (`9f8f548`) |
-| ---------------- | ------------------------ | ----------------------- | ------------------------ | -------------------------------- |
-| `signup`         | 11.4 s, 10 turns, $0.060 | 8.3 s, 4 turns, $0.050  | 9.0 s, 4 turns, $0.051   | 10.0 s, 5 turns, $0.059          |
-| `payment-retry`  | 19.9 s, 12 turns, $0.072 | 23.9 s, 7 turns, $0.056 | 26.2 s, 10 turns, $0.062 | 28.9 s, 11 turns, $0.072         |
-| `settings-login` | 20.0 s, 16 turns, $0.103 | 16.4 s, 8 turns, $0.090 | 19.1 s, 16 turns, $0.103 | 13.7 s, 8 turns, $0.093          |
-
-What changed:
-
-1. **Every run passed.** 9 of 9.
-2. **`run_steps` was used in 6 of 9 runs**, against 5 of 9 with the guidance alone and 0 of 9 with neither: every `signup` and `settings-login` run, and no `payment-retry` run.
-3. **`settings-login` improved the most.** Every run batched the form, where only 1 of 3 did before the example. The median was 13.7 s: 31% faster than `single` mode, 8 turns instead of 16, and 10% cheaper. This beats the explicit prompt hint too (16.4 s).
-4. **`signup` got slightly worse than with the guidance alone.** It still batched in every run, but every run now also took a screenshot at the start, which no run did before. That made it 10.0 s instead of 9.0 s, and brought its cost back to the `single`-mode level ($0.059 against $0.060). The example ends with a screenshot, which may have prompted this, but three runs cannot show that.
-5. **`payment-retry` did not batch, and waits dominated.** Every run lost 13–15 s to `wait_for` calls that ended at their timeout, for a median of 28.9 s, 45% slower than `single` mode. No wording change helps here until a wait can end on one of several outcomes.
-6. **These results are from 3 runs per scenario.** `payment-retry` in particular varies widely between runs.
-
-Next steps:
-
-- **Keep the example.** It raised batching and gave the biggest gain seen so far on the form-heavy scenario. The `signup` screenshot cost is small by comparison.
-- **Add a wait that ends on one of several outcomes, or on a change**, and record each wait's condition in the timing log. This is now the clearest remaining cost.
-
-### 2026-09-30: Opus 5.5, high effort
-
-- **Model:** `claude-opus-5-5`, `--effort high`, 3 runs per scenario and mode, 18 runs in total, $2.54 in total.
-- **Builds:** `single` mode ran on `857dfa3`, the benchmark commit from before the `run_steps` guidance, so its server instructions don't recommend a tool that `single` mode disallows (the same conditions as the Sonnet baseline). `batch` mode ran on `f153a94`, which has the guidance and the example. The prompt never mentions `run_steps`.
-- **Environment:** same as the Sonnet runs above.
+<details>
+<summary>Opus 5.5, high effort, on <code>857dfa3</code> and <code>f153a94</code>: 18 runs, $2.54</summary>
 
 | Build     | Scenario         | Mode     | OK  | Wall time              | Turns      | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | --------- | ---------------- | -------- | --- | ---------------------- | ---------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
@@ -165,19 +225,67 @@ Next steps:
 | `f153a94` | `payment-retry`  | `batch`  | 3/3 | 24.5 s (23.8 s–29.0 s) | 8 (6–11)   | 7 (5–10)   | 1.5 s (1.3 s–4.0 s)  | 17.5k (14.2k–20.0k) | 150.1k (111.4k–188.0k) | 1.5k (1.2k–1.8k) | $0.132 ($0.118–$0.145) |
 | `f153a94` | `settings-login` | `batch`  | 3/3 | 21.2 s (20.7 s–33.1 s) | 7 (7–8)    | 6 (6–7)    | 1.2 s (1.2 s–1.3 s)  | 26.8k (26.7k–26.9k) | 139.7k (139.3k–140.2k) | 1.3k (1.3k–1.4k) | $0.148 ($0.145–$0.149) |
 
-Median wall time and cost next to the Sonnet 5.5 results:
+</details>
 
-| Scenario         | Sonnet `single` | Sonnet `batch` with example | Opus `single`                  | Opus `batch` with example |
-| ---------------- | --------------- | --------------------------- | ------------------------------ | ------------------------- |
-| `signup`         | 11.4 s, $0.060  | 10.0 s, $0.059              | 18.7 s, $0.113                 | 12.4 s, $0.111            |
-| `payment-retry`  | 19.9 s, $0.072  | 28.9 s, $0.072              | 25.9 s, $0.120 (1 of 3 passed) | 24.5 s, $0.132            |
-| `settings-login` | 20.0 s, $0.103  | 13.7 s, $0.093              | 29.8 s, $0.164                 | 21.2 s, $0.148            |
+<details>
+<summary>Sonnet 5.5, medium effort, on <code>dfee9f9</code>: 9 runs, $0.73</summary>
 
-What the numbers show:
+| Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | ------- | --- | ---------------------- | --------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | `batch` | 3/3 | 16.3 s (11.8 s–17.9 s) | 4 (4–5)   | 3 (3–4)    | 0.9 s (0.9 s–10.4 s) | 16.9k (14.6k–16.9k) | 76.1k (76.1k–78.8k)    | 0.6k (0.6k–0.7k) | $0.052 ($0.052–$0.113) |
+| `payment-retry`  | `batch` | 3/3 | 16.1 s (15.7 s–17.7 s) | 11 (9–11) | 10 (8–10)  | 1.7 s (1.6 s–2.6 s)  | 13.6k (11.6k–13.6k) | 145.4k (115.6k–145.5k) | 1.3k (1.1k–1.3k) | $0.080 ($0.064–$0.081) |
+| `settings-login` | `batch` | 3/3 | 16.7 s (14.7 s–19.5 s) | 8 (8–9)   | 7 (7–8)    | 1.2 s (0.7 s–1.3 s)  | 36.0k (26.4k–36.6k) | 156.9k (146.9k–161.8k) | 1.3k (1.3k–1.4k) | $0.096 ($0.089–$0.102) |
 
-1. **Opus used `run_steps` in every `batch` run** (9 of 9) without being asked, against 6 of 9 for Sonnet with the same instructions.
-2. **Batching cut Opus's time by about a third on the form scenarios.** `signup` was 34% faster than `single` mode (18.7 s to 12.4 s, 11 turns to 4). `settings-login` was 29% faster (29.8 s to 21.2 s, 17 turns to 7) and 10% cheaper. `signup` cost stayed about the same, at $0.111 against $0.113.
-3. **Opus handled the payment waits better when batching.** All 3 `batch` runs passed, with a median of 1.5 s of server time (at most 4.0 s) and no long waits, against 13–15 s per run lost to timed-out waits for Sonnet.
-4. **In `single` mode, Opus gave up on the payment in 2 of 3 runs.** After two "card declined" responses, it stopped and reported that it couldn't pay instead of trying a third time, although the task says a payment may fail temporarily. This is the model's judgment about a card decline, not a tool failure, and no Sonnet run did it. A clearer error message on the fixture page (for example "temporarily unavailable") would separate the two, at the cost of comparability with the runs above.
-5. **Opus is slower and costs more per task than Sonnet here.** It cost 1.6–1.9 times as much in every scenario and mode. It took 1.2–1.6 times as long, with one exception: `payment-retry` in `batch` mode, where Opus was faster because Sonnet lost time to timed-out waits. The turn counts were similar (within 1 turn, except in `payment-retry`), so the extra time goes into each turn. Model time was a median 90% of wall time.
-6. **The first run of each series costs about $0.20**, because it writes about 21k tokens to the prompt cache. The medians hide this, and the ranges show it.
+</details>
+
+<details>
+<summary>Sonnet 5.5, medium effort, on <code>4fe0706</code>: 9 runs, $0.77</summary>
+
+| Scenario         | Mode    | OK  | Wall time              | Turns     | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | ------- | --- | ---------------------- | --------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | `batch` | 3/3 | 8.7 s (8.6 s–9.8 s)    | 5         | 4          | 1.0 s (0.9 s–1.0 s) | 17.0k (17.0k–17.0k) | 80.9k (80.9k–81.0k)    | 0.7k (0.7k–0.7k) | $0.060 ($0.060–$0.117) |
+| `payment-retry`  | `batch` | 3/3 | 17.9 s (16.1 s–21.5 s) | 10 (9–13) | 9 (8–12)   | 1.9 s (1.3 s–2.9 s) | 11.6k (10.2k–13.4k) | 139.9k (117.9k–164.2k) | 1.2k (1.0k–1.4k) | $0.072 ($0.063–$0.083) |
+| `settings-login` | `batch` | 3/3 | 19.7 s (19.5 s–23.7 s) | 9 (8–10)  | 8 (7–9)    | 1.3 s (1.0 s–1.3 s) | 23.6k (18.3k–24.5k) | 161.7k (160.2k–208.4k) | 1.4k (1.3k–1.5k) | $0.101 ($0.097–$0.114) |
+
+</details>
+
+<details>
+<summary>Model comparison on <code>c853f22</code>: five models, 45 runs, $3.00 ($0.68 of it estimated for GPT)</summary>
+
+| Build   | Model                     | Effort | Scenario       | Mode  | OK  | Wall time              | Turns      | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ------- | ------------------------- | ------ | -------------- | ----- | --- | ---------------------- | ---------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| c853f22 | claude-haiku-4-5-20251001 | medium | signup         | batch | 3/3 | 18.9 s (17.7 s–20.2 s) | 5 (5–6)    | 4 (4–5)    | 3.0 s (2.1 s–3.0 s)   | 16.0k (16.0k–17.9k) | 102.1k (102.1k–126.5k) | 1.5k (1.3k–1.5k) | $0.044 ($0.041–$0.065) |
+| c853f22 | claude-haiku-4-5-20251001 | medium | payment-retry  | batch | 3/3 | 28.6 s (20.1 s–40.8 s) | 7 (6–9)    | 6 (5–8)    | 10.2 s (6.1 s–18.5 s) | 8.3k (7.6k–15.0k)   | 156.2k (128.2k–202.9k) | 1.4k (1.1k–1.9k) | $0.052 ($0.044–$0.062) |
+| c853f22 | claude-haiku-4-5-20251001 | medium | settings-login | batch | 3/3 | 31.0 s (28.1 s–31.6 s) | 10 (9–11)  | 9 (8–10)   | 2.3 s (2.2 s–3.0 s)   | 22.2k (21.3k–30.4k) | 240.0k (202.1k–257.4k) | 2.4k (2.0k–2.5k) | $0.072 ($0.060–$0.073) |
+| c853f22 | claude-opus-5-5           | medium | signup         | batch | 3/3 | 12.5 s (12.0 s–14.0 s) | 4 (4–5)    | 3 (3–4)    | 0.9 s (0.9 s–1.0 s)   | 18.5k (17.3k–18.7k) | 78.4k (78.1k–81.7k)    | 0.6k (0.6k–0.7k) | $0.094 ($0.092–$0.227) |
+| c853f22 | claude-opus-5-5           | medium | payment-retry  | batch | 3/3 | 13.3 s (13.2 s–16.5 s) | 4          | 3          | 3.8 s (3.8 s–3.8 s)   | 21.8k (21.8k–23.5k) | 76.9k (76.9k–77.2k)    | 0.5k (0.5k–0.5k) | $0.084 ($0.084–$0.088) |
+| c853f22 | claude-opus-5-5           | medium | settings-login | batch | 3/3 | 19.5 s (19.3 s–20.3 s) | 7 (6–7)    | 6 (5–6)    | 1.5 s (1.2 s–1.6 s)   | 25.9k (25.9k–27.6k) | 149.5k (126.0k–149.6k) | 1.3k (1.3k–1.3k) | $0.145 ($0.143–$0.146) |
+| c853f22 | claude-sonnet-5-5         | medium | signup         | batch | 3/3 | 19.1 s (9.4 s–19.9 s)  | 5          | 4          | 10.1 s (0.9 s–10.2 s) | 14.7k (14.7k–17.0k) | 80.4k (80.4k–81.0k)    | 0.7k (0.7k–0.7k) | $0.058 ($0.058–$0.061) |
+| c853f22 | claude-sonnet-5-5         | medium | payment-retry  | batch | 3/3 | 20.0 s (16.7 s–20.6 s) | 11 (10–11) | 10 (9–10)  | 1.8 s (1.3 s–1.8 s)   | 13.4k (10.3k–13.6k) | 142.3k (140.0k–148.2k) | 1.3k (1.2k–1.3k) | $0.077 ($0.072–$0.081) |
+| c853f22 | claude-sonnet-5-5         | medium | settings-login | batch | 3/3 | 17.7 s (16.9 s–18.8 s) | 9 (7–9)    | 8 (6–8)    | 1.2 s (0.8 s–3.6 s)   | 28.5k (21.0k–34.8k) | 178.6k (157.1k–182.2k) | 1.3k (1.2k–1.5k) | $0.103 ($0.092–$0.104) |
+| c853f22 | gpt-6-luna                | medium | signup         | batch | 3/3 | 33.7 s (28.0 s–43.2 s) | 8 (6–8)    | 7 (5–7)    | 0.9 s (0.6 s–8.0 s)   | 19.9k (19.1k–22.8k) | 189.2k (139.9k–189.9k) | 0.7k (0.5k–0.7k) | $0.005 ($0.004–$0.005) |
+| c853f22 | gpt-6-luna                | medium | payment-retry  | batch | 3/3 | 37.3 s (32.7 s–40.7 s) | 12 (8–12)  | 11 (7–11)  | 0.1 s (0.1 s–3.7 s)   | 11.7k (11.5k–17.3k) | 275.7k (188.2k–275.9k) | 0.8k (0.7k–0.9k) | $0.005 ($0.005–$0.005) |
+| c853f22 | gpt-6-luna                | medium | settings-login | batch | 3/3 | 37.0 s (33.5 s–49.6 s) | 10 (10–11) | 9 (9–10)   | 0.1 s (0.1 s–0.1 s)   | 24.9k (24.6k–26.2k) | 250.9k (248.3k–273.2k) | 0.9k (0.9k–1.0k) | $0.006 ($0.006–$0.007) |
+| c853f22 | gpt-6.1-sol               | medium | signup         | batch | 3/3 | 46.0 s (43.2 s–76.9 s) | 6          | 5          | 0.1 s (0.1 s–0.1 s)   | 17.9k (17.2k–17.9k) | 128.1k (126.9k–128.2k) | 0.5k (0.5k–0.5k) | $0.076 ($0.075–$0.076) |
+| c853f22 | gpt-6.1-sol               | medium | payment-retry  | batch | 3/3 | 53.2 s (52.4 s–54.1 s) | 7          | 6          | 2.6 s (2.6 s–2.6 s)   | 16.5k (15.6k–16.7k) | 170.4k (167.6k–170.7k) | 0.6k (0.6k–0.6k) | $0.060 ($0.059–$0.079) |
+| c853f22 | gpt-6.1-sol               | medium | settings-login | batch | 3/3 | 58.8 s (57.2 s–93.6 s) | 7 (6–7)    | 6 (5–6)    | 0.7 s (0.7 s–0.8 s)   | 23.1k (23.1k–23.2k) | 149.6k (149.5k–152.9k) | 0.8k (0.8k–0.8k) | $0.067 ($0.059–$0.079) |
+
+GPT costs are estimates; see [Method](#method).
+
+</details>
+
+<details>
+<summary>Fable 5.1 and GPT-6-Astra on <code>36ca114</code>: 18 runs, $7.34 ($4.29 of it estimated for GPT)</summary>
+
+| Build   | Model            | Effort | Scenario       | Mode  | OK  | Wall time              | Turns   | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ------- | ---------------- | ------ | -------------- | ----- | --- | ---------------------- | ------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| 36ca114 | claude-fable-5-1 | medium | signup         | batch | 3/3 | 15.5 s (12.7 s–16.1 s) | 5 (4–5) | 4 (3–4)    | 1.2 s (0.9 s–1.3 s)   | 14.4k (14.0k–19.5k) | 88.9k (88.6k–89.5k)    | 0.8k (0.8k–0.9k) | $0.306 ($0.304–$0.599) |
+| 36ca114 | claude-fable-5-1 | medium | payment-retry  | batch | 3/3 | 16.2 s (15.5 s–23.2 s) | 4       | 3          | 3.8 s (3.7 s–3.8 s)   | 21.8k (21.8k–21.8k) | 84.6k (84.5k–84.6k)    | 0.5k (0.5k–0.5k) | $0.237 ($0.237–$0.238) |
+| 36ca114 | claude-fable-5-1 | medium | settings-login | batch | 3/3 | 25.6 s (23.9 s–44.0 s) | 7 (6–7) | 6 (5–6)    | 1.7 s (1.7 s–1.7 s)   | 25.0k (25.0k–26.4k) | 162.1k (136.6k–162.2k) | 1.4k (1.3k–1.5k) | $0.376 ($0.362–$0.383) |
+| 36ca114 | gpt-6-astra      | medium | signup         | batch | 3/3 | 25.5 s (25.2 s–28.7 s) | 4       | 3          | 0.9 s (0.9 s–0.9 s)   | 16.7k (16.6k–16.9k) | 100.5k (100.4k–100.5k) | 0.4k (0.4k–0.4k) | $0.381 ($0.380–$0.559) |
+| 36ca114 | gpt-6-astra      | medium | payment-retry  | batch | 3/3 | 50.5 s (48.2 s–51.2 s) | 7       | 6          | 2.5 s (2.5 s–2.6 s)   | 15.1k (15.1k–16.7k) | 168.6k (167.5k–168.7k) | 0.5k (0.5k–0.6k) | $0.448 ($0.444–$0.448) |
+| 36ca114 | gpt-6-astra      | medium | settings-login | batch | 3/3 | 80.5 s (42.0 s–93.2 s) | 8 (6–9) | 7 (5–8)    | 10.1 s (0.7 s–20.9 s) | 25.3k (23.7k–28.1k) | 204.3k (149.5k–236.1k) | 1.0k (0.7k–1.2k) | $0.521 ($0.445–$0.667) |
+
+GPT costs are estimates; see [Method](#method).
+
+</details>

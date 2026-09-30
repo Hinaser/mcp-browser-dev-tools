@@ -548,3 +548,160 @@ test("CdpSession type presses Enter for newlines like the Firefox path", async (
     ],
   );
 });
+
+test("CdpSession page action errors carry the thrown message, not Uncaught", async () => {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+  session.send = async () => ({
+    exceptionDetails: {
+      text: "Uncaught",
+      exception: {
+        description:
+          "Error: No matching <option> found\n    at runAction (<anonymous>:1:2)",
+      },
+    },
+  });
+
+  await assert.rejects(
+    session.select("select", { label: "日本語" }),
+    /^Error: No matching <option> found$/,
+  );
+  for (const [exception, message] of [
+    [{ type: "string", value: "No matching option" }, "No matching option"],
+    [{ type: "number", value: 42 }, "42"],
+    [{ type: "object", subtype: "null", value: null }, "null"],
+    [undefined, "Uncaught"],
+  ]) {
+    session.send = async () => ({
+      exceptionDetails: { text: "Uncaught", exception },
+    });
+    await assert.rejects(session.select("select", { label: "x" }), {
+      message,
+    });
+  }
+});
+
+function createEvaluateSession(responses) {
+  const session = new CdpSession(
+    {
+      targetId: "target-1",
+      title: "Example",
+      url: "https://example.com",
+      webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/target-1",
+    },
+    { config: { browserFamily: "chromium" } },
+  );
+  const sent = [];
+  session.send = async (method, params) => {
+    sent.push({ method, params });
+    return responses[method] ?? {};
+  };
+  return { session, sent };
+}
+
+test("CdpSession evaluate awaits a promise the expression returns", async () => {
+  const { session, sent } = createEvaluateSession({
+    "Runtime.evaluate": {
+      result: { type: "object", subtype: "promise", objectId: "promise-1" },
+    },
+    "Runtime.awaitPromise": { result: { type: "number", value: 5 } },
+  });
+
+  assert.deepEqual(await session.evaluate("Promise.resolve(5)"), {
+    result: 5,
+    exceptionDetails: null,
+  });
+  assert.equal(sent[0].params.replMode, true);
+  assert.equal(sent[0].params.returnByValue, false);
+  assert.deepEqual(sent[1], {
+    method: "Runtime.awaitPromise",
+    params: { promiseObjectId: "promise-1", returnByValue: true },
+  });
+  assert.deepEqual(sent[2], {
+    method: "Runtime.releaseObject",
+    params: { objectId: "promise-1" },
+  });
+});
+
+test("CdpSession evaluate reads objects by value and reports rejections", async () => {
+  const objects = createEvaluateSession({
+    "Runtime.evaluate": { result: { type: "object", objectId: "object-1" } },
+    "Runtime.callFunctionOn": {
+      result: { type: "object", value: { a: 1 } },
+    },
+  });
+  assert.deepEqual((await objects.session.evaluate("({ a: 1 })")).result, {
+    a: 1,
+  });
+  assert.equal(objects.sent[1].params.objectId, "object-1");
+  assert.equal(objects.sent[1].params.returnByValue, true);
+
+  const rejected = createEvaluateSession({
+    "Runtime.evaluate": {
+      result: { type: "object", subtype: "promise", objectId: "promise-1" },
+    },
+    "Runtime.awaitPromise": {
+      result: { type: "object", subtype: "error", objectId: "error-1" },
+      exceptionDetails: { text: "Uncaught (in promise) Error: nope" },
+    },
+  });
+  assert.deepEqual(await rejected.session.evaluate("Promise.reject()"), {
+    result: null,
+    exceptionDetails: { text: "Uncaught (in promise) Error: nope" },
+  });
+
+  const unawaited = createEvaluateSession({
+    "Runtime.evaluate": {
+      result: {
+        type: "object",
+        subtype: "promise",
+        objectId: "promise-1",
+        description: "Promise",
+      },
+    },
+  });
+  assert.equal(
+    (
+      await unawaited.session.evaluate("Promise.resolve(1)", {
+        awaitPromise: false,
+        returnByValue: false,
+      })
+    ).result,
+    "Promise",
+  );
+  assert.deepEqual(
+    unawaited.sent.map(({ method }) => method),
+    ["Runtime.evaluate", "Runtime.releaseObject"],
+  );
+});
+
+test("CdpSession evaluate releases exception objects too", async () => {
+  const { session, sent } = createEvaluateSession({
+    "Runtime.evaluate": {
+      result: { type: "object", subtype: "promise", objectId: "promise-1" },
+    },
+    "Runtime.awaitPromise": {
+      result: { type: "object", subtype: "error", objectId: "error-1" },
+      exceptionDetails: {
+        text: "Uncaught (in promise)",
+        exception: { type: "object", subtype: "error", objectId: "error-1" },
+      },
+    },
+  });
+
+  await session.evaluate("Promise.reject(new Error('nope'))");
+
+  assert.deepEqual(
+    sent
+      .filter(({ method }) => method === "Runtime.releaseObject")
+      .map(({ params }) => params.objectId),
+    ["promise-1", "error-1"],
+  );
+});

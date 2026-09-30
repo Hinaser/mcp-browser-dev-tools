@@ -8,6 +8,28 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `run_steps` accepts a `repeat` step (`steps`, `until`, `max`) that runs its steps, checks `until` once, and repeats until it holds, at most `max` passes (default 5, at most 10), so retry and polling flows need no round trip per attempt
+- `wait_for` and `run_steps` conditions accept `anyOf` to hold when any one of several conditions holds, reporting `matchedIndex`, and `textExcludes` to hold once a selector's text no longer contains a string
+- `click`, `hover`, `type`, `select`, and `press_key` (with `selector`) retry while their element is missing, for up to `timeoutMs` (default 2000; `0` fails at once), and report `waitedMs` when they retried; `click` and `hover` also retry while it is covered or outside the viewport, and `click` while it is disabled
+- `wait_for` and `run_steps` conditions accept `expression`, JavaScript that holds when its result (awaited if it is a promise) is truthy; an expression that throws fails at once with the error, and the field is left out when `MCP_BROWSER_ENABLE_EVAL=0`
+- A failed `run_steps` batch returns a `page` field with the URL, title, and up to 40 visible controls, each with a locator the tools accept
+
+### Changed
+
+- `click` on a disabled element (including one inside a disabled `<fieldset>`) now fails after its `timeoutMs` instead of sending a click that does nothing, and `inspect_element` reports such elements as disabled
+- Form fields wrapped in a `<label>` take their accessible name from that label, so `role=` and `name=` locators find them by label text, and a password field never uses its value as its accessible name
+- `name=` locators that match a `<label>` resolve to the control it labels when that control is visible, so `name=Username` types into the field instead of failing on its label
+- Text conditions (`textEquals`, `textIncludes`, `textExcludes`) compare the element's full visible text in the page instead of the first 400 characters, so they work on long elements such as `body`; results still report text clipped to 400 characters
+
+### Fixed
+
+- On Chromium, `evaluate_js` awaits a promise the expression returns, as `awaitPromise` describes, instead of returning `{}`; a rejected promise is reported in `exceptionDetails`, and a thrown error leaves `result` null as on Firefox
+- On Firefox, `evaluate_js` accepts top-level `await`, as it already did on Chromium: such code runs inside an async function that returns the value of its last expression statement
+- With `MCP_BROWSER_FAMILY=auto` (the default), `evaluate_js` passes its `awaitPromise` and `returnByValue` options to the browser instead of dropping them
+- On Chromium, an error thrown inside a page action (for example "No matching <option> found" from `select`) is reported with its message instead of "Uncaught"
+
 ## [0.1.0] - 2026-09-30
 
 This release lets an agent act on a page and check the result in one tool
