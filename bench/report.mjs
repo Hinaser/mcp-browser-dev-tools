@@ -1,12 +1,15 @@
 // Turns benchmark result files into the tables and charts in PERFORMANCE.md.
 //
 //   node bench/report.mjs --out docs/images bench/results/*.jsonl
+//   node bench/report.mjs --out docs/images --per-model bench/results/*.jsonl
 //
 // Prints one Markdown table per model, effort, and mode, with the median and
 // range of each metric per scenario, and writes one SVG bar chart per metric
 // (wall time, turns, cost) to --out, with one bar per model and mode in each
-// scenario. The charts follow the colors of docs/images and switch with the
-// reader's color scheme.
+// scenario. With --per-model, each chart instead has one bar per model and
+// mode: the average over the scenarios of that scenario's median, for
+// comparing models. The charts follow the colors of docs/images and switch
+// with the reader's color scheme.
 
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,7 +17,10 @@ import { parseArgs } from "node:util";
 
 const { values: options, positionals: files } = parseArgs({
   allowPositionals: true,
-  options: { out: { type: "string" } },
+  options: {
+    out: { type: "string" },
+    "per-model": { type: "boolean", default: false },
+  },
 });
 
 // A run records null for a metric it could not measure; those are left out.
@@ -52,6 +58,9 @@ const MODEL_NAMES = {
   "claude-opus-5-5": "Opus 5.5",
   "claude-sonnet-5-5": "Sonnet 5.5",
   "claude-haiku-4-5-20251001": "Haiku 4.5",
+  "gpt-6-astra": "GPT-6-Astra",
+  "gpt-6.1-sol": "GPT-6.1 Sol",
+  "gpt-6-luna": "GPT-6-Luna",
 };
 
 const modelName = (model) =>
@@ -193,8 +202,14 @@ if (options.out) {
     );
   }
   for (const metric of METRICS.filter((m) => m.chart)) {
-    const file = join(options.out, metric.chart.file);
-    await writeFile(file, chart(metric));
+    const name = options["per-model"]
+      ? metric.chart.file.replace("bench-", "bench-model-")
+      : metric.chart.file;
+    const file = join(options.out, name);
+    await writeFile(
+      file,
+      options["per-model"] ? perModelChart(metric) : chart(metric),
+    );
     console.log(`wrote ${file}`);
   }
 }
@@ -275,6 +290,63 @@ function chart(metric) {
     );
   });
 
+  parts.push("</svg>", "");
+  return parts.join("\n");
+}
+
+// One bar per model and mode: the average over the scenarios of the
+// scenario's median, so a model's bar is comparable across models that ran
+// the same scenarios.
+function perModelChart(metric) {
+  const list = [...series.values()];
+  const values = list.map((entry) => {
+    const medians = [...entry.groups.values()]
+      .map((runs) => median(runs.map(metric.read)))
+      .filter((v) => v !== null)
+      .map((v) => v * metric.chart.scale);
+    return medians.length
+      ? medians.reduce((sum, v) => sum + v, 0) / medians.length
+      : 0;
+  });
+  const top = niceCeiling(Math.max(0, ...values) || 1);
+
+  const width = 880;
+  const left = 56;
+  const right = 24;
+  const bottom = 56;
+  const headroom = 44;
+  const plotHeight = 240;
+  const height = headroom + plotHeight + bottom;
+  const plotWidth = width - left - right;
+  const slot = plotWidth / list.length;
+  const barWidth = Math.min(64, slot * 0.6);
+  const y = (v) => headroom + plotHeight - (v / top) * plotHeight;
+
+  const parts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc">`,
+    `  <title id="title">${escape(metric.label)} per task by model</title>`,
+    `  <desc id="desc">${escape(list.map((entry, i) => `${entry.label} ${metric.chart.label(values[i])}`).join(", "))}</desc>`,
+    style(),
+    `  <rect class="bg" x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" />`,
+    `  <text class="text sans" x="${left}" y="28" font-size="16" font-weight="600">${escape(metric.label)} per task${metric.unit ? ` (${metric.unit})` : ""}, average over the scenarios</text>`,
+  ];
+  const ticks = 4;
+  for (let t = 0; t <= ticks; t += 1) {
+    const v = (top / ticks) * t;
+    parts.push(
+      `  <line class="rule" x1="${left}" x2="${width - right}" y1="${y(v)}" y2="${y(v)}" />`,
+      `  <text class="muted sans" x="${left - 8}" y="${y(v) + 4}" font-size="11" text-anchor="end">${formatTick(v)}</text>`,
+    );
+  }
+  list.forEach((entry, i) => {
+    const center = left + i * slot + slot / 2;
+    const v = values[i];
+    parts.push(
+      `  <rect class="s${i}" x="${center - barWidth / 2}" y="${y(v)}" width="${barWidth}" height="${Math.max(1, y(0) - y(v))}" rx="3" />`,
+      `  <text class="text sans" x="${center}" y="${y(v) - 5}" font-size="11" text-anchor="middle">${metric.chart.label(v)}</text>`,
+      `  <text class="text sans" x="${center}" y="${height - bottom + 22}" font-size="12" text-anchor="middle">${escape(entry.label)}</text>`,
+    );
+  });
   parts.push("</svg>", "");
   return parts.join("\n");
 }
