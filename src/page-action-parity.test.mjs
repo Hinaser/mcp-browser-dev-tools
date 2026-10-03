@@ -67,6 +67,7 @@ const CASES = [
   ["getCookies"],
   ["getStorage"],
   ["snapshotControls"],
+  ["snapshotPage", { limit: 100, headings: true }],
   ["readText", { maxChars: 8000, links: true, maxLinks: 50 }],
   ["readText", { selector: "article", maxChars: 100, links: false }],
   ["inspectElement", "#status"],

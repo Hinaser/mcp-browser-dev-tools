@@ -308,6 +308,10 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "snapshotControls");
   }
 
+  snapshotPage(sessionId, options) {
+    return this.delegateSession(sessionId, "snapshotPage", [options]);
+  }
+
   inspectElement(sessionId, selector, options) {
     return this.delegateSession(sessionId, "inspectElement", [
       selector,

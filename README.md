@@ -142,12 +142,12 @@ Opus retried the payment inside a single `repeat` step. The last row uses `run_t
 
 ## Tools
 
-38 tools, described in [docs/tools.md](docs/tools.md):
+39 tools, described in [docs/tools.md](docs/tools.md):
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `type`, `select`, `press_key`, `scroll`, `set_viewport`
 - **Wait and batch:** `wait_for`, `run_steps`, `run_tabs`
-- **Inspect:** `get_page_state`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
+- **Inspect:** `get_page_state`, `get_snapshot`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
 - **Console and network:** `get_console_messages`, `get_network_requests`, `get_events`, `get_har`
 - **Session state:** `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `compare_page_state`, `compare_selector`, `capture_debug_report`
 

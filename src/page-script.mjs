@@ -182,6 +182,7 @@ export function pageScript(payload) {
     if (tag === "button") return "button";
     if (tag === "dialog") return "dialog";
     if (tag === "img") return "img";
+    if (/^h[1-6]$/.test(tag)) return "heading";
     if (tag === "select") return "combobox";
     if (tag === "textarea") return "textbox";
     if (tag === "option") return "option";
@@ -371,6 +372,77 @@ export function pageScript(payload) {
     };
   }
 
+  // Refs (e12) name elements across calls: get_snapshot hands them out and
+  // ref= locators look them up. The registry lives on the window, so it
+  // lasts until the page navigates, and an element keeps its ref between
+  // snapshots. Numbering continues from payload.refStart, which the server
+  // carries across navigations, so a ref from an earlier page never names
+  // an element on a later one. Elements that left the document are dropped
+  // at each snapshot, so the registry does not keep an SPA's old trees alive.
+  const REF_REGISTRY_KEY = "__mcpBrowserDevToolsRefs";
+
+  function refRegistry() {
+    let registry = window[REF_REGISTRY_KEY];
+    if (!registry) {
+      registry = { next: 1, byRef: new Map(), byElement: new WeakMap() };
+      Object.defineProperty(window, REF_REGISTRY_KEY, {
+        value: registry,
+        enumerable: false,
+        configurable: true,
+        writable: false,
+      });
+    }
+    const start = Number(payload.refStart);
+    if (start > registry.next) {
+      registry.next = start;
+    }
+    return registry;
+  }
+
+  function pruneRefs(registry) {
+    for (const [ref, element] of registry.byRef) {
+      if (!element.isConnected) {
+        registry.byRef.delete(ref);
+        registry.byElement.delete(element);
+      }
+    }
+  }
+
+  function refFor(element) {
+    const registry = refRegistry();
+    let ref = registry.byElement.get(element);
+    if (!ref) {
+      ref = "e" + registry.next++;
+      registry.byElement.set(element, ref);
+      registry.byRef.set(ref, element);
+    }
+    return ref;
+  }
+
+  function resolveRef(query) {
+    const registry = window[REF_REGISTRY_KEY];
+    const element = registry?.byRef.get(query) ?? null;
+    if (!element) {
+      return {
+        element: null,
+        error:
+          "Unknown ref " +
+          query +
+          ": refs come from get_snapshot on this page and a navigation invalidates them; call get_snapshot again",
+      };
+    }
+    if (!element.isConnected) {
+      return {
+        element: null,
+        error:
+          "Stale ref " +
+          query +
+          ": its element left the document; call get_snapshot again",
+      };
+    }
+    return { element };
+  }
+
   function parseRoleLocator(value) {
     const match = value.match(
       /^([^[]+?)(?:\[name=(?:"([^"]*)"|'([^']*)')\])?$/,
@@ -459,6 +531,7 @@ export function pageScript(payload) {
   function describeControl(element, role) {
     const name = normalizeText(getAccessibleName(element));
     const control = {
+      ref: refFor(element),
       locator: suggestLocator(element, role, name),
       role,
     };
@@ -491,25 +564,111 @@ export function pageScript(payload) {
     return control;
   }
 
-  // Lists the visible controls on the page, so an agent can fix a failed
-  // step without another round trip to look around.
-  function snapshotControls() {
+  function describeHeading(element) {
+    const tag = element.tagName.toLowerCase();
+    const level = /^h[1-6]$/.test(tag)
+      ? Number(tag.slice(1))
+      : Number(element.getAttribute("aria-level")) || 2;
+    return {
+      ref: refFor(element),
+      role: "heading",
+      level,
+      name: clipText(
+        normalizeText(getAccessibleName(element)),
+        SNAPSHOT_TEXT_LIMIT,
+      ),
+    };
+  }
+
+  // Lists the visible controls on the page (and its headings, when asked),
+  // in document order, so an agent can decide what to do next, or fix a
+  // failed step, without another round trip to look around.
+  function snapshotControls(options = {}) {
+    pruneRefs(refRegistry());
+    const limit = options.limit ?? SNAPSHOT_LIMIT;
+    const root = options.root ?? document;
+    const candidates =
+      root === document
+        ? collectCandidates()
+        : Array.from(root.querySelectorAll("*"));
+    if (root !== document && root !== document.body) {
+      candidates.unshift(root);
+    }
     const controls = [];
     let more = 0;
-    for (const element of collectCandidates()) {
+    for (const element of candidates) {
       const role = inferRole(element);
       const editable =
         element.hasAttribute("contenteditable") && element.isContentEditable;
-      if (!(CONTROL_ROLES.includes(role) || editable) || !isVisible(element)) {
+      const heading = options.headings && role === "heading";
+      if (
+        !(CONTROL_ROLES.includes(role) || editable || heading) ||
+        !isVisible(element)
+      ) {
         continue;
       }
-      if (controls.length >= SNAPSHOT_LIMIT) {
+      if (controls.length >= limit) {
         more += 1;
         continue;
       }
-      controls.push(describeControl(element, role ?? "textbox"));
+      controls.push(
+        heading
+          ? describeHeading(element)
+          : describeControl(element, role ?? "textbox"),
+      );
     }
-    return { controls, moreControls: more };
+    return { controls, moreControls: more, nextRef: refRegistry().next };
+  }
+
+  // One line per node, compact enough to send on every turn:
+  //   e3 textbox "Email" value="ada@example.com"
+  //   e4 checkbox "Accept terms" checked
+  function formatSnapshotLine(node) {
+    const parts = [
+      node.ref,
+      node.role === "heading" ? "h" + node.level : node.role,
+    ];
+    if (node.name) {
+      parts.push(JSON.stringify(node.name));
+    }
+    if (node.value !== undefined) {
+      parts.push("value=" + JSON.stringify(node.value));
+    }
+    if (node.checked !== undefined) {
+      parts.push(node.checked ? "checked" : "unchecked");
+    }
+    if (node.disabled) {
+      parts.push("disabled");
+    }
+    return parts.join(" ");
+  }
+
+  function snapshotPage() {
+    const result = {
+      browserFamily: payload.browserFamily,
+      url: location.href,
+      title: document.title,
+    };
+    let root = document;
+    if (payload.selector) {
+      const resolved = ensureResolved(payload.selector);
+      if (!resolved.element) {
+        return { ...result, ...resolved };
+      }
+      root = resolved.element;
+    }
+    const { controls, moreControls, nextRef } = snapshotControls({
+      root,
+      limit: payload.limit,
+      headings: payload.headings !== false,
+    });
+    return {
+      ...result,
+      found: true,
+      nodes: controls.map(formatSnapshotLine),
+      more: moreControls,
+      nextRef,
+    };
   }
 
   function describePage() {
@@ -650,6 +809,16 @@ export function pageScript(payload) {
     const locator = typeof rawLocator === "string" ? rawLocator.trim() : "";
     if (!locator) {
       throw new Error("selector must be a non-empty string");
+    }
+
+    if (locator.startsWith("ref=")) {
+      const query = locator.slice(4).trim();
+      const { element, error } = resolveRef(query);
+      const resolved = { locator, strategy: "ref", query, element };
+      if (error) {
+        resolved.error = error;
+      }
+      return resolved;
     }
 
     if (locator.startsWith("text=")) {
@@ -1079,6 +1248,8 @@ export function pageScript(payload) {
     switch (payload.action) {
       case "read_text":
         return readText();
+      case "snapshot":
+        return snapshotPage();
       case "controls_snapshot":
         return {
           browserFamily: payload.browserFamily,

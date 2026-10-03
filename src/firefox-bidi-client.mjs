@@ -14,6 +14,7 @@ import {
 } from "./page-context.mjs";
 import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
+import { takeNextRef } from "./page-context.mjs";
 
 const POINTER_SOURCE = {
   type: "pointer",
@@ -1420,9 +1421,23 @@ export class FirefoxBidiSessionManager {
     };
   }
 
+  async runSnapshotAction(sessionId, payload) {
+    const session = this.getSession(sessionId);
+    const result = await this.runPageAction(session, {
+      ...payload,
+      refStart: session.refStart ?? 1,
+    });
+    return takeNextRef(session, result);
+  }
+
   async snapshotControls(sessionId) {
-    return this.runPageAction(this.getSession(sessionId), {
-      action: "controls_snapshot",
+    return this.runSnapshotAction(sessionId, { action: "controls_snapshot" });
+  }
+
+  async snapshotPage(sessionId, options = {}) {
+    return this.runSnapshotAction(sessionId, {
+      action: "snapshot",
+      ...options,
     });
   }
 

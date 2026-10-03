@@ -80,6 +80,7 @@ The broker exposes stable, task-oriented MCP tools instead of raw protocol metho
 - `set_viewport`
 - `get_console_messages`
 - `get_network_requests`
+- `get_snapshot`
 - `get_document`
 - `inspect_element`
 - `take_screenshot`

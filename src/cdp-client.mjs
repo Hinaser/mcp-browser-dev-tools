@@ -13,6 +13,7 @@ import {
 } from "./page-context.mjs";
 import { buildCdpKeyEvents } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
+import { takeNextRef } from "./page-context.mjs";
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -881,8 +882,22 @@ export class CdpSession {
     };
   }
 
+  // Refs number on from the last snapshot, across navigations, so an old
+  // ref never names an element on a later page.
+  async runSnapshotAction(payload) {
+    const result = await this.runPageAction({
+      ...payload,
+      refStart: this.refStart ?? 1,
+    });
+    return takeNextRef(this, result);
+  }
+
   async snapshotControls() {
-    return this.runPageAction({ action: "controls_snapshot" });
+    return this.runSnapshotAction({ action: "controls_snapshot" });
+  }
+
+  async snapshotPage(options = {}) {
+    return this.runSnapshotAction({ action: "snapshot", ...options });
   }
 
   async readText(options = {}) {
@@ -1729,6 +1744,10 @@ export class CdpSessionManager {
 
   async snapshotControls(sessionId) {
     return this.getSession(sessionId).snapshotControls();
+  }
+
+  async snapshotPage(sessionId, options) {
+    return this.getSession(sessionId).snapshotPage(options);
   }
 
   async inspectElement(sessionId, selector, options) {
