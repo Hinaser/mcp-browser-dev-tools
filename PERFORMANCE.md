@@ -127,6 +127,23 @@ xychart-beta
 3. **One `settings-login` run took 15 turns because Chrome dropped its input.** Its clicks on the two checkboxes and on Save reported success while the checkboxes kept their state and no save request was sent, until the agent used JavaScript `click()` and `requestSubmit()`. The two GPT-6-Astra `settings-login` runs in the model comparison whose Save did nothing show the same thing. In all three, the clicks, and in one Astra run a `press_key` fallback, did nothing while JavaScript in the same page kept working, and every click returned in 1–4 ms, where the later clicks of passing runs took 14–18 ms: after the login redirect, Chrome acknowledged mouse and keyboard events to the tab without delivering them. What puts a tab in that state is still unknown. About 50 scripted runs of the login flow against the benchmark's headless Chrome, 28 of them replaying the failing run's calls through the server with varied timing, and 9 new GPT-6-Astra runs did not reproduce it; CDP's `Input.setIgnoreInputEvents` produces the same symptom, and the fix is tested with it. Since `aaf8b5b`, `click`, `type`, and `press_key` check that their input reached the page, and send it once more or fail with an error instead of reporting success. 6 more `settings-login` runs on that build (in [Full results](#full-results)) all passed in 7–9 turns; none of them hit the dropped input, so they show no regression rather than the fix at work.
 4. **Cost per task did not measurably change at 3 runs per scenario** ($0.92 against $0.97 for 12 runs each), because turn counts vary more than the per-turn saving. The saving shows most on long tasks, where every turn carries the definitions again, and in clients with a small context window.
 
+## Page snapshot with refs
+
+`38d4ed2` adds `get_snapshot`, which lists the page's visible headings and controls one line each with a ref (`e3 textbox "Email" value=""`), and lets every tool take `ref=e3` as its selector. The server instructions say to call it first. Sonnet 5.5, medium effort, `batch` mode, median of 3 runs, against `7e08336`:
+
+| Scenario         | `7e08336`: wall time · turns · response chars · cost | `38d4ed2`                   |
+| ---------------- | ---------------------------------------------------- | --------------------------- |
+| `signup`         | 11.1 s · 7 · 15.9k · $0.071                          | 9.7 s · 5 · 15.5k · $0.057  |
+| `payment-retry`  | 19.2 s · 10 · 13.6k · $0.070                         | 27.0 s · 12 · 8.2k · $0.068 |
+| `settings-login` | 17.6 s · 9 · 40.2k · $0.101                          | 12.7 s · 7 · 20.1k · $0.082 |
+| `research`       | 8.8 s · 4 · 10.7k · $0.046                           | 9.0 s · 4 · 10.7k · $0.047  |
+
+1. **Every form run started with `get_snapshot` and acted by ref.** All 9 `signup`, `payment-retry`, and `settings-login` runs called it once right after attaching (one `settings-login` run twice, after the login redirect), and used `ref=` selectors for every field and button. No run called `get_document` or `take_screenshot`, which earlier builds used to look at the page. `research` reads text rather than controls, so it never needed a snapshot and is unchanged.
+2. **`settings-login` lost 2 turns and half its response text.** The login form and the settings form each became one snapshot (about 300 characters) and one `run_steps` batch, where before the agent read the page with `read_text` or `get_document` and guessed locators. Response chars fell from 40.2k to 20.1k and cost from $0.101 to $0.082. One run still took 12 turns, because the agent clicked the three settings controls one call each instead of batching them; the snapshot was the same, so that is the model's choice.
+3. **`signup` lost 2 turns** for the same reason: one snapshot, one batch, one `wait_for`, and the answer.
+4. **`payment-retry` is unchanged in turns and cost, and slower on the median by chance.** The page has one button, so the snapshot saves nothing there; the run-to-run spread (20.8–31.4 s) comes from how the agent waits between attempts. One run lost 20 s to a `wait_for` on `#pay` with `textExcludes: "Processing"` that reached its timeout, as on `9f8f548`.
+5. **The snapshot is small.** A snapshot of the settings page is 6 lines; the same page from `get_document` at depth 2 is several kilobytes, and a screenshot is an image block. The saving shows in response chars rather than input tokens, which the per-turn tool definitions still dominate.
+
 ## Results by build
 
 Sonnet 5.5, medium effort. Each cell is the median wall time, turns, and server time; the full metrics are in [Full results](#full-results).
@@ -141,6 +158,7 @@ Sonnet 5.5, medium effort. Each cell is the median wall time, turns, and server 
 | `dfee9f9`  | `batch`        | `anyOf`, `textExcludes`, `repeat`; text conditions read the full text     | 16.3 s · 4 · 0.9 s  | 16.1 s · 11 · 1.7 s  | 16.7 s · 8 · 1.2 s  |
 | `4fe0706`  | `batch`        | Actions retry until their element is usable; failed batches list controls | 8.7 s · 5 · 1.0 s   | 17.9 s · 10 · 1.9 s  | 19.7 s · 9 · 1.3 s  |
 | `c853f22`  | `batch`        | Page action errors carry their message; `name=` finds labelled fields     | 19.1 s · 5 · 10.1 s | 20.0 s · 11 · 1.8 s  | 17.7 s · 9 · 1.2 s  |
+| `38d4ed2`  | `batch`        | `get_snapshot` lists controls with refs; `ref=` locators                  | 9.7 s · 5 · 0.1 s   | 27.0 s · 12 · 7.1 s  | 12.7 s · 7 · 0.1 s  |
 
 Notes:
 
@@ -149,6 +167,7 @@ Notes:
 - **`9f8f548`** made every `settings-login` run batch the form. Every `signup` run also started with a screenshot, likely prompted by the example.
 - **`dfee9f9` `signup`** includes one run that lost 10 s waiting for a `"."` the final message never contains; the other two took 11.8 s and 16.3 s with the same 4 turns. Every `payment-retry` run waited with `textExcludes`.
 - **`4fe0706`**: no action had to retry. One `settings-login` batch failed on `name=Username`, which resolved to the field's `<label>`, and its error said only "Uncaught"; the agent fixed it in one turn from the listed controls. `73692a2` reports the thrown message and resolves `name=` to the labelled control.
+- **`38d4ed2`**: every form run took one snapshot and acted by ref; see [Page snapshot with refs](#page-snapshot-with-refs). Its `payment-retry` server time is one run's timed-out `wait_for`.
 - **`c853f22`** is `73692a2` plus the Codex runner, from the model comparison. No step failed with an unexplained error. Two `signup` runs again lost 10 s each waiting for a `"."`, which accounts for its 19.1 s and 10.1 s of server time.
 
 Opus 5.5, high effort, against Sonnet's `single` baseline and its `batch` runs on `9f8f548` (median wall time, turns, cost):
@@ -213,7 +232,7 @@ The source of truth is `bench/scenarios.mjs` (task prompts and success checks) a
 
 ## Full results
 
-Every result so far was recorded on 2026-09-30 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Build `0a3318d*` is `0a3318d` plus the then-uncommitted timing log. Its `single` and `batch` runs used the fixtures from before two small fixes (the signup page now sends the terms checkbox, and a payment attempt decides its outcome by its own attempt number); neither changes what the agent sees or does.
+Every result up to `aaf8b5b` was recorded on 2026-09-30, and `38d4ed2` on 2026-10-04, with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Build `0a3318d*` is `0a3318d` plus the then-uncommitted timing log. Its `single` and `batch` runs used the fixtures from before two small fixes (the signup page now sends the terms checkbox, and a payment attempt decides its outcome by its own attempt number); neither changes what the agent sees or does.
 
 <details>
 <summary>Sonnet 5.5, medium effort, on <code>0a3318d*</code>: all three modes, 27 runs, $2.03</summary>
@@ -364,5 +383,17 @@ GPT costs are estimates; see [Method](#method).
 | Build     | Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | --------- | ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
 | `aaf8b5b` | `settings-login` | 6/6 | 15.9 s (13.6 s–20.7 s) | 9 (7–9) | 8 (6–8)    | 0.7 s (0.7 s–2.8 s) | 39.1k (22.8k–65.7k) | 164.3k (125.6k–194.9k) | 1.4k (1.1k–1.6k) | $0.109 ($0.089–$0.151) |
+
+</details>
+
+<details>
+<summary>Page snapshot with refs: Sonnet 5.5, medium effort, <code>batch</code> mode, on <code>38d4ed2</code> (12 runs, $0.81)</summary>
+
+| Build     | Scenario         | OK  | Wall time              | Turns     | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| --------- | ---------------- | --- | ---------------------- | --------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `38d4ed2` | `signup`         | 3/3 | 9.7 s (9.6 s–10.1 s)   | 5 (5–6)   | 4 (4–5)    | 0.1 s (0.1 s–0.1 s)  | 15.5k (12.7k–15.5k) | 93.4k (92.6k–93.4k)    | 0.7k (0.7k–0.8k) | $0.057 ($0.055–$0.109) |
+| `38d4ed2` | `payment-retry`  | 3/3 | 27.0 s (20.8 s–31.4 s) | 12 (7–13) | 11 (6–12)  | 7.1 s (1.5 s–20.1 s) | 8.2k (7.9k–8.2k)    | 129.1k (127.8k–184.5k) | 1.3k (0.8k–1.4k) | $0.068 ($0.058–$0.079) |
+| `38d4ed2` | `settings-login` | 3/3 | 12.7 s (12.3 s–17.7 s) | 7 (7–12)  | 6 (6–11)   | 0.1 s (0.1 s–0.2 s)  | 20.1k (17.3k–25.8k) | 139.6k (136.0k–157.2k) | 1.1k (1.0k–1.3k) | $0.082 ($0.075–$0.083) |
+| `38d4ed2` | `research`       | 3/3 | 9.0 s (8.7 s–11.3 s)   | 4         | 3          | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 72.0k (72.0k–72.1k)    | 0.5k (0.5k–0.6k) | $0.047 ($0.047–$0.047) |
 
 </details>
