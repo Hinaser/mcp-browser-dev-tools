@@ -1,6 +1,7 @@
 import { retryUntilActionable } from "../action-retry.mjs";
 import { parseKeyCombo } from "../keyboard.mjs";
 import { DEFAULT_DRAG_STEPS, MOUSE_BUTTONS } from "../page-context.mjs";
+import { allowedUploadDirs, resolveUploadPaths } from "../upload-files.mjs";
 import {
   actionTimeoutProperty,
   pointProperties,
@@ -234,6 +235,46 @@ export function actionTools(server) {
               args.timeoutMs,
             ),
           ),
+      },
+    ],
+    [
+      "upload_file",
+      {
+        definition: {
+          name: "upload_file",
+          description:
+            "Set files on a file input (or its label, or an element holding one; on Chromium also a button that opens a file chooser) and fire change events. Files must be in the working or temp directory or MCP_BROWSER_UPLOAD_DIRS. Returns changes.",
+          inputSchema: sessionSchema(
+            {
+              selector: selectorProperty(),
+              paths: {
+                type: "array",
+                maxItems: 20,
+                items: { type: "string" },
+                description: "Absolute file paths; [] clears the input.",
+              },
+              timeoutMs: actionTimeoutProperty(""),
+            },
+            ["selector", "paths"],
+          ),
+        },
+        handler: async (args, options) => {
+          const files = await resolveUploadPaths(
+            args.paths,
+            await allowedUploadDirs(server.config),
+          );
+          return reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () =>
+                server.browserAdapter.uploadFiles(
+                  args.sessionId,
+                  args.selector,
+                  files,
+                ),
+              args.timeoutMs,
+            ),
+          );
+        },
       },
     ],
     [

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export const DEFAULT_CDP_BASE_URL = "http://127.0.0.1:9222";
 export const DEFAULT_FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222";
 export const DEFAULT_EVENT_BUFFER_SIZE = 200;
@@ -130,6 +132,10 @@ export function loadConfig(env = process.env) {
     debugStdio: logging.debugStdio,
     logFile: logging.logFile,
     userDataDir: env.MCP_BROWSER_USER_DATA_DIR?.trim() || null,
+    uploadDirs: (env.MCP_BROWSER_UPLOAD_DIRS ?? "")
+      .split(path.delimiter)
+      .map((dir) => dir.trim())
+      .filter(Boolean),
     timingLogFile: env.MCP_BROWSER_TIMING_LOG?.trim() || null,
     protocolVersion:
       env.MCP_PROTOCOL_VERSION?.trim() || DEFAULT_PROTOCOL_VERSION,

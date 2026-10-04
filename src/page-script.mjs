@@ -195,6 +195,9 @@ export function pageScript(payload) {
       if (type === "checkbox") return "checkbox";
       if (type === "radio") return "radio";
       if (type === "range") return "slider";
+      // Not an ARIA role: it tells an agent to use upload_file, since a
+      // click opens a native file dialog.
+      if (type === "file") return "file";
       return "textbox";
     }
 
@@ -480,6 +483,7 @@ export function pageScript(payload) {
     "tab",
     "menuitem",
     "option",
+    "file",
   ];
 
   function resolvesTo(locator, element) {
@@ -553,6 +557,12 @@ export function pageScript(payload) {
       if (name && name === normalizeText(element.value)) {
         delete control.name;
       }
+    }
+    if (role === "file" && element.files) {
+      control.value = clipText(
+        Array.from(element.files, (file) => file.name).join(", "),
+        SNAPSHOT_TEXT_LIMIT,
+      );
     }
     // A password's value stays out, but whether it is filled is shown, so
     // typing one is visible in the snapshot and in an action's changes.
@@ -1532,6 +1542,53 @@ export function pageScript(payload) {
     );
   }
 
+  // upload_file takes the file input itself, a <label> for one, or an
+  // element with one inside (a styled upload area). The input is left on
+  // the window under the upload's token for the server to take a handle
+  // to, since only the browser protocol can set files.
+  const FILE_TARGET_KEY = "__mcpBrowserDevToolsFileTargets";
+
+  function fileInput() {
+    const resolved = ensureResolved(payload.selector);
+    if (!resolved.element) {
+      return resolved;
+    }
+    const element = resolved.element;
+    const isFileInput = (node) =>
+      node?.tagName === "INPUT" && node.type === "file";
+    const input = isFileInput(element)
+      ? element
+      : isFileInput(element.control)
+        ? element.control
+        : (element.querySelector?.('input[type="file"]') ?? null);
+    const result = {
+      browserFamily: payload.browserFamily,
+      selector: payload.selector,
+      found: true,
+      fileInput: Boolean(input),
+    };
+    if (!input) {
+      return result;
+    }
+    // Clearing is done here, so both browsers fire input and change.
+    if (payload.clear) {
+      input.value = "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ...result, cleared: true };
+    }
+    (window[FILE_TARGET_KEY] ?? defineHidden(FILE_TARGET_KEY, new Map())).set(
+      payload.token,
+      input,
+    );
+    return {
+      ...result,
+      multiple: Boolean(input.multiple),
+      accept: input.accept || null,
+      disabled: isDisabled(input),
+    };
+  }
+
   // The operation the browser proposes on dragenter and dragover for the
   // operations the source allows, per the HTML drag-and-drop model.
   function defaultDropEffect(allowed, isLink) {
@@ -2011,6 +2068,8 @@ export function pageScript(payload) {
       }
       case "html5_drag":
         return html5Drag();
+      case "file_input":
+        return fileInput();
       case "input_probe":
         return readInputProbe(payload.token, payload.disarm === true);
       case "prepare_type": {

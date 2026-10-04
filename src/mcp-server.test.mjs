@@ -1295,7 +1295,7 @@ test("the tool definitions and instructions stay within their size budget", asyn
   ).result;
 
   assert.ok(
-    JSON.stringify(tools).length <= 22_500,
+    JSON.stringify(tools).length <= 23_000,
     `tool definitions are ${JSON.stringify(tools).length} characters`,
   );
   assert.ok(instructions.length <= 1_600);
