@@ -11,7 +11,14 @@ release history retroactively.
 ### Added
 
 - `get_snapshot` lists the page's visible headings and controls, one line each with a ref such as `e12`, and every tool accepts `ref=e12` as its selector. It is the cheapest way to see what a page offers before acting, replacing `get_document` or a screenshot in most cases. Refs belong to the document that issued them, and a new document continues the numbering, so a stale or unknown ref fails with an error that says to take a new snapshot instead of naming another element. `run_steps` failure reports include a `ref` for each control
+- `click`, `hover`, `type`, `select`, and `press_key` return `changes`, what the action changed on the page: headings and controls added, removed, or updated, as `get_snapshot` lines with refs; text the action added, such as an error message or a toast; URL and title changes; console errors, uncaught exceptions, and dialogs; and, when the action loaded a new document, that document's snapshot. They first wait for the page to settle: until the DOM is quiet for 150 ms and the document, fetch, and XHR requests the action started have finished, for at most 2 s; after a navigation, until the new document is quiet and its own fetches are done, for at most 10 s. A `run_steps` batch containing these tools reports one `changes` for the whole batch. The server instructions and tool descriptions now present `changes` as the usual check after acting
+- `get_snapshot` marks a filled password field `filled`, still without its value
 - Headings (`h1` to `h6`) now have the inferred role `heading`, so `role=heading` locators and `inspect_element` report them
+
+### Fixed
+
+- Firefox sessions record requests that fail (`network.fetchError`), so `get_network_requests` and `get_har` report them as failed instead of unfinished
+- Firefox network requests carry a `resourceType` (`Document`, `Fetch`, `XHR`, or the request's destination) where Firefox reports one, instead of none
 
 ## [0.2.2] - 2026-10-01
 

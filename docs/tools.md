@@ -72,7 +72,7 @@ Interaction and inspection tools accept these locator forms:
 - role plus accessible name such as `role=button[name="Open settings"]`
 - accessible-name lookup such as `name=Open settings`
 
-`get_snapshot` is the cheapest way to see what a page offers. It lists the visible headings and controls in document order, one line each: the ref, the role (`h1` to `h6` for headings), the accessible name, and `value="…"`, `checked` or `unchecked`, and `disabled` where they apply, for example `e3 textbox "Email" value="ada@example.com"`. Pass `ref=e3` as the `selector` of any tool. An element keeps its ref across snapshots. Refs belong to the document that issued them: a new document gets new refs that continue the numbering, so an old ref never names a new element, and a document restored from the back/forward cache keeps its refs, which still name the same elements; a ref the page does not know, or whose element left the document, fails with an error that says to take a new snapshot. `limit` (default 100, at most 500) caps the lines and `more` counts the rest; `selector` restricts the snapshot to one element's subtree, and `headings: false` leaves headings out. Password fields are listed without their value. Called directly, the lines come back as plain text; as a `run_steps` step, they are the `nodes` array.
+`get_snapshot` is the cheapest way to see what a page offers. It lists the visible headings and controls in document order, one line each: the ref, the role (`h1` to `h6` for headings), the accessible name, and `value="…"`, `checked` or `unchecked`, and `disabled` where they apply, for example `e3 textbox "Email" value="ada@example.com"`. Pass `ref=e3` as the `selector` of any tool. An element keeps its ref across snapshots. Refs belong to the document that issued them: a new document gets new refs that continue the numbering, so an old ref never names a new element, and a document restored from the back/forward cache keeps its refs, which still name the same elements; a ref the page does not know, or whose element left the document, fails with an error that says to take a new snapshot. `limit` (default 100, at most 500) caps the lines and `more` counts the rest; `selector` restricts the snapshot to one element's subtree, and `headings: false` leaves headings out. Password fields never show their value; a filled one shows `filled`. Called directly, the lines come back as plain text; as a `run_steps` step, they are the `nodes` array.
 
 A form field's accessible name comes from `aria-label`, `aria-labelledby`, a `<label for>`, or a `<label>` wrapped around it (not counting the field's own text).
 
@@ -88,6 +88,28 @@ A form field's accessible name comes from `aria-label`, `aria-labelledby`, a `<l
 
 `output` changes how the image comes back. `image` returns an MCP image content block, with only the metadata in the JSON. `file` writes the decoded image to a file and returns its `path` instead of base64 data; passing `path` implies `file`. `path` must be absolute and end in `.png`, `.jpg`, `.jpeg`, or `.webp` (not `.webp` on Firefox), which also sets the format; missing parent directories are created. An existing file is only replaced with `overwrite: true`, and a symlink at `path` is replaced rather than written through. Without `path`, the image goes to a new private directory under the system temp directory. Files are created readable only by the current user. Without `output` or `path`, `take_screenshot` returns base64 data as before.
 
+### What an Action Changed
+
+`click`, `hover`, `type`, `select`, and `press_key` return a `changes` field that says what the action did to the page, so checking the result usually needs no screenshot, `get_snapshot`, or `wait_for`. Before the action, the page records its visible headings and controls as `get_snapshot` would. Afterwards the server waits for the page to settle: until the DOM has had no mutations for 150 ms and the document, fetch, and XHR requests the action started have finished, for at most 2 s. When the action starts a navigation, it waits, for at most 10 s in all, until the new document has parsed, its DOM has been quiet for 150 ms, and its own fetch and XHR requests have finished. For example, ticking a checkbox, picking a language, and saving, in one `run_steps` call, returns:
+
+```json
+"changes": {
+  "updated": ["e7 checkbox \"Weekly digest\" checked", "e8 combobox \"Language\" value=\"fr\""],
+  "text": ["Settings revision: 1", "Settings saved (revision 1)"]
+}
+```
+
+`changes` has whichever of these apply:
+
+- `added`, `removed`, and `updated`: snapshot lines, with refs, for headings and controls that appeared, disappeared, or changed name, value, `checked`, `filled`, or `disabled` (at most 15 each, with `addedMore` and so on counting the rest). Lines in `removed` name elements that are gone, so their refs no longer resolve.
+- `text`: the visible text of elements the action added or whose text it changed, such as an error message or a toast, of elements it revealed by removing `hidden` or `aria-hidden` or opening a `<dialog>`, and of live regions (`role=alert` or `status`, `aria-live`, `<output>`) whose shown text changed, at most 5 entries of 160 characters. Text inside controls is left out, since the control's line covers it, and so are 1-pixel screen-reader-only regions.
+- `url` and `title`, when they changed.
+- `navigated: true` with `url`, `title`, and `nodes`, the new document's snapshot lines (at most 40, with `nodesMore`), when the action loaded a new document. Its refs work at once.
+- `consoleErrors` and `dialogs`: console errors and uncaught exceptions since the action started, and alert, confirm, or prompt dialogs it opened (at most 5 each). A missing favicon is not reported.
+- `stillLoading`: the URLs of requests still running when the wait ran out.
+
+When nothing in that list changed, `changes` is `{ "none": true }`. Changes made later than the wait, such as a redirect behind a timer, are not covered; follow with `wait_for` for those. Images, scripts, styles, long-lived connections (WebSocket, EventSource), beacons, and requests from extensions are not waited for; on a Firefox release that does not report request types, every http(s) request is. Text revealed only by a class or style change is listed for the first 200 live regions on the page and not otherwise. Pages with more than 500 visible headings and controls are compared on the first 500. `{ "unavailable": true }` means the page could not report, for example because it navigated in a way the server could not follow. An action whose element is not found, or that fails, returns no `changes`.
+
 ## Batched Steps
 
 `run_steps` runs several session tools in order in one call, so an action and the check of its result take one round trip instead of several:
@@ -96,14 +118,20 @@ A form field's accessible name comes from `aria-label`, `aria-labelledby`, a `<l
 {
   "sessionId": "chromium:session-1",
   "steps": [
-    { "tool": "click", "arguments": { "selector": "text=Save" } },
-    { "tool": "sleep", "arguments": { "ms": 300 } },
-    { "tool": "take_screenshot" }
+    {
+      "tool": "click",
+      "arguments": { "selector": "text=Email notifications" }
+    },
+    {
+      "tool": "select",
+      "arguments": { "selector": "name=Language", "value": "fr" }
+    },
+    { "tool": "click", "arguments": { "selector": "text=Save changes" } }
   ]
 }
 ```
 
-Any tool that takes `sessionId` can be a step, with its arguments minus `sessionId`, plus `sleep` (`ms`, at most 30000). Up to 50 steps are validated before any of them runs. A step fails when its tool throws or reports `found: false` for a missing element (`inspect_element` excepted, since it may be checking that an element is gone). The call stops at the first failing step unless `continueOnError` is true, and reports each step's result or error. When any step fails, the result also has a `page` field with the current URL, title, and up to 40 visible controls (a `ref`, role, name, value or checked state, and a `locator` to use in the next call), so the batch can be fixed without another look at the page. Password fields are listed without their value. Screenshots come back as image content blocks instead of base64 text; the step result keeps the metadata and an `image` field with the 1-based position of its image.
+Any tool that takes `sessionId` can be a step, with its arguments minus `sessionId`, plus `sleep` (`ms`, at most 30000). Up to 50 steps are validated before any of them runs. A step fails when its tool throws or reports `found: false` for a missing element (`inspect_element` excepted, since it may be checking that an element is gone). The call stops at the first failing step unless `continueOnError` is true, and reports each step's result or error. When the batch contains `click`, `hover`, `type`, `select`, or `press_key` (also inside `if` and `repeat`), the result has one `changes` field, as described in [What an Action Changed](#what-an-action-changed), covering the whole batch from before its first step to after its last, and the steps themselves report none. When any step fails, the result also has a `page` field with the current URL, title, and up to 40 visible controls (a `ref`, role, name, value or checked state, and a `locator` to use in the next call), so the batch can be fixed without another look at the page. Password fields are listed without their value. Screenshots come back as image content blocks instead of base64 text; the step result keeps the metadata and an `image` field with the 1-based position of its image.
 
 An `if` step branches on the page state without a round trip back to the client:
 

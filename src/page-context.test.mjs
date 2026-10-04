@@ -895,7 +895,12 @@ test("controls_snapshot never reports a password's value", () => {
 
   const result = runAction(context, { action: "controls_snapshot" });
   assert.deepEqual(result.controls, [
-    { ref: "e1", locator: 'input[name="password"]', role: "textbox" },
+    {
+      ref: "e1",
+      locator: 'input[name="password"]',
+      role: "textbox",
+      filled: true,
+    },
   ]);
   assert.equal(JSON.stringify(result).includes("hunter2"), false);
 });
@@ -1044,4 +1049,358 @@ test("read_text returns no text for a hidden element", () => {
   assert.equal(result.found, true);
   assert.equal(result.visible, false);
   assert.equal(result.text, "");
+});
+
+// Stands in for the page's MutationObserver; the test delivers records.
+function installFakeMutationObserver(context) {
+  const observers = [];
+  context.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.pending = [];
+      this.connected = false;
+      observers.push(this);
+    }
+    observe() {
+      this.connected = true;
+    }
+    disconnect() {
+      this.connected = false;
+    }
+    takeRecords() {
+      const records = this.pending;
+      this.pending = [];
+      return records;
+    }
+  };
+  context.setTimeout = () => 0;
+  context.clearTimeout = () => {};
+  // Queues records as the browser does before the callback runs.
+  return (records) => {
+    for (const observer of observers) {
+      if (observer.connected) {
+        observer.pending.push(...records);
+      }
+    }
+  };
+}
+
+test("change_report diffs controls against the baseline and lists added text", () => {
+  const { context, email, terms, submit } = snapshotFixture();
+  const mutate = installFakeMutationObserver(context);
+  const descendants = context.document.querySelectorAll("body *");
+
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c1",
+  });
+  assert.equal(typeof documentId, "string");
+  const ids = { changeId: "c1", documentId };
+
+  email.value = "grace@example.com";
+  terms.checked = false;
+  submit.isConnected = false;
+  descendants.splice(descendants.indexOf(submit), 1);
+  const retry = new FakeHTMLElement({
+    tagName: "button",
+    textContent: "Retry",
+  });
+  retry.nodeType = 1;
+  const error = new FakeHTMLElement({
+    tagName: "p",
+    textContent: "Card declined",
+  });
+  error.nodeType = 1;
+  descendants.push(retry, error);
+  mutate([{ type: "childList", addedNodes: [retry, error] }]);
+
+  const status = runAction(context, { action: "change_status", ...ids });
+  assert.equal(status.document, "same");
+  assert.equal(typeof status.quietMs, "number");
+
+  const report = runAction(context, { action: "change_report", ...ids });
+  assert.equal(report.newDocument, false);
+  assert.equal(report.urlChanged, false);
+  assert.deepEqual(report.added, { lines: ['e6 button "Retry"'], more: 0 });
+  assert.deepEqual(report.removed, {
+    lines: ['e4 button "Create account" disabled'],
+    more: 0,
+  });
+  assert.deepEqual(report.updated, {
+    lines: [
+      'e2 textbox "Email" value="grace@example.com"',
+      'e3 checkbox "Accept terms" unchecked',
+    ],
+    more: 0,
+  });
+  // The new button is a control, listed in added; only the paragraph is text.
+  assert.deepEqual(report.text, { items: ["Card declined"], more: 0 });
+
+  // The report ends tracking; the same document without it is lost.
+  const again = runAction(context, { action: "change_status", ...ids });
+  assert.deepEqual(again, { document: "same", lost: true });
+  const lost = runAction(context, { action: "change_report", ...ids });
+  assert.equal(lost.lost, true);
+});
+
+test("change_report skips screen-reader-only text and reports url and title changes", () => {
+  const { context } = snapshotFixture();
+  const mutate = installFakeMutationObserver(context);
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c2",
+  });
+
+  const live = new FakeHTMLElement({
+    tagName: "div",
+    textContent: "Menu available",
+    rect: {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      top: 0,
+      left: 0,
+      right: 1,
+      bottom: 1,
+    },
+  });
+  live.nodeType = 1;
+  mutate([{ type: "childList", addedNodes: [live] }]);
+  context.location.href = "https://example.com/profile#saved";
+  context.document.title = "Saved";
+
+  const report = runAction(context, {
+    action: "change_report",
+    changeId: "c2",
+    documentId,
+  });
+  assert.equal(report.urlChanged, true);
+  assert.equal(report.titleChanged, true);
+  assert.deepEqual(report.text, { items: [], more: 0 });
+  assert.deepEqual(report.added.lines, []);
+});
+
+test("change_report lists a message revealed by an attribute change alone", () => {
+  const { context } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const message = new FakeHTMLElement({
+    tagName: "p",
+    attrs: { role: "alert" },
+    textContent: "Invalid email",
+  });
+  // The browser computes display: none for [hidden]; the fake needs telling.
+  message._style.display = "none";
+  const querySelectorAll = context.document.querySelectorAll;
+  context.document.querySelectorAll = (selector) =>
+    selector.includes('[role="alert"]')
+      ? [message]
+      : querySelectorAll.call(context.document, selector);
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c5",
+  });
+
+  message._style.display = "block";
+  const report = runAction(context, {
+    action: "change_report",
+    changeId: "c5",
+    documentId,
+  });
+  assert.deepEqual(report.text, { items: ["Invalid email"], more: 0 });
+});
+
+test("overlapping actions keep separate baselines", () => {
+  const { context, email } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const first = runAction(context, {
+    action: "change_baseline",
+    changeId: "a",
+    owner: "server-1",
+    active: ["a"],
+  });
+  email.value = "grace@example.com";
+  const second = runAction(context, {
+    action: "change_baseline",
+    changeId: "b",
+    owner: "server-1",
+    active: ["a", "b"],
+  });
+  assert.equal(first.documentId, second.documentId);
+
+  const a = runAction(context, {
+    action: "change_report",
+    changeId: "a",
+    documentId: first.documentId,
+  });
+  const b = runAction(context, {
+    action: "change_report",
+    changeId: "b",
+    documentId: second.documentId,
+  });
+  assert.equal(a.newDocument, false);
+  assert.deepEqual(a.updated.lines, [
+    'e2 textbox "Email" value="grace@example.com"',
+  ]);
+  assert.deepEqual(b.updated.lines, []);
+});
+
+test("a baseline drops the states its server no longer tracks", () => {
+  const { context } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const first = runAction(context, {
+    action: "change_baseline",
+    changeId: "old",
+    owner: "server-1",
+    active: ["old"],
+  });
+  runAction(context, {
+    action: "change_baseline",
+    changeId: "other",
+    owner: "server-2",
+    active: ["other"],
+  });
+  runAction(context, {
+    action: "change_baseline",
+    changeId: "new",
+    owner: "server-1",
+    active: ["new"],
+  });
+
+  const status = (changeId) =>
+    runAction(context, {
+      action: "change_status",
+      changeId,
+      documentId: first.documentId,
+    });
+  assert.equal(status("old").lost, true);
+  assert.equal(status("other").document, "same");
+  assert.equal(status("other").lost, undefined);
+  assert.equal(status("new").lost, undefined);
+});
+
+test("change_report lists an element revealed by removing hidden", () => {
+  const { context } = snapshotFixture();
+  const mutate = installFakeMutationObserver(context);
+  const panel = new FakeHTMLElement({
+    tagName: "p",
+    textContent: "Check your email",
+  });
+  panel._style.display = "none";
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c8",
+  });
+
+  panel._style.display = "block";
+  // Many text updates first must not crowd out the reveal.
+  const counter = new FakeHTMLElement({ tagName: "span", textContent: "1" });
+  const tick = { type: "characterData", target: { parentElement: counter } };
+  mutate([
+    ...Array.from({ length: 300 }, () => tick),
+    { type: "attributes", attributeName: "hidden", target: panel },
+    { type: "attributes", attributeName: "class", target: panel },
+  ]);
+  const report = runAction(context, {
+    action: "change_report",
+    changeId: "c8",
+    documentId,
+  });
+  assert.deepEqual(report.text, {
+    items: ["1", "Check your email"],
+    more: 0,
+  });
+});
+
+test("change_stop ends tracking without a report", () => {
+  const { context } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c6",
+  });
+  const ids = { changeId: "c6", documentId };
+  assert.deepEqual(runAction(context, { action: "change_stop", ...ids }), {
+    stopped: true,
+  });
+  assert.equal(
+    runAction(context, { action: "change_status", ...ids }).lost,
+    true,
+  );
+});
+
+test("change_report does not mistake controls crossing the control limit for changes", () => {
+  const buttons = Array.from(
+    { length: 501 },
+    (_, index) =>
+      new FakeHTMLElement({ tagName: "button", textContent: `Item ${index}` }),
+  );
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: buttons });
+  installFakeMutationObserver(context);
+  const descendants = context.document.querySelectorAll("body *");
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c7",
+  });
+
+  const first = new FakeHTMLElement({ tagName: "button", textContent: "New" });
+  descendants.unshift(first);
+  const report = runAction(context, {
+    action: "change_report",
+    changeId: "c7",
+    documentId,
+  });
+  assert.deepEqual(report.added.lines, ['e501 button "New"']);
+  assert.deepEqual(report.removed.lines, []);
+});
+
+test("change_report returns a snapshot of the new document after a navigation", () => {
+  const { context } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "c3",
+  });
+  const ids = { changeId: "c3", documentId };
+
+  // A navigation brings a new window without the old document's id.
+  context.window = { innerWidth: 1280, innerHeight: 720 };
+  const status = runAction(context, { action: "change_status", ...ids });
+  assert.equal(status.document, "new");
+  assert.equal(status.readyState, "complete");
+  assert.equal(typeof status.quietMs, "number");
+
+  const report = runAction(context, {
+    action: "change_report",
+    ...ids,
+    limit: 2,
+    refStart: 40,
+  });
+  assert.equal(report.newDocument, true);
+  assert.deepEqual(report.nodes, [
+    'e40 h1 "Sign up"',
+    'e41 textbox "Email" value="ada@example.com"',
+  ]);
+  assert.equal(report.more, 3);
+});
+
+test("snapshot shows whether a password field is filled, never its value", () => {
+  const password = new FakeHTMLInputElement({
+    type: "password",
+    attrs: { type: "password", "aria-label": "Password" },
+    value: "hunter2",
+  });
+  const empty = new FakeHTMLInputElement({
+    type: "password",
+    attrs: { type: "password", "aria-label": "Confirm" },
+  });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [password, empty] });
+
+  const result = runAction(context, { action: "snapshot" });
+  assert.deepEqual(result.nodes, [
+    'e1 textbox "Password" filled',
+    'e2 textbox "Confirm"',
+  ]);
 });

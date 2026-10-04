@@ -1,6 +1,7 @@
 import {
   exportHarLikeSummary,
   filterConsoleMessages,
+  InFlightRequests,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
 import { DEFAULT_CDP_BASE_URL } from "./config.mjs";
@@ -386,6 +387,7 @@ export class CdpSession {
     this.eventBufferSize = options.eventBufferSize ?? 200;
     this.onClosed = options.onClosed ?? null;
     this.bufferedEvents = [];
+    this.inFlight = new InFlightRequests();
     this.pending = new Map();
     this.nextMessageId = 1;
     this.connectedAt = new Date().toISOString();
@@ -542,6 +544,7 @@ export class CdpSession {
   }
 
   pushEvent(event) {
+    this.inFlight.observe(event);
     this.bufferedEvents.push(event);
     if (this.bufferedEvents.length > this.eventBufferSize) {
       this.bufferedEvents.shift();
@@ -898,6 +901,10 @@ export class CdpSession {
 
   async snapshotPage(options = {}) {
     return this.runSnapshotAction({ action: "snapshot", ...options });
+  }
+
+  async trackChanges(phase, options = {}) {
+    return this.runSnapshotAction({ action: `change_${phase}`, ...options });
   }
 
   async readText(options = {}) {
@@ -1272,6 +1279,10 @@ export class CdpSession {
   getEvents(limit = 50) {
     const safeLimit = Math.max(1, limit);
     return this.bufferedEvents.slice(-safeLimit);
+  }
+
+  pendingRequests() {
+    return this.inFlight.list();
   }
 
   getSummary() {
@@ -1750,8 +1761,16 @@ export class CdpSessionManager {
     return this.getSession(sessionId).snapshotPage(options);
   }
 
+  async trackChanges(sessionId, phase, options) {
+    return this.getSession(sessionId).trackChanges(phase, options);
+  }
+
   async inspectElement(sessionId, selector, options) {
     return this.getSession(sessionId).inspectElement(selector, options);
+  }
+
+  pendingRequests(sessionId) {
+    return this.getSession(sessionId).pendingRequests();
   }
 
   getEvents(sessionId, limit) {

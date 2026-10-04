@@ -41,6 +41,7 @@ Your agent gets 38 browser tools over MCP: open or attach to tabs, click, type, 
 ## Why This One
 
 - **Fewer round trips.** Every model turn costs thinking time and tokens, so the agent does more with each call. In our benchmark, batching halved the turns Sonnet 5.5 needed to sign up through a form.
+- **Actions say what they did.** A click, a typed value, or a whole batch comes back with what changed on the page once it settles: controls that appeared, disappeared, or changed, new text such as an error or a toast, console errors, and after a navigation the new page's controls. The agent can confirm the result without another look at the page.
 - **Many pages at once.** Research over several pages happens side by side: `run_tabs` opens them together and `read_text` brings back what they say. In our benchmark, reading five slow pages took Sonnet 5.5 8.4 s and 4 turns instead of 28 s and 14.
 - **Calm on real pages.** Waits end on whichever outcome shows up, actions wait out a covering banner or a button that isn't enabled yet, and if a step fails the reply lists the page's controls, so the next try is an informed one.
 - **Right where you work.** It attaches to the browser you already use, with its logins, tabs, and extensions, and speaks to Chrome, Edge, and Firefox with the same tools.
@@ -91,7 +92,7 @@ A `run_steps` call that dismisses a cookie banner if one is showing, fills in an
 }
 ```
 
-The result has each step's outcome: which branch the `if` took, which `anyOf` alternative matched, and the message element with its text. Locators can be CSS, `text=`, `role=` with an accessible name, or `name=`. The full semantics of `run_steps`, `if`, `repeat`, and conditions are in [Tools](docs/tools.md#batched-steps).
+The result has each step's outcome: which branch the `if` took, which `anyOf` alternative matched, and the message element with its text. Because the batch has actions, the result also has `changes`: what the batch changed on the page, as described in [Tools](docs/tools.md#what-an-action-changed). Locators can be CSS, `text=`, `role=` with an accessible name, or `name=`. The full semantics of `run_steps`, `if`, `repeat`, and conditions are in [Tools](docs/tools.md#batched-steps).
 
 ## Many Pages At Once
 

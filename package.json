@@ -45,6 +45,7 @@
     "src/tcp-relay.mjs",
     "src/top-level-await.mjs",
     "src/wait-for.mjs",
+    "src/action-changes.mjs",
     "src/action-retry.mjs",
     "src/browser-requests.mjs",
     "src/json-schema.mjs",

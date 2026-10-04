@@ -7,6 +7,15 @@ import {
   waitUntilProperty,
 } from "../tool-schemas.mjs";
 
+// Runs an action and adds what it changed on the page as changes, unless the
+// caller (run_steps) reports the changes of the whole batch instead.
+function reportChanges(server, args, options, action) {
+  if (options?.reportChanges === false || !server.changeTracker) {
+    return action();
+  }
+  return server.changeTracker.around(args.sessionId, action);
+}
+
 export function actionTools(server) {
   return [
     [
@@ -65,7 +74,7 @@ export function actionTools(server) {
         definition: {
           name: "click",
           description:
-            "Click an element with real mouse input at its center; fails if another element covers that point. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Check the result in the same call with run_steps.",
+            "Click an element with real mouse input at its center; fails if another element covers that point. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -76,10 +85,12 @@ export function actionTools(server) {
             ["selector"],
           ),
         },
-        handler: async (args) =>
-          retryUntilActionable(
-            () => server.browserAdapter.click(args.sessionId, args.selector),
-            args.timeoutMs,
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () => server.browserAdapter.click(args.sessionId, args.selector),
+              args.timeoutMs,
+            ),
           ),
       },
     ],
@@ -89,7 +100,7 @@ export function actionTools(server) {
         definition: {
           name: "hover",
           description:
-            "Hover a single element located by CSS, text=..., role=..., or name=... syntax. Moves the real mouse pointer to the element center.",
+            "Hover a single element located by CSS, text=..., role=..., or name=... syntax. Moves the real mouse pointer to the element center. Returns changes, what it changed on the page.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -100,10 +111,12 @@ export function actionTools(server) {
             ["selector"],
           ),
         },
-        handler: async (args) =>
-          retryUntilActionable(
-            () => server.browserAdapter.hover(args.sessionId, args.selector),
-            args.timeoutMs,
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () => server.browserAdapter.hover(args.sessionId, args.selector),
+              args.timeoutMs,
+            ),
           ),
       },
     ],
@@ -113,7 +126,7 @@ export function actionTools(server) {
         definition: {
           name: "type",
           description:
-            "Type into an input, textarea, or contenteditable with real text input, replacing its content unless clear is false. Check the result in the same call with run_steps.",
+            "Type into an input, textarea, or contenteditable with real text input, replacing its content unless clear is false. Returns changes, what it changed on the page; batch actions with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -132,16 +145,18 @@ export function actionTools(server) {
             ["selector", "text"],
           ),
         },
-        handler: async (args) =>
-          retryUntilActionable(
-            () =>
-              server.browserAdapter.type(
-                args.sessionId,
-                args.selector,
-                args.text,
-                { clear: args.clear },
-              ),
-            args.timeoutMs,
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () =>
+                server.browserAdapter.type(
+                  args.sessionId,
+                  args.selector,
+                  args.text,
+                  { clear: args.clear },
+                ),
+              args.timeoutMs,
+            ),
           ),
       },
     ],
@@ -151,7 +166,7 @@ export function actionTools(server) {
         definition: {
           name: "select",
           description:
-            "Select an option in a native <select> by value or label (the first option matching either) and fire input and change events; fails if none matches. Use click for custom dropdowns. Check the result in the same call with run_steps.",
+            "Select an option in a native <select> by value or label (the first option matching either) and fire input and change events; fails if none matches. Use click for custom dropdowns. Returns changes, what it changed on the page; batch actions with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -175,14 +190,16 @@ export function actionTools(server) {
             throw new Error("select requires either value or label");
           }
         },
-        handler: async (args) =>
-          retryUntilActionable(
-            () =>
-              server.browserAdapter.select(args.sessionId, args.selector, {
-                value: args.value,
-                label: args.label,
-              }),
-            args.timeoutMs,
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () =>
+                server.browserAdapter.select(args.sessionId, args.selector, {
+                  value: args.value,
+                  label: args.label,
+                }),
+              args.timeoutMs,
+            ),
           ),
       },
     ],
@@ -192,7 +209,7 @@ export function actionTools(server) {
         definition: {
           name: "press_key",
           description:
-            "Press a key or combination with real keyboard input on the focused element, or on selector after focusing it (fails if it cannot take focus). Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Check the result in the same call with run_steps.",
+            "Press a key or combination with real keyboard input on the focused element, or on selector after focusing it (fails if it cannot take focus). Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
           inputSchema: sessionSchema(
             {
               key: {
@@ -209,15 +226,17 @@ export function actionTools(server) {
         validate: (args) => {
           parseKeyCombo(args.key);
         },
-        handler: async (args) =>
-          retryUntilActionable(
-            () =>
-              server.browserAdapter.pressKey(
-                args.sessionId,
-                args.key,
-                args.selector,
-              ),
-            args.selector ? args.timeoutMs : 0,
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () =>
+                server.browserAdapter.pressKey(
+                  args.sessionId,
+                  args.key,
+                  args.selector,
+                ),
+              args.selector ? args.timeoutMs : 0,
+            ),
           ),
       },
     ],
