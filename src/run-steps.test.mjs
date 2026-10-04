@@ -31,7 +31,7 @@ test("run_steps runs steps in order and returns screenshots as images", async ()
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -66,7 +66,7 @@ test("run_steps stops at the first failing step unless continueOnError", async (
     throw new Error("element is covered");
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const steps = [
@@ -102,7 +102,7 @@ test("run_steps validates every step before running any", async () => {
     return {};
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -169,7 +169,7 @@ test("run_steps treats a missing element as a failed step, except for inspect_el
     found: false,
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -204,7 +204,7 @@ test("run_steps if runs the then branch when the condition holds", async () => {
     "text=Accept cookies": { innerText: "Accept cookies" },
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -248,7 +248,7 @@ test("run_steps if runs the first matching elseIf without nesting", async () => 
     return inspect(sessionId, selector);
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -299,7 +299,7 @@ test("run_steps if runs the first matching elseIf without nesting", async () => 
 test("run_steps if runs else when no condition holds", async () => {
   const { manager, calls } = createBranchingManager({});
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -328,7 +328,7 @@ test("run_steps if runs else when no condition holds", async () => {
 test("run_steps if with no matching branch runs nothing and succeeds", async () => {
   const { manager, calls } = createBranchingManager({});
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -364,7 +364,7 @@ test("run_steps stops the whole batch when a step inside a branch fails", async 
     return { selector, found: selector !== "#missing" };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -399,7 +399,7 @@ test("run_steps stops the whole batch when a step inside a branch fails", async 
 test("run_steps validates both if branches and limits before running", async () => {
   const { manager, calls } = createBranchingManager({});
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const run = (steps) =>
@@ -503,7 +503,7 @@ test("run_steps validates both if branches and limits before running", async () 
 test("run_steps repeat runs its steps until the until condition holds", async () => {
   const { manager, calls } = createPaymentManager(3);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -545,7 +545,7 @@ test("run_steps repeat runs its steps until the until condition holds", async ()
 test("run_steps repeat fails when until never holds within max passes", async () => {
   const { manager, calls } = createPaymentManager(99);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -576,7 +576,7 @@ test("run_steps repeat fails when until never holds within max passes", async ()
 test("run_steps repeat stops at a failing step without checking until", async () => {
   const { manager, calls } = createPaymentManager(1);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -611,7 +611,7 @@ test("run_steps repeat stops at a failing step without checking until", async ()
 test("run_steps repeat ends the loop on a failing step even with continueOnError", async () => {
   const { manager, calls } = createPaymentManager(99);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -670,7 +670,7 @@ test("run_steps repeat keeps earlier passes and images when until fails to check
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -707,7 +707,7 @@ test("run_steps repeat keeps earlier passes and images when until fails to check
 test("run_steps validates repeat steps before running", async () => {
   const { manager, calls } = createPaymentManager(1);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const run = (steps) =>
@@ -762,7 +762,7 @@ test("run_steps if conditions accept anyOf and report each alternative", async (
     "#status": { innerText: "Declined" },
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -809,7 +809,7 @@ test("run_steps if and repeat accept expression conditions", async () => {
     return click(sessionId, selector);
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -873,7 +873,7 @@ function createChangeReportingManager() {
 test("an action reports what it changed on the page", async () => {
   const manager = createChangeReportingManager();
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -893,7 +893,7 @@ test("an action reports what it changed on the page", async () => {
 test("run_steps reports the batch's changes once, not per step", async () => {
   const manager = createChangeReportingManager();
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -923,7 +923,7 @@ test("run_steps reports the batch's changes once, not per step", async () => {
 test("run_steps without an action takes no baseline", async () => {
   const manager = createChangeReportingManager();
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -947,7 +947,7 @@ test("pointer tools take a selector or x and y, never both or neither", async ()
     return { found: true, clicked: true };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const click = (args) =>

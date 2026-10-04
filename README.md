@@ -143,7 +143,7 @@ Every form run started with `get_snapshot` and acted by ref, without being told 
 
 ## Tools
 
-42 tools, described in [docs/tools.md](docs/tools.md):
+42 tools, described in [docs/tools.md](docs/tools.md). The server offers the core set by default, since every model turn pays for each tool offered; `MCP_BROWSER_TOOLS=all`, or a list of groups such as `network,state`, adds the rest ([Tool Sets](docs/tools.md#tool-sets)).
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `drag`, `type`, `select`, `press_key`, `upload_file`, `scroll`, `set_viewport`

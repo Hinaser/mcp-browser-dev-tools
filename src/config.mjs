@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { parseToolSet } from "./tool-sets.mjs";
+
 export const DEFAULT_CDP_BASE_URL = "http://127.0.0.1:9222";
 export const DEFAULT_FIREFOX_BIDI_WS_URL = "ws://127.0.0.1:9222";
 export const DEFAULT_EVENT_BUFFER_SIZE = 200;
@@ -131,6 +133,7 @@ export function loadConfig(env = process.env) {
     logLevel: logging.logLevel,
     debugStdio: logging.debugStdio,
     logFile: logging.logFile,
+    tools: parseToolSet(env.MCP_BROWSER_TOOLS),
     userDataDir: env.MCP_BROWSER_USER_DATA_DIR?.trim() || null,
     uploadDirs: (env.MCP_BROWSER_UPLOAD_DIRS ?? "")
       .split(path.delimiter)

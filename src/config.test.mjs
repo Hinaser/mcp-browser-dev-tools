@@ -1,4 +1,6 @@
 import test from "node:test";
+
+import { TOOL_GROUPS } from "./tool-sets.mjs";
 import assert from "node:assert/strict";
 
 import {
@@ -85,11 +87,30 @@ test("loadConfig applies defaults", () => {
     logLevel: DEFAULT_LOG_LEVEL,
     debugStdio: false,
     logFile: null,
+    tools: new Set(TOOL_GROUPS.core),
     userDataDir: null,
     uploadDirs: [],
     timingLogFile: null,
     protocolVersion: "2024-11-05",
   });
+});
+
+test("MCP_BROWSER_TOOLS adds groups and tools to the core set, or enables all", () => {
+  assert.equal(loadConfig({ MCP_BROWSER_TOOLS: "all" }).tools, null);
+  const tools = loadConfig({ MCP_BROWSER_TOOLS: "network, drag" }).tools;
+  assert.equal(tools.has("set_network"), true);
+  assert.equal(tools.has("get_har"), true);
+  assert.equal(tools.has("drag"), true);
+  assert.equal(tools.has("click"), true);
+  assert.equal(tools.has("get_cookies"), false);
+  assert.throws(
+    () => loadConfig({ MCP_BROWSER_TOOLS: "netwrok" }),
+    /unknown group or tool: netwrok/,
+  );
+  assert.throws(
+    () => loadConfig({ MCP_BROWSER_TOOLS: "all,netwrok" }),
+    /unknown group or tool: netwrok/,
+  );
 });
 
 test("loadLoggingConfig reads logger-related environment flags", () => {
