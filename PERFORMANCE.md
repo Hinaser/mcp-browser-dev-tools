@@ -48,7 +48,7 @@ Sonnet 5.5 with one action per call (`single`: `run_steps` and `run_tabs` disall
 
 1. **Batching still cuts turns on forms and research.** With `run_steps`, Sonnet's `signup` takes 4 turns instead of 9 and `settings-login` 7 instead of 11; with `run_tabs`, `research` takes 4 instead of 6. Wall time follows for `signup` (10.2 s against 15.0 s) and `research` (8.5 s against 27.7 s), but not for `settings-login` (17.5 s against 16.2 s).
 2. **One action per call got cheaper too.** Actions now report what changed once the page settles, so fewer separate checks are needed: on the previous build `single` mode took 11, 13, 14, and 7 turns, and now 9, 8, 11, and 6. In `payment-retry`, `single` and `batch` both take 8 turns.
-3. **Server time went up, and turns went down.** An action now waits until the page settles (the DOM quiet for 150 ms, and the requests and short timers it started finished), so a form batch spends 1–2 s in the server instead of 0.1–0.9 s, and a Pay click 1.4 s. That is time an agent used to spend on `wait_for` calls and extra turns; model time is still most of the wall time.
+3. **Server time went up, and turns went down.** An action now waits until the page settles (the DOM quiet for 150 ms, and the requests and short timers it started finished), so a form batch spends 1–2 s in the server instead of 0.1–0.9 s, and a Pay click 1.4 s. That is time an agent used to spend on `wait_for` calls and extra turns. Model time is still most of the wall time, except in `single` runs of `research`, where loading the slow articles one by one takes 11–15 s of server time.
 4. **Without `run_tabs`, agents look for a shortcut.** Every `single` run of `research` first tried to `fetch()` the articles from the page with `evaluate_js`, which the browser blocks across origins, then navigated to them one by one.
 5. **Tool definitions are a large share of the input tokens.** They are sent (and cached) on every turn, so cost grows with turns more than with page content. A `get_snapshot` of the settings page is 6 lines; the same page from `get_document` is several kilobytes.
 
@@ -127,10 +127,6 @@ Median of 3 runs, with the range in parentheses when runs differ. The column mea
 | `payment-retry`  | 3/3 | 27.6 s (25.5 s–31.1 s) | 7          | 6          | 4.3 s (4.2 s–4.3 s) | 5.0k (4.9k–6.1k)    | 157.9k (157.7k–159.2k) | 0.5k (0.4k–0.5k) | $0.004 ($0.004–$0.005) |
 | `settings-login` | 3/3 | 38.2 s (34.9 s–44.8 s) | 10 (10–11) | 9 (9–10)   | 2.4 s (2.4 s–2.4 s) | 9.9k (9.9k–14.3k)   | 247.8k (243.4k–269.7k) | 0.9k (0.9k–1.0k) | $0.006 ($0.005–$0.006) |
 | `research`       | 3/3 | 23.8 s (19.7 s–24.3 s) | 5          | 4          | 1.7 s (1.7 s–1.7 s) | 10.4k (10.3k–10.4k) | 138.7k (116.3k–139.8k) | 0.5k (0.4k–0.5k) | $0.004 ($0.004–$0.004) |
-
-wrote docs/images/bench-model-wall-time.svg
-wrote docs/images/bench-model-turns.svg
-wrote docs/images/bench-model-cost.svg
 
 ## Method
 
