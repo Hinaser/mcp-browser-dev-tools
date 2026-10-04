@@ -1,6 +1,6 @@
 # Tools
 
-The server exposes 41 tools. Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server exposes 42 tools. Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
 
 ## Tool List
 
@@ -29,6 +29,7 @@ The server exposes 41 tools. Tools that take `sessionId` work on a tab attached 
 |                     | `take_screenshot`                                            | The page or one element, as base64, an image block, or a file.                                                                        |
 |                     | `evaluate_js`                                                | Runs JavaScript in the page (on by default; `MCP_BROWSER_ENABLE_EVAL=0` removes it).                                                  |
 | Console and network | `get_console_messages`, `get_network_requests`, `get_events` | Buffered console messages, network requests (including ones the page made before it was attached), and events.                        |
+|                     | `set_network`                                                | Blocks or mocks requests by URL pattern, adds request headers, or emulates offline and slow networks.                                 |
 |                     | `get_har`                                                    | Buffered network activity as HAR-like JSON.                                                                                           |
 | Session state       | `get_cookies`, `get_storage`                                 | Page-visible cookies and web storage.                                                                                                 |
 |                     | `capture_session_snapshot`, `restore_session_snapshot`       | Save cookies and storage, and restore them later on the same origin.                                                                  |
@@ -237,6 +238,35 @@ Tabs in the background of a visible browser can run timers late and pause render
 ## Reading Page Text
 
 `read_text` returns the visible text of the page's main content as plain lines, with runs of spaces and blank lines collapsed. It reads the first visible `main` or `[role=main]`, else the only visible `article`, else the body; `source` says which. With `selector`, it reads that element instead, and returns no text if the element is hidden (`visible: false`). `maxChars` caps the text (default 8000, at most 100000), and `totalChars` and `truncated` tell whether there was more. With `links: true`, it also lists the http(s) links inside, with their text and absolute URL, deduplicated, up to `maxLinks` (default 50, at most 200); use it to collect search results before opening them with `run_tabs`.
+
+## Network Control
+
+`set_network` changes what the tab's requests do, for testing how a page behaves when an API fails, is slow, or returns something specific:
+
+```json
+{
+  "sessionId": "chromium:session-1",
+  "rules": [
+    { "url": "*://*/ads/*", "action": "block" },
+    {
+      "url": "*/api/cart*",
+      "action": "mock",
+      "status": 500,
+      "contentType": "application/json",
+      "body": "{\"error\":\"down\"}"
+    }
+  ],
+  "headers": { "X-Feature-Flag": "new-checkout" },
+  "latencyMs": 400
+}
+```
+
+- `rules` match the full URL with a glob, `*` for any run of characters and `?` for one, as CDP's Fetch patterns do; the first match wins. `block` fails the request as blocked by the client; `mock` answers it without the network, with `status` (default 200), `contentType`, `body`, and `headers`, and allows CORS unless the rule sets `Access-Control-Allow-Origin`. The result lists each rule with `hits`, how many requests it has matched.
+- `headers` adds request headers to every request of the tab.
+- `offline` takes the tab offline. `latencyMs`, `downloadKbps`, and `uploadKbps` throttle it, on Chromium only: WebDriver BiDi has no throttling.
+- A call replaces the fields it gives and keeps the others; `rules: []` and `headers: {}` clear those, and `reset: true` clears everything. The settings last until the session detaches.
+
+On Chromium only requests that match a rule are paused, so others are not slowed. On Firefox, whose BiDi URL patterns cannot express globs, every request of the tab is intercepted while rules or headers are set and matched by the server, which adds a local round trip to each.
 
 ## Session State And Network
 

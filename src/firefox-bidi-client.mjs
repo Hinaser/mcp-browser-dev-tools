@@ -16,6 +16,14 @@ import {
 import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
 import {
+  applyNetworkOptions,
+  describeNetworkState,
+  inNetworkTurn,
+  mockHeaders,
+  takeMatchingRule,
+  throttled,
+} from "./network-control.mjs";
+import {
   takeFileTarget,
   assertFileInput,
   uploadResult,
@@ -748,6 +756,15 @@ export class FirefoxBidiSessionManager {
       return;
     }
 
+    // A paused request is routed by its intercept, not its context, since
+    // a tab's intercept also pauses its iframes' requests.
+    if (
+      message.method === "network.beforeRequestSent" &&
+      message.params?.isBlocked
+    ) {
+      this.routeBlockedRequest(message.params);
+    }
+
     const contextId = resolveBidiEventContext(message.method, message.params);
     if (!contextId) {
       return;
@@ -895,6 +912,23 @@ export class FirefoxBidiSessionManager {
 
   async detachSession(sessionId) {
     const session = this.getSession(sessionId);
+    // A network call in progress finishes first, so its intercept and
+    // offline setting are known here and removed.
+    await inNetworkTurn(session, async () => {
+      session.closed = true;
+      if (session.interceptId) {
+        await this.send("network.removeIntercept", {
+          intercept: session.interceptId,
+        }).catch(() => {});
+        session.interceptId = null;
+      }
+      if (session.network?.offline) {
+        await this.send("emulation.setNetworkConditions", {
+          networkConditions: null,
+          contexts: [session.target.targetId],
+        }).catch(() => {});
+      }
+    });
 
     if (session.subscription) {
       await this.send("session.unsubscribe", {
@@ -1367,6 +1401,140 @@ export class FirefoxBidiSessionManager {
 
   // Sets files on a file input. WebDriver BiDi sets them on an element; a
   // button that opens a chooser from script needs its hidden input passed.
+  // BiDi URL patterns cannot express globs, so the tab's requests are all
+  // intercepted while there are rules or extra headers, and each is matched
+  // here. Throttling has no BiDi command.
+  async setNetwork(sessionId, options) {
+    const session = this.getSession(sessionId);
+    // One call at a time per tab, so two calls cannot each add an intercept.
+    return inNetworkTurn(session, () => {
+      if (session.closed) {
+        throw new Error(`Session ${sessionId} was detached`);
+      }
+      return this.applyNetwork(session, options);
+    });
+  }
+
+  async applyNetwork(session, options) {
+    const state = applyNetworkOptions(session.network, options);
+    if (throttled(state)) {
+      throw new Error(
+        "latencyMs, downloadKbps, and uploadKbps are Chromium only; Firefox has no network throttling over WebDriver BiDi",
+      );
+    }
+    if (options.offline !== undefined || options.reset) {
+      try {
+        await this.send("emulation.setNetworkConditions", {
+          networkConditions: state.offline ? { type: "offline" } : null,
+          contexts: [session.target.targetId],
+        });
+      } catch (error) {
+        if (state.offline) {
+          throw new Error(
+            `This Firefox cannot emulate offline: ${toErrorMessage(error)}`,
+            { cause: error },
+          );
+        }
+      }
+    }
+    // The rules apply before the intercept exists, so the first request it
+    // pauses is already answered by them.
+    session.network = state;
+    const intercepting =
+      state.rules.length > 0 || Object.keys(state.headers).length > 0;
+    if (intercepting && !session.interceptId) {
+      this.addingIntercepts = (this.addingIntercepts ?? 0) + 1;
+      try {
+        const added = await this.send("network.addIntercept", {
+          phases: ["beforeRequestSent"],
+          contexts: [session.target.targetId],
+        });
+        session.interceptId = added.intercept;
+        if (session.closed) {
+          await this.send("network.removeIntercept", {
+            intercept: added.intercept,
+          }).catch(() => {});
+          session.interceptId = null;
+        }
+      } finally {
+        this.addingIntercepts -= 1;
+        for (const params of (this.unrouted ?? []).splice(0)) {
+          this.routeBlockedRequest(params);
+        }
+      }
+    } else if (!intercepting && session.interceptId) {
+      const intercept = session.interceptId;
+      session.interceptId = null;
+      await this.send("network.removeIntercept", { intercept }).catch(() => {});
+    }
+    return { browserFamily: "firefox", ...describeNetworkState(state) };
+  }
+
+  // Every intercept on this connection is one of ours. A paused request no
+  // session claims either belongs to an intercept still being added, and
+  // waits for it, or to one just removed, and is let go.
+  routeBlockedRequest(params) {
+    const owner = Array.from(this.sessions.values()).find(
+      (session) =>
+        session.interceptId && params.intercepts?.includes(session.interceptId),
+    );
+    if (owner) {
+      void this.handleBlockedRequest(owner, params);
+    } else if (this.addingIntercepts > 0) {
+      (this.unrouted ??= []).push(params);
+    } else {
+      this.send("network.continueRequest", {
+        request: params.request?.request,
+      }).catch(() => {});
+    }
+  }
+
+  async handleBlockedRequest(session, params) {
+    const request = params.request?.request;
+    const rule = takeMatchingRule(session.network, params.request?.url ?? "");
+    const stringValue = (value) => ({ type: "string", value });
+    try {
+      if (rule?.action === "block") {
+        await this.send("network.failRequest", { request });
+      } else if (rule) {
+        await this.send("network.provideResponse", {
+          request,
+          statusCode: rule.status,
+          headers: mockHeaders(rule).map(({ name, value }) => ({
+            name,
+            value: stringValue(value),
+          })),
+          body: stringValue(rule.body),
+        });
+      } else {
+        const extra = session.network?.headers ?? {};
+        const names = new Set(
+          Object.keys(extra).map((name) => name.toLowerCase()),
+        );
+        const headers =
+          names.size === 0
+            ? undefined
+            : [
+                ...(params.request?.headers ?? []).filter(
+                  (header) => !names.has(header.name.toLowerCase()),
+                ),
+                ...Object.entries(extra).map(([name, value]) => ({
+                  name,
+                  value: stringValue(String(value)),
+                })),
+              ];
+        await this.send("network.continueRequest", {
+          request,
+          ...(headers ? { headers } : {}),
+        });
+      }
+    } catch {
+      // Release the request if it is still paused; it may also have gone
+      // away, for example because the page navigated.
+      await this.send("network.continueRequest", { request }).catch(() => {});
+    }
+  }
+
   async uploadFiles(sessionId, selector, files) {
     const session = this.getSession(sessionId);
     const token = crypto.randomUUID();

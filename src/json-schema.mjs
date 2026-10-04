@@ -14,8 +14,14 @@ export function validateValue(path, value, schema) {
 
     if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
-        if (!(key in properties)) {
+        if (!Object.hasOwn(properties, key)) {
           throw new Error(`${path}.${key} is not allowed`);
+        }
+      }
+    } else if (typeof schema.additionalProperties === "object") {
+      for (const [key, item] of Object.entries(value)) {
+        if (!Object.hasOwn(properties, key)) {
+          validateValue(`${path}.${key}`, item, schema.additionalProperties);
         }
       }
     }
@@ -94,6 +100,13 @@ export function validateValue(path, value, schema) {
 
     if (schema.minimum !== undefined && value < schema.minimum) {
       throw new Error(`${path} must be >= ${schema.minimum}`);
+    }
+
+    if (
+      schema.exclusiveMinimum !== undefined &&
+      value <= schema.exclusiveMinimum
+    ) {
+      throw new Error(`${path} must be > ${schema.exclusiveMinimum}`);
     }
   }
 }

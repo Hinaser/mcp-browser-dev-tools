@@ -272,6 +272,10 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "uploadFiles", [selector, files]);
   }
 
+  setNetwork(sessionId, options) {
+    return this.delegateSession(sessionId, "setNetwork", [options]);
+  }
+
   type(sessionId, selector, text, options) {
     return this.delegateSession(sessionId, "type", [selector, text, options]);
   }
