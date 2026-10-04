@@ -945,3 +945,45 @@ test("FirefoxBidiSessionManager removes an intercept that arrives after detach",
     /Unknown|detached|session/i,
   );
 });
+
+test("FirefoxBidiSessionManager sends input for a frame element to the frame's context", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  const session = manager.sessions.get("session-1");
+  manager
+    .frameKeys(session)
+    .keyFor("ctx-frame", { url: "https://x", parent: "ctx-1" });
+  manager.frameOffset = async () => ({ x: 300, y: 80 });
+  manager.runPageAction = async (_session, payload, options) => {
+    if (payload.selector === "ref=f1e2" && !options?.context) {
+      return manager.runInFrame(session, "f1", {
+        ...payload,
+        selector: "ref=e2",
+      });
+    }
+    if (payload.action === "pointer_target") {
+      assert.equal(options.context, "ctx-frame");
+      return {
+        found: true,
+        selector: payload.selector,
+        point: { x: 10, y: 20 },
+        receivesEvents: true,
+        node: {},
+      };
+    }
+    return { armed: false };
+  };
+
+  const result = await manager.click("session-1", "ref=f1e2");
+
+  assert.deepEqual(result.point, { x: 310, y: 100 });
+  const actions = sentCommands.find(
+    ({ method }) => method === "input.performActions",
+  );
+  assert.equal(actions.params.context, "ctx-frame");
+  assert.deepEqual(actions.params.actions[0].actions[0], {
+    type: "pointerMove",
+    x: 10,
+    y: 20,
+    origin: "viewport",
+  });
+});

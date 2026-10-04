@@ -1,4 +1,5 @@
 import { CHANGE_REPORTING_TOOLS } from "./action-changes.mjs";
+import { parseFrameRef } from "./page-context.mjs";
 import { validateValue } from "./json-schema.mjs";
 import { checkPageCondition, normalizeWaitForOptions } from "./wait-for.mjs";
 import { asImageToolResult, moveScreenshotImage } from "./tool-results.mjs";
@@ -191,6 +192,26 @@ function containsChangeReportingStep(steps) {
         )) ||
       (step.else && containsChangeReportingStep(step.else)),
   );
+}
+
+// The frame a batch acts in, when every action in it names an element of
+// the same frame by a frame ref; its changes are then that frame's.
+function batchFrame(steps) {
+  const frames = new Set();
+  const visit = (list) => {
+    for (const step of list) {
+      if (CHANGE_REPORTING_TOOLS.has(step.tool)) {
+        frames.add(parseFrameRef(step.args?.selector)?.frameKey ?? null);
+      }
+      visit(step.steps ?? []);
+      for (const branch of step.branches ?? []) {
+        visit(branch.steps);
+      }
+      visit(step.else ?? []);
+    }
+  };
+  visit(steps);
+  return frames.size === 1 ? [...frames][0] : null;
 }
 
 // Validates and runs run_steps batches against the server's tools.
@@ -501,7 +522,7 @@ export class StepRunner {
     const steps = this.prepareSteps(args.steps, context, "arguments.steps", 0);
     const baseline =
       this.changeTracker && containsChangeReportingStep(steps)
-        ? await this.changeTracker.begin(args.sessionId)
+        ? await this.changeTracker.begin(args.sessionId, batchFrame(steps))
         : null;
     const results = await this.executeSteps(steps, context);
     const ok =

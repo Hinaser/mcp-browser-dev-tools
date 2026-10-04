@@ -24,6 +24,14 @@ import {
   throttled,
 } from "./network-control.mjs";
 import {
+  FrameKeys,
+  probeScope,
+  addFrameSnapshots,
+  frameElementSnapshot,
+  parseFrameRef,
+  restoreFrameSelector,
+  shiftFramePoints,
+  unknownFrame,
   takeFileTarget,
   assertFileInput,
   uploadResult,
@@ -53,6 +61,22 @@ function pointerMove(point) {
     y: Math.round(point.y),
     origin: "viewport",
   };
+}
+
+// The point to send input to: in the frame's own viewport for an element
+// in a frame, else in the top page's.
+function inputPoint(resolved) {
+  return resolved.framePoint ?? resolved.point;
+}
+
+function withoutFrameInput(result) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const rest = { ...result };
+  delete rest.inputContext;
+  delete rest.framePoint;
+  return rest;
 }
 
 function toErrorMessage(error) {
@@ -994,7 +1018,7 @@ export class FirefoxBidiSessionManager {
     return this.send("script.evaluate", {
       expression,
       target: {
-        context: session.target.targetId,
+        context: options.context ?? session.target.targetId,
       },
       awaitPromise: options.awaitPromise ?? true,
       resultOwnership: "none",
@@ -1007,6 +1031,16 @@ export class FirefoxBidiSessionManager {
   }
 
   async runPageAction(session, payload, options = {}) {
+    const route = parseFrameRef(payload.selector);
+    if (route) {
+      const result = await this.runInFrame(
+        session,
+        route.frameKey,
+        { ...payload, selector: route.selector },
+        options,
+      );
+      return restoreFrameSelector(result, route, payload.selector);
+    }
     const result = await this.evaluateInContext(
       session,
       buildPageContextExpression(
@@ -1023,6 +1057,7 @@ export class FirefoxBidiSessionManager {
           maxDomDepth: 0,
         },
         userActivation: options.userActivation ?? false,
+        context: options.context,
       },
     );
 
@@ -1142,17 +1177,22 @@ export class FirefoxBidiSessionManager {
     };
   }
 
-  async performActions(session, actions) {
+  // Input for an element in a frame goes to that frame's context, at the
+  // point in its own viewport: Firefox does not route input sent to the top
+  // page into a cross-origin frame.
+  async performActions(session, actions, context = null) {
     await this.send("input.performActions", {
-      context: session.target.targetId,
+      context: context ?? session.target.targetId,
       actions,
     });
   }
 
-  async performKeyActions(session, actions) {
-    await this.performActions(session, [
-      { type: "key", id: "mcp-keyboard", actions },
-    ]);
+  async performKeyActions(session, actions, context = null) {
+    await this.performActions(
+      session,
+      [{ type: "key", id: "mcp-keyboard", actions }],
+      context,
+    );
   }
 
   async resolvePointerTarget(session, selector, options = {}) {
@@ -1180,12 +1220,13 @@ export class FirefoxBidiSessionManager {
     });
   }
 
-  async readInputProbe(session, token, disarm) {
+  async readInputProbe(session, token, disarm, target = null) {
     try {
       const probe = await this.runPageAction(session, {
         action: "input_probe",
         token,
         disarm,
+        ...probeScope(target),
       });
       return probe.armed ? probe : null;
     } catch {
@@ -1216,13 +1257,18 @@ export class FirefoxBidiSessionManager {
     }
     const delivery = await sendCheckedInput({
       send: () =>
-        this.performActions(session, [
-          {
-            ...POINTER_SOURCE,
-            actions: [pointerMove(resolved.point), ...presses],
-          },
-        ]),
-      readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+        this.performActions(
+          session,
+          [
+            {
+              ...POINTER_SOURCE,
+              actions: [pointerMove(inputPoint(resolved)), ...presses],
+            },
+          ],
+          resolved.inputContext,
+        ),
+      readProbe: (disarm) =>
+        this.readInputProbe(session, token, disarm, target),
       describe: `The click on ${describePointer(target)}`,
     });
 
@@ -1242,9 +1288,11 @@ export class FirefoxBidiSessionManager {
       return resolved;
     }
 
-    await this.performActions(session, [
-      { ...POINTER_SOURCE, actions: [pointerMove(resolved.point)] },
-    ]);
+    await this.performActions(
+      session,
+      [{ ...POINTER_SOURCE, actions: [pointerMove(inputPoint(resolved))] }],
+      resolved.inputContext,
+    );
 
     return {
       browserFamily: "firefox",
@@ -1264,7 +1312,7 @@ export class FirefoxBidiSessionManager {
       inputProbe: token,
     });
     if (!source.found) {
-      await this.readInputProbe(session, token, true);
+      await this.readInputProbe(session, token, true, from);
       return source;
     }
     // The drop point is read without scrolling, so the source stays put.
@@ -1272,22 +1320,36 @@ export class FirefoxBidiSessionManager {
       scrollIntoView: false,
     });
     if (!target.found) {
-      await this.readInputProbe(session, token, true);
+      await this.readInputProbe(session, token, true, from);
       return target;
     }
 
-    const html5 = { from: source.point, to: target.point };
-    const { html5: draggable } = await this.runPageAction(session, {
-      action: "html5_drag",
-      ...html5,
-      check: true,
-    });
+    // A drag runs in one document: the top page's, or one frame's, with
+    // points in that frame's viewport. Firefox cannot route input between
+    // a frame and another document.
+    if (source.inputContext !== target.inputContext) {
+      await this.readInputProbe(session, token, true, from);
+      throw new Error(
+        "On Firefox, drag works within one document; the source and the drop target are in different frames",
+      );
+    }
+    const context = source.inputContext ?? null;
+    const start = context ? source.framePoint : source.point;
+    const end = context ? target.framePoint : target.point;
+    const html5 = { from: start, to: end };
+    const inContext = context ? { context } : {};
+    const { html5: draggable } = await this.runPageAction(
+      session,
+      { action: "html5_drag", ...html5, check: true },
+      inContext,
+    );
     if (draggable) {
-      await this.readInputProbe(session, token, true);
-      const { dropped } = await this.runPageAction(session, {
-        action: "html5_drag",
-        ...html5,
-      });
+      await this.readInputProbe(session, token, true, from);
+      const { dropped } = await this.runPageAction(
+        session,
+        { action: "html5_drag", ...html5 },
+        inContext,
+      );
       return {
         browserFamily: "firefox",
         found: true,
@@ -1304,29 +1366,39 @@ export class FirefoxBidiSessionManager {
     try {
       delivery = await sendCheckedInput({
         send: () =>
-          this.performActions(session, [
-            {
-              ...POINTER_SOURCE,
-              actions: [
-                pointerMove(source.point),
-                { type: "pointerDown", button: 0 },
-              ],
-            },
-          ]),
-        readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+          this.performActions(
+            session,
+            [
+              {
+                ...POINTER_SOURCE,
+                actions: [
+                  pointerMove(start),
+                  { type: "pointerDown", button: 0 },
+                ],
+              },
+            ],
+            context,
+          ),
+        readProbe: (disarm) =>
+          this.readInputProbe(session, token, disarm, from),
         describe: `The press to drag ${describePointer(from)}`,
       });
-      await this.performActions(session, [
-        {
-          ...POINTER_SOURCE,
-          actions: [
-            ...dragPath(source.point, target.point, options.steps).map(
-              (point) => ({ ...pointerMove(point), duration: DRAG_MOVE_MS }),
-            ),
-            { type: "pointerUp", button: 0 },
-          ],
-        },
-      ]);
+      await this.performActions(
+        session,
+        [
+          {
+            ...POINTER_SOURCE,
+            actions: [
+              ...dragPath(start, end, options.steps).map((point) => ({
+                ...pointerMove(point),
+                duration: DRAG_MOVE_MS,
+              })),
+              { type: "pointerUp", button: 0 },
+            ],
+          },
+        ],
+        context,
+      );
     } catch (error) {
       // A drag that failed partway must not leave the button down for the
       // next action.
@@ -1362,7 +1434,7 @@ export class FirefoxBidiSessionManager {
       { userActivation: true },
     );
     if (!prepared.found || prepared.method !== "native") {
-      return prepared;
+      return withoutFrameInput(prepared);
     }
 
     let delivery = { node: null, resent: false };
@@ -1371,12 +1443,14 @@ export class FirefoxBidiSessionManager {
         ? buildBidiTextActions(text)
         : buildBidiKeyActions("Backspace");
       delivery = await sendCheckedInput({
-        send: () => this.performKeyActions(session, actions),
-        readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+        send: () =>
+          this.performKeyActions(session, actions, prepared.inputContext),
+        readProbe: (disarm) =>
+          this.readInputProbe(session, token, disarm, selector),
         describe: `The text for "${selector}"`,
       });
     } else {
-      await this.readInputProbe(session, token, true);
+      await this.readInputProbe(session, token, true, selector);
     }
 
     let node = delivery.node;
@@ -1555,11 +1629,23 @@ export class FirefoxBidiSessionManager {
         `"${selector}" is not a file input and has none inside; on Firefox, pass the <input type="file">, which may be hidden`,
       );
     }
-    const handle = await this.evaluateInContext(session, takeFileTarget(token));
+    // The input and the files go to the document it is in, a frame's for a
+    // frame ref.
+    const route = parseFrameRef(selector);
+    const context = route
+      ? this.frameKeys(session).get(route.frameKey)?.id
+      : undefined;
+    const handle = await this.evaluateInContext(
+      session,
+      takeFileTarget(token),
+      {
+        context,
+      },
+    );
     const sharedId = handle.result?.sharedId;
     assertFileInput(target, files);
     await this.send("input.setFiles", {
-      context: session.target.targetId,
+      context: context ?? session.target.targetId,
       element: { sharedId },
       files,
     });
@@ -1596,12 +1682,14 @@ export class FirefoxBidiSessionManager {
       { userActivation: true },
     );
     if (!focused.found) {
-      return focused;
+      return withoutFrameInput(focused);
     }
 
     const delivery = await sendCheckedInput({
-      send: () => this.performKeyActions(session, actions),
-      readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+      send: () =>
+        this.performKeyActions(session, actions, focused.inputContext),
+      readProbe: (disarm) =>
+        this.readInputProbe(session, token, disarm, selector),
       describe: `The key press "${key}"`,
     });
 
@@ -1629,21 +1717,26 @@ export class FirefoxBidiSessionManager {
         deltaX: options.deltaX ?? 0,
         deltaY: options.deltaY ?? 0,
       };
-      await this.performActions(session, [
-        {
-          type: "wheel",
-          id: "mcp-wheel",
-          actions: [
-            {
-              type: "scroll",
-              x: Math.round(resolved.point.x),
-              y: Math.round(resolved.point.y),
-              ...wheel,
-              origin: "viewport",
-            },
-          ],
-        },
-      ]);
+      const at = inputPoint(resolved);
+      await this.performActions(
+        session,
+        [
+          {
+            type: "wheel",
+            id: "mcp-wheel",
+            actions: [
+              {
+                type: "scroll",
+                x: Math.round(at.x),
+                y: Math.round(at.y),
+                ...wheel,
+                origin: "viewport",
+              },
+            ],
+          },
+        ],
+        resolved.inputContext,
+      );
       return {
         browserFamily: "firefox",
         found: true,
@@ -1845,16 +1938,179 @@ export class FirefoxBidiSessionManager {
   }
 
   async trackChanges(sessionId, phase, options = {}) {
-    return this.runSnapshotAction(sessionId, {
-      action: `change_${phase}`,
-      ...options,
-    });
+    const { frameKey, ...rest } = options;
+    if (!frameKey) {
+      return this.runSnapshotAction(sessionId, {
+        action: `change_${phase}`,
+        ...rest,
+      });
+    }
+    // In a frame, refs number on from the frame's own last snapshot. A frame
+    // that is gone ends tracking as a lost baseline does.
+    const session = this.getSession(sessionId);
+    const entry = this.frameKeys(session).get(frameKey);
+    const result = entry
+      ? await this.runInFrame(
+          session,
+          frameKey,
+          { action: `change_${phase}`, ...rest, refStart: entry.refStart ?? 1 },
+          { offset: false },
+        ).catch(() => null)
+      : null;
+    if (!result || result.error?.startsWith("Unknown frame")) {
+      if (phase === "baseline") {
+        throw new Error(`Unknown frame ${frameKey}`);
+      }
+      return { document: "same", lost: true };
+    }
+    return takeNextRef(entry, result);
   }
 
+  frameKeys(session) {
+    return (session.frameKeys ??= new FrameKeys());
+  }
+
+  // The tab's iframes, outermost first, each with its parent's context.
+  async listFrames(session) {
+    const { contexts } = await this.send("browsingContext.getTree", {
+      root: session.target.targetId,
+    });
+    const frames = [];
+    const walk = (node) => {
+      for (const child of node.children ?? []) {
+        frames.push({
+          id: child.context,
+          url: child.url,
+          parent: node.context,
+        });
+        walk(child);
+      }
+    };
+    for (const root of contexts ?? []) {
+      walk(root);
+    }
+    return frames;
+  }
+
+  // Where the frame's viewport starts in the top page's viewport: the
+  // content box of its owner element, found with the context locator in its
+  // parent, plus the parent's own offset; null when the frame is gone or
+  // hidden. With scroll, each owner is scrolled into view first.
+  async frameOffset(session, frame, scroll = false) {
+    const frames = await this.listFrames(session);
+    const byId = new Map(frames.map((entry) => [entry.id, entry]));
+    const chain = [];
+    for (
+      let entry = byId.get(frame.id);
+      entry;
+      entry = byId.get(entry.parent)
+    ) {
+      chain.unshift(entry);
+    }
+    if (chain.length === 0) {
+      return null;
+    }
+    let offset = { x: 0, y: 0 };
+    for (const entry of chain) {
+      const located = await this.send("browsingContext.locateNodes", {
+        context: entry.parent,
+        locator: { type: "context", value: { context: entry.id } },
+      }).catch(() => null);
+      const sharedId = located?.nodes?.[0]?.sharedId;
+      if (!sharedId) {
+        return null;
+      }
+      const box = await this.send("script.callFunction", {
+        functionDeclaration: `(element, scroll) => {
+          if (scroll) element.scrollIntoView({ block: "center", inline: "center" });
+          const rect = element.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return null;
+          const style = getComputedStyle(element);
+          return [
+            rect.left + element.clientLeft + parseFloat(style.paddingLeft),
+            rect.top + element.clientTop + parseFloat(style.paddingTop),
+          ];
+        }`,
+        target: { context: entry.parent },
+        arguments: [{ sharedId }, { type: "boolean", value: scroll }],
+        awaitPromise: false,
+        resultOwnership: "none",
+      }).catch(() => null);
+      const values = box?.result?.value;
+      if (box?.type !== "success" || !Array.isArray(values)) {
+        return null;
+      }
+      offset = {
+        x: offset.x + values[0].value,
+        y: offset.y + values[1].value,
+      };
+    }
+    return offset;
+  }
+
+  // Runs a page action in a frame's browsing context.
+  async runInFrame(session, frameKey, payload, options = {}) {
+    const frame = this.frameKeys(session).get(frameKey);
+    if (!frame) {
+      return unknownFrame(frameKey, payload.selector);
+    }
+    const positioned = options.offset !== false;
+    const before = positioned
+      ? await this.frameOffset(
+          session,
+          frame,
+          options.scroll ?? payload.scrollIntoView !== false,
+        )
+      : { x: 0, y: 0 };
+    if (!before) {
+      return unknownFrame(frameKey, payload.selector);
+    }
+    const result = await this.runPageAction(session, payload, {
+      ...options,
+      context: frame.id,
+    });
+    if (!result || typeof result !== "object") {
+      return result;
+    }
+    // The action may have scrolled the frame's ancestors, moving the frame.
+    const offset =
+      positioned && (result.point || result.node?.box)
+        ? ((await this.frameOffset(session, frame)) ?? before)
+        : before;
+    return {
+      ...shiftFramePoints(result, offset),
+      inputContext: frame.id,
+      ...(result.point ? { framePoint: result.point } : {}),
+    };
+  }
+
+  // The top page's headings and controls, then each iframe's.
   async snapshotPage(sessionId, options = {}) {
-    return this.runSnapshotAction(sessionId, {
+    const session = this.getSession(sessionId);
+    const runInFrame = (key, payload, runOptions) =>
+      this.runInFrame(session, key, payload, runOptions);
+    const route = parseFrameRef(options.selector);
+    if (route) {
+      return frameElementSnapshot({
+        route,
+        frameKeys: this.frameKeys(session),
+        runInFrame,
+        options,
+      });
+    }
+    const result = await this.runSnapshotAction(sessionId, {
       action: "snapshot",
       ...options,
+    });
+    if (options.selector) {
+      return result;
+    }
+    return addFrameSnapshots({
+      result,
+      frames: await this.listFrames(session).catch(() => []),
+      frameKeys: this.frameKeys(session),
+      runInFrame,
+      options,
     });
   }
 

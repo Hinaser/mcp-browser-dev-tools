@@ -80,7 +80,7 @@ export function inspectionTools(server) {
         definition: {
           name: "get_snapshot",
           description:
-            'List visible headings and controls, one line each with a ref, role, name, and state, e.g. e3 textbox "Email" value="ada@example.com". ref=e3 works as any tool\'s selector until the page navigates. Far cheaper than get_document or a screenshot.',
+            'List visible headings and controls, one line each with a ref, role, name, and state, e.g. e3 textbox "Email" value="ada@example.com". ref=e3 works as any tool\'s selector until the page navigates; controls inside iframes get refs like f1e3. Far cheaper than get_document or a screenshot.',
           inputSchema: {
             type: "object",
             properties: {

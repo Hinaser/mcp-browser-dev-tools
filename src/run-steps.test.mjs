@@ -982,3 +982,36 @@ test("pointer tools take a selector or x and y, never both or neither", async ()
     /Pass toSelector or toX and toY/,
   );
 });
+
+test("run_steps tracks the frame when every action names an element in it", async () => {
+  const manager = createChangeReportingManager();
+  const frames = [];
+  const track = manager.trackChanges;
+  manager.trackChanges = async (sessionId, phase, options) => {
+    if (phase === "baseline") {
+      frames.push(options.frameKey ?? null);
+    }
+    return track(sessionId, phase, options);
+  };
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
+    browserAdapter: manager,
+  });
+  const run = (steps) =>
+    callRunSteps(server, { sessionId: "session-1", steps });
+
+  await run([
+    { tool: "type", arguments: { selector: "ref=f2e1", text: "Bob" } },
+    { tool: "click", arguments: { selector: "ref=f2e2" } },
+  ]);
+  await run([
+    { tool: "type", arguments: { selector: "ref=f2e1", text: "Bob" } },
+    { tool: "click", arguments: { selector: "text=Pay" } },
+  ]);
+  const value = (
+    await run([{ tool: "click", arguments: { selector: "ref=f2e2" } }])
+  ).result.structuredContent;
+
+  assert.deepEqual(frames, ["f2", null, "f2"]);
+  assert.deepEqual(value.changes.updated, ['f2e2 checkbox "Digest" checked']);
+});
