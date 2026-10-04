@@ -233,7 +233,7 @@ export function createLaunchServer({ chromiumAvailable, launches }) {
   };
 
   return new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter,
     statusProbeRetryMs: 0,
     launchBrowser: async (args) => {

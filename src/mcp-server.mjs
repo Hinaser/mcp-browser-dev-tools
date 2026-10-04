@@ -14,6 +14,7 @@ import { validateValue } from "./json-schema.mjs";
 import { createLogger } from "./logger.mjs";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.mjs";
 import { StepRunner, runStepsTool, stepSchema } from "./run-steps.mjs";
+import { TOOL_GROUPS } from "./tool-sets.mjs";
 import { TabRunner, runTabsTool } from "./run-tabs.mjs";
 import { asToolResult } from "./tool-results.mjs";
 
@@ -243,12 +244,15 @@ export class McpBrowserDevToolsServer {
 
   createTools() {
     this.changeTracker = new ChangeTracker(this.browserAdapter);
+    // config.tools is the enabled set (null for all); run_steps and
+    // run_tabs, whose steps can name only enabled tools, are core.
+    const enabled = this.config.tools;
     const tools = [
       ...browserTools(this),
       ...stateTools(this),
       ...actionTools(this),
       ...inspectionTools(this),
-    ];
+    ].filter(([name]) => !enabled || enabled.has(name));
 
     const stepTools = tools
       .filter(([, tool]) =>
@@ -356,7 +360,7 @@ export class McpBrowserDevToolsServer {
               name: SERVER_NAME,
               version: SERVER_VERSION,
             },
-            instructions: `Browser tools for Chromium (CDP) and Firefox (BiDi). Call attach_tab first; tools that take sessionId use the one it returns. To see what a page offers, call get_snapshot: one line per visible heading and control, each with a ref such as e12; it is far cheaper than get_document or a screenshot. To act, prefer run_steps: send the actions you already know, such as every field of a form, in one call: {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"ref=e4"}}]}. Actions return changes once the page settles: controls added, removed, or updated (snapshot lines with refs), new text such as an error or a toast, URL and title, console errors, and after a navigation the new page's snapshot. That is usually the check; add wait_for only for something that comes later. Read several pages at once with run_tabs and read_text. Locators: ref=e12 is an element from get_snapshot, until the page navigates; plain CSS (or css=) takes the first match; text=Foo the first visible element whose text equals, else contains, Foo; role=button[name="Save"] matches role and accessible name; name=Foo the first visible element whose accessible name equals or contains Foo (a label resolves to its control). Matching is case-sensitive; iframes and shadow roots are not searched. x and y are viewport CSS pixels; a screenshot's cssRect and scale convert image pixels.`,
+            instructions: `Browser tools for Chromium (CDP) and Firefox (BiDi). Call attach_tab first; tools that take sessionId use the one it returns. To see what a page offers, call get_snapshot: one line per visible heading and control, each with a ref such as e12; it is far cheaper than get_document or a screenshot. To act, prefer run_steps: send the actions you already know, such as every field of a form, in one call: {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"ref=e4"}}]}. Actions return changes once the page settles: controls added, removed, or updated (snapshot lines with refs), new text such as an error or a toast, URL and title, console errors, and after a navigation the new page's snapshot. That is usually the check; add wait_for only for something that comes later. Read several pages at once with run_tabs and read_text. Locators: ref=e12 is an element from get_snapshot, until the page navigates; plain CSS (or css=) takes the first match; text=Foo the first visible element whose text equals, else contains, Foo; role=button[name="Save"] matches role and accessible name; name=Foo the first visible element whose accessible name equals or contains Foo (a label resolves to its control). Matching is case-sensitive; iframes and shadow roots are not searched. x and y are viewport CSS pixels; a screenshot's cssRect and scale convert image pixels. More tools (drag, cookies and storage, request blocking and mocking, HAR, comparisons, launch control) are enabled with the MCP_BROWSER_TOOLS setting.`,
           });
         case "notifications/initialized":
           return null;
@@ -387,7 +391,16 @@ export class McpBrowserDevToolsServer {
     try {
       const tool = this.tools.get(params.name);
       if (!tool) {
-        throw new Error(`Unknown tool: ${params.name}`);
+        const group = Object.entries(TOOL_GROUPS).find(([, names]) =>
+          names.includes(params.name),
+        )?.[0];
+        throw new Error(
+          params.name === "evaluate_js" && !this.config.enableEvaluate
+            ? "evaluate_js is turned off by MCP_BROWSER_ENABLE_EVAL=0"
+            : group
+              ? `${params.name} is not enabled; it is in the ${group} tool group, which MCP_BROWSER_TOOLS=${group} (or all) adds`
+              : `Unknown tool: ${params.name}`,
+        );
       }
 
       const args = params.arguments ?? {};

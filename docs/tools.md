@@ -1,6 +1,19 @@
 # Tools
 
-The server exposes 42 tools. Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server has 42 tools and offers the 24 of the core set by default; `MCP_BROWSER_TOOLS` adds the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+
+## Tool Sets
+
+Every model turn sends the definitions of every tool the server offers, so it offers only the core set unless told otherwise. Set `MCP_BROWSER_TOOLS` to `all`, or to a comma-separated list of groups and tool names to add to the core set, for example `MCP_BROWSER_TOOLS=network,drag`. An unknown name stops the server at startup. `run_steps` and `run_tabs` steps can use only the tools that are offered.
+
+| Group            | Tools                                                                                                                                                                                                                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `core` (default) | `ensure_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `navigate`, `reload`, `click`, `hover`, `type`, `select`, `press_key`, `scroll`, `upload_file`, `wait_for`, `run_steps`, `run_tabs`, `get_snapshot`, `read_text`, `inspect_element`, `take_screenshot`, `evaluate_js`, `get_console_messages`, `get_network_requests` |
+| `input`          | `drag`, `set_viewport`                                                                                                                                                                                                                                                                                                                     |
+| `network`        | `set_network`, `get_har`, `get_events`                                                                                                                                                                                                                                                                                                     |
+| `state`          | `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `capture_debug_report`, `get_page_state`, `get_document`                                                                                                                                                                                             |
+| `compare`        | `compare_page_state`, `compare_selector`                                                                                                                                                                                                                                                                                                   |
+| `browser`        | `browser_status`, `launch_browser`, `list_sessions`, `detach_tab`                                                                                                                                                                                                                                                                          |
 
 ## Tool List
 

@@ -54,6 +54,7 @@
     "src/screenshot-output.mjs",
     "src/tool-results.mjs",
     "src/tool-schemas.mjs",
+    "src/tool-sets.mjs",
     "src/upload-files.mjs",
     "src/network-control.mjs",
     "src/tools/action-tools.mjs",

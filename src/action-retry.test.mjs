@@ -18,7 +18,7 @@ test("actions retry while the element is missing or not actionable", async () =>
     { found: true, clicked: true },
   ]);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -39,7 +39,7 @@ test("actions fail with the last reason once timeoutMs passes", async () => {
     notActionable('Element "#save" is covered by <div#banner>'),
   ]);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: covered.manager,
   });
   const startedAt = Date.now();
@@ -54,7 +54,7 @@ test("actions fail with the last reason once timeoutMs passes", async () => {
 
   const missing = createFlakyClickManager([{ found: false }]);
   const missingServer = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: missing.manager,
   });
   const missingResult = (
@@ -75,7 +75,7 @@ test("actions do not retry invalid selectors or other errors", async () => {
   ]) {
     const { manager, calls } = createFlakyClickManager([outcome]);
     const server = new McpBrowserDevToolsServer({
-      config: loadConfig({}),
+      config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
       browserAdapter: manager,
     });
     await callTool(server, "click", { sessionId: "session-1", selector: "#[" });
@@ -91,7 +91,7 @@ test("press_key without a selector is sent once", async () => {
     throw notActionable("not reached in practice");
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -107,7 +107,7 @@ test("actions report waitedMs only after retrying, including when they give up",
     return inner(...args);
   };
   const slowServer = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: slow.manager,
   });
   const slowResult = (
@@ -120,7 +120,7 @@ test("actions report waitedMs only after retrying, including when they give up",
 
   const missing = createFlakyClickManager([{ found: false }]);
   const missingServer = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: missing.manager,
   });
   const gaveUp = (
@@ -137,7 +137,7 @@ test("actions report waitedMs only after retrying, including when they give up",
     notActionable('Element "#save" is covered by <div#banner>'),
   ]);
   const coveredServer = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: covered.manager,
   });
   const response = await callTool(coveredServer, "click", {

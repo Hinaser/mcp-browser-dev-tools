@@ -23,7 +23,7 @@ import {
 
 test("take_screenshot forwards the optional selector", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -59,7 +59,7 @@ test("take_screenshot with path writes the decoded image and returns its path", 
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const filePath = path.join(dir, "nested", "shot.JPG");
@@ -99,7 +99,7 @@ test("take_screenshot replaces a symlink instead of writing through it", async (
   await writeFile(config, "keep");
   await symlink(config, link);
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -127,7 +127,7 @@ test("take_screenshot fails when the selector matches nothing", async () => {
     found: false,
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -147,7 +147,7 @@ test("take_screenshot fails when the selector matches nothing", async () => {
 
 test("take_screenshot output file defaults to a temp file", async (t) => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -176,7 +176,7 @@ test("take_screenshot rejects unsafe or mismatched paths before capturing", asyn
     return {};
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
   const config = path.join(dir, ".bashrc");
@@ -198,7 +198,10 @@ test("take_screenshot rejects unsafe or mismatched paths before capturing", asyn
   }
 
   const firefox = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "firefox" }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_FAMILY: "firefox",
+    }),
     browserAdapter: manager,
   });
   const webp = await callTool(firefox, "take_screenshot", {
@@ -220,7 +223,7 @@ test("take_screenshot output image returns image content without base64 text", a
     data: "ZmFrZQ==",
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -241,7 +244,7 @@ test("take_screenshot output image returns image content without base64 text", a
 
 test("take_screenshot without new arguments still returns base64 data", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -303,7 +306,7 @@ test("take_screenshot reports the CSS area it covers and its scale", async () =>
     viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
   });
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 

@@ -9,6 +9,7 @@ import path from "node:path";
 import { loadConfig } from "./config.mjs";
 import { McpBrowserDevToolsServer } from "./mcp-server.mjs";
 import { PACKAGE_VERSION } from "./package-info.mjs";
+import { TOOL_GROUPS } from "./tool-sets.mjs";
 import {
   callRunSteps,
   callTool,
@@ -19,7 +20,7 @@ import {
 
 test("initialize returns MCP server metadata", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -41,7 +42,7 @@ test("initialize returns MCP server metadata", async () => {
 test("start resumes the input stream so spawned stdio servers stay alive", () => {
   let resumed = false;
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
     input: {
       on() {},
@@ -68,7 +69,7 @@ test("start resumes the input stream so spawned stdio servers stay alive", () =>
 
 test("tools/list exposes the broker tools", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -107,7 +108,7 @@ test("tools/list exposes the broker tools", async () => {
 
 test("tools/call executes a tool and returns structured content", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -129,7 +130,7 @@ test("tools/call executes a tool and returns structured content", async () => {
 
 test("browser_status includes broker version metadata", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -157,7 +158,7 @@ test("browser_status includes broker version metadata", async () => {
 test("launch_browser delegates to the launch service", async () => {
   let capturedArgs = null;
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
     statusProbeRetryMs: 0,
     launchBrowser: async (args) => {
@@ -206,6 +207,7 @@ test("launch_browser passes unsafeArgs through when enabled", async () => {
   let capturedArgs = null;
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
       MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
     }),
     browserAdapter: createFakeManager(),
@@ -270,7 +272,7 @@ test("ensure_browser opens a tab when a compatible browser is already available"
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter,
   });
 
@@ -320,7 +322,7 @@ test("ensure_browser launches a browser when none is reachable", async () => {
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter,
     statusProbeRetryMs: 0,
     launchBrowser: async (args) => {
@@ -364,7 +366,7 @@ test("ensure_browser launches a browser when none is reachable", async () => {
 
 test("new_tab delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -390,7 +392,7 @@ test("new_tab delegates to the browser adapter", async () => {
 
 test("close_tab delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -414,7 +416,7 @@ test("close_tab delegates to the browser adapter", async () => {
 
 test("wait_for delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -440,7 +442,7 @@ test("wait_for delegates to the browser adapter", async () => {
 
 test("inspect_element delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -463,7 +465,7 @@ test("inspect_element delegates to the browser adapter", async () => {
 
 test("navigate delegates to the browser adapter", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -559,7 +561,7 @@ test("expression conditions follow MCP_BROWSER_ENABLE_EVAL", async () => {
 
 test("initialize returns the server protocol version, not the client hint", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -577,7 +579,7 @@ test("initialize returns the server protocol version, not the client hint", asyn
 
 test("unknown tool calls return an error response", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -596,7 +598,7 @@ test("unknown tool calls return an error response", async () => {
 
 test("tool calls validate arguments against the declared schema", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -619,7 +621,7 @@ test("tool calls validate arguments against the declared schema", async () => {
 
 test("get_storage filters the requested storage area", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -649,7 +651,7 @@ test("get_storage filters the requested storage area", async () => {
 
 test("compare_page_state compares bounded page fields across sessions", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -672,7 +674,7 @@ test("compare_page_state compares bounded page fields across sessions", async ()
 
 test("compare_selector compares bounded element fields across sessions", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -697,7 +699,7 @@ test("compare_selector compares bounded element fields across sessions", async (
 
 test("restore_session_snapshot parses snapshot JSON before delegating", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -732,7 +734,7 @@ test("restore_session_snapshot parses snapshot JSON before delegating", async ()
 
 test("select requires either value or label", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -755,7 +757,7 @@ test("select requires either value or label", async () => {
 
 test("wait_for requires at least one condition", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
 
@@ -777,7 +779,10 @@ test("wait_for requires at least one condition", async () => {
 
 test("Firefox tool schemas only advertise screenshot formats the adapter supports", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "firefox" }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_FAMILY: "firefox",
+    }),
     browserAdapter: createFakeManager(),
   });
 
@@ -799,7 +804,10 @@ test("Firefox tool schemas only advertise screenshot formats the adapter support
 
 test("auto mode requires browserFamily when creating a new tab", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_FAMILY: "auto",
+    }),
     browserAdapter: createFakeManager(),
   });
 
@@ -822,7 +830,10 @@ test("auto mode requires browserFamily when creating a new tab", async () => {
 
 test("auto mode requires browserFamily when launching a browser", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_FAMILY: "auto",
+    }),
     browserAdapter: createFakeManager(),
   });
 
@@ -849,7 +860,10 @@ test("auto mode requires browserFamily when launching a browser", async () => {
 
 test("auto mode requires browserFamily when ensuring a browser", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_FAMILY: "auto" }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_FAMILY: "auto",
+    }),
     browserAdapter: createFakeManager(),
   });
 
@@ -877,6 +891,7 @@ test("auto mode requires browserFamily when ensuring a browser", async () => {
 test("unsafe launch args are only exposed when explicitly enabled", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
       MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS: "1",
     }),
     browserAdapter: createFakeManager(),
@@ -1097,7 +1112,7 @@ test("a confirmed launch does not block the next explicit launch", async () => {
 test("wait_for passes anyOf and textExcludes to the adapter", async () => {
   const manager = createFakeManager();
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -1128,7 +1143,7 @@ test("wait_for passes anyOf and textExcludes to the adapter", async () => {
 test("wait_for passes text conditions to the adapter", async () => {
   const manager = createFakeManager();
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -1155,7 +1170,10 @@ test("tool calls append timing entries when MCP_BROWSER_TIMING_LOG is set", asyn
   t.after(() => rm(dir, { recursive: true, force: true }));
   const logFile = path.join(dir, "timing.jsonl");
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({ MCP_BROWSER_TIMING_LOG: logFile }),
+    config: loadConfig({
+      MCP_BROWSER_TOOLS: "all",
+      MCP_BROWSER_TIMING_LOG: logFile,
+    }),
     browserAdapter: createFakeManager(),
   });
 
@@ -1187,7 +1205,7 @@ test("tool calls append timing entries when MCP_BROWSER_TIMING_LOG is set", asyn
 
 test("the run_steps example in the server instructions is a valid call", async () => {
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
   const { instructions } = (
@@ -1230,7 +1248,7 @@ test("a failed run_steps batch reports the page and its controls", async () => {
     };
   };
   const server = new McpBrowserDevToolsServer({
-    config: loadConfig({}),
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: manager,
   });
 
@@ -1273,9 +1291,27 @@ test("a failed run_steps batch reports the page and its controls", async () => {
 
 // Every turn of every conversation pays for the tool definitions, so their
 // size is held to a budget; raise it only for something worth the cost.
-test("the tool definitions and instructions stay within their size budget", async () => {
+test("the default core tool set stays within its size budget", async () => {
   const server = new McpBrowserDevToolsServer({
     config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+  const { tools } = (
+    await server.handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+  ).result;
+  assert.deepEqual(
+    tools.map((tool) => tool.name).sort(),
+    [...TOOL_GROUPS.core].sort(),
+  );
+  assert.ok(
+    JSON.stringify(tools).length <= 17_000,
+    `core tool definitions are ${JSON.stringify(tools).length} characters`,
+  );
+});
+
+test("the tool definitions and instructions stay within their size budget", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({ MCP_BROWSER_TOOLS: "all" }),
     browserAdapter: createFakeManager(),
   });
   const { tools } = (

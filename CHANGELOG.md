@@ -8,6 +8,8 @@ release history retroactively.
 
 ## [Unreleased]
 
+This release changes the default tool list: see Changed.
+
 ### Added
 
 - `get_snapshot` lists the page's visible headings and controls, one line each with a ref such as `e12`, and every tool accepts `ref=e12` as its selector. It is the cheapest way to see what a page offers before acting, replacing `get_document` or a screenshot in most cases. Refs belong to the document that issued them, and a new document continues the numbering, so a stale or unknown ref fails with an error that says to take a new snapshot instead of naming another element. `run_steps` failure reports include a `ref` for each control
@@ -24,6 +26,7 @@ release history retroactively.
 
 ### Changed
 
+- **Breaking:** the server offers the 24 tools of the core set by default instead of all of them, since every model turn pays for the definitions of every tool offered (16.5k characters instead of 24.0k). `MCP_BROWSER_TOOLS=all` restores the full list; a comma-separated list of groups (`input`, `network`, `state`, `compare`, `browser`) or tool names adds to the core set. `run_steps` and `run_tabs` steps can use only offered tools, and the server instructions say how to enable more
 - The tool definitions are trimmed from 36.0k to 22.1k characters and the server instructions from 1.9k to 1.4k, which every model turn pays for. Descriptions say once what they repeated (locators, sessionId, timeouts, coordinates now live in the server instructions or a short line), `run_steps` and `run_tabs` keep one compact example each and no longer list every step tool, and the advertised schemas leave out `additionalProperties: false`; calls are still validated against the full schemas. A test holds the definitions to 22.5k characters
 
 ### Fixed
