@@ -80,7 +80,7 @@ export function stateTools(server) {
         definition: {
           name: "get_page_state",
           description:
-            "Return the current URL, title, ready state, viewport, and scroll positions for an attached page.",
+            "URL, title, ready state, viewport, and scroll position.",
           inputSchema: sessionSchema({}, []),
         },
         handler: async (args) =>
@@ -93,7 +93,7 @@ export function stateTools(server) {
         definition: {
           name: "compare_page_state",
           description:
-            "Compare bounded page state across two attached sessions, useful for cross-browser checks in auto mode.",
+            "Compare page state across two sessions, for cross-browser checks.",
           inputSchema: compareSessionsSchema({}, []),
         },
         handler: async (args) => {
@@ -133,8 +133,7 @@ export function stateTools(server) {
       {
         definition: {
           name: "compare_selector",
-          description:
-            "Compare a selector across two attached sessions using a bounded element summary.",
+          description: "Compare one element across two sessions.",
           inputSchema: compareSessionsSchema(
             {
               selector: selectorProperty(),
@@ -189,9 +188,8 @@ export function stateTools(server) {
       {
         definition: {
           name: "wait_for",
-          description: server.config.enableEvaluate
-            ? "Wait until every given condition holds: selector state, its text (textEquals, textIncludes, textExcludes), url, urlIncludes, readyState, or expression; or give anyOf to end on the first of several. Polls until they hold or timeoutMs passes, then fails with the last observed state. Selector checks scroll the element into view."
-            : "Wait until every given condition holds: selector state, its text (textEquals, textIncludes, textExcludes), url, urlIncludes, or readyState; or give anyOf to end on the first of several. Polls until they hold or timeoutMs passes, then fails with the last observed state. Selector checks scroll the element into view.",
+          description:
+            "Wait until every given condition holds, or the first of anyOf; at timeoutMs it fails with the last observed state. Selector checks scroll the element into view.",
           inputSchema: waitForInputSchema({
             expression: server.config.enableEvaluate,
           }),
@@ -221,8 +219,7 @@ export function stateTools(server) {
       {
         definition: {
           name: "get_cookies",
-          description:
-            "Read bounded page-visible cookies for the attached session.",
+          description: "Page-visible cookies.",
           inputSchema: sessionSchema({}, []),
         },
         handler: async (args) =>
@@ -234,8 +231,7 @@ export function stateTools(server) {
       {
         definition: {
           name: "get_storage",
-          description:
-            "Read bounded localStorage and sessionStorage entries for the attached session.",
+          description: "localStorage and sessionStorage entries.",
           inputSchema: storageInputSchema(),
         },
         handler: async (args) => {
@@ -259,7 +255,7 @@ export function stateTools(server) {
         definition: {
           name: "capture_debug_report",
           description:
-            "Capture a bounded debug bundle with page state, cookies/storage summary, recent console, recent network, and an optional screenshot.",
+            "One bundle: page state, cookie and storage summary, recent console and network, and a screenshot.",
           inputSchema: captureDebugReportInputSchema(
             server.config.browserFamily,
           ),
@@ -279,7 +275,7 @@ export function stateTools(server) {
         definition: {
           name: "capture_session_snapshot",
           description:
-            "Capture a bounded session snapshot with page state, cookies, and web storage for later bounded restore on the same origin.",
+            "Save page state, cookies, and web storage for restore_session_snapshot on the same origin.",
           inputSchema: sessionSchema({}, []),
         },
         handler: async (args) =>
@@ -292,7 +288,7 @@ export function stateTools(server) {
         definition: {
           name: "restore_session_snapshot",
           description:
-            "Restore a bounded session snapshot into the currently attached page context. Restores only page-visible cookies plus localStorage/sessionStorage on the current origin.",
+            "Restore page-visible cookies and web storage from capture_session_snapshot, on the current origin.",
           inputSchema: restoreSessionSnapshotInputSchema(),
         },
         validate: (args) => {
@@ -313,8 +309,7 @@ export function stateTools(server) {
       {
         definition: {
           name: "get_har",
-          description:
-            "Export a bounded HAR-like summary from buffered network activity for an attached session.",
+          description: "Buffered network activity as a HAR-like summary.",
           inputSchema: sessionWithLimitSchema(),
         },
         handler: async (args) =>

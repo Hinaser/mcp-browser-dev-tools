@@ -14,26 +14,24 @@ export function runTabsInputSchema(stepTools, browserFamily) {
         type: "array",
         minItems: 1,
         maxItems: MAX_TABS,
-        description: `At most ${MAX_TABS}, each with url (opens a new tab there) or sessionId (an attached tab), plus its steps.`,
+        description: `At most ${MAX_TABS}, each with url or sessionId, and steps.`,
         items: {
           type: "object",
           properties: {
             url: {
               type: "string",
-              description:
-                "Open a new tab, attach to it, and load this URL before the steps.",
+              description: "Open this in a new tab.",
             },
             waitUntil: waitUntilProperty(),
             sessionId: {
               type: "string",
-              description:
-                "Run the steps in this attached session instead of opening a tab.",
+              description: "Use this session instead.",
             },
             steps: {
               type: "array",
               maxItems: MAX_RUN_STEPS,
-              description: `Steps to run in this tab, as in run_steps (at most ${MAX_RUN_STEPS}, default none).`,
-              items: withoutDescriptions(stepSchema(stepTools)),
+              description: "As in run_steps.",
+              items: withoutDescriptions(stepSchema()),
             },
           },
           additionalProperties: false,
@@ -44,8 +42,7 @@ export function runTabsInputSchema(stepTools, browserFamily) {
             browserFamily: {
               type: "string",
               enum: ["chromium", "firefox"],
-              description:
-                "Browser to open the url tabs in. Required when a tab gives url.",
+              description: "Required for url tabs in auto mode.",
             },
           }
         : {}),
@@ -53,23 +50,21 @@ export function runTabsInputSchema(stepTools, browserFamily) {
         type: "integer",
         minimum: 1,
         maximum: MAX_TABS,
-        description: `How many tabs run at once (default: all of them, at most ${MAX_TABS}). Lower it for sites that limit how fast they are read.`,
+        description: "Tabs at once (default all).",
       },
       timeoutMs: {
         type: "integer",
         minimum: 1,
         maximum: MAX_TAB_TIMEOUT_MS,
-        description: `How long each tab may take, from opening to its last step, before it fails (default ${DEFAULT_TAB_TIMEOUT_MS}).`,
+        description: `ms per tab (default ${DEFAULT_TAB_TIMEOUT_MS}).`,
       },
       keepTabs: {
         type: "boolean",
-        description:
-          "Leave the tabs opened for url open and attached, and report their sessionId (default false: close them).",
+        description: "Keep url tabs open and attached (default false).",
       },
       continueOnError: {
         type: "boolean",
-        description:
-          "Within each tab, run the remaining steps after a step fails (default false). A failing tab never stops the others.",
+        description: "Within each tab (default false).",
       },
     },
     required: ["tabs"],
@@ -281,7 +276,7 @@ export function runTabsTool(runner, stepTools, configuredFamily) {
     {
       definition: {
         name: "run_tabs",
-        description: `Run step lists in several tabs at the same time and return every tab's results in one reply, for example to read search results side by side: {"tabs":[{"url":"https://example.com/a","steps":[{"tool":"read_text"}]},{"url":"https://example.com/b","steps":[{"tool":"read_text"}]}]}. A url tab opens a new tab, loads it, runs its steps, and closes unless keepTabs; a sessionId tab uses that attached tab. Steps are as in run_steps and are all validated first. Tabs run at once (at most ${MAX_TABS}; concurrency lowers that); each has timeoutMs (default ${DEFAULT_TAB_TIMEOUT_MS}) and fails without stopping the others.`,
+        description: `Run steps in several tabs at once and get every tab's results in one reply: {"tabs":[{"url":"https://a.example","steps":[{"tool":"read_text"}]},{"url":"https://b.example","steps":[{"tool":"read_text"}]}]}. A url tab opens, runs its steps, and closes unless keepTabs; a sessionId tab uses that session. Steps are as in run_steps. A tab that fails or passes timeoutMs does not stop the others.`,
         inputSchema: runTabsInputSchema(stepTools, configuredFamily),
       },
       handler: async (args) => runner.runTabs(args, configuredFamily),

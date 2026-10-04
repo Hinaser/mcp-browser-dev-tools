@@ -68,6 +68,28 @@ const STATUS_PROBE_ATTEMPTS = 3;
 
 const LAUNCH_GRACE_MS = 30_000;
 
+// The definition clients see: additionalProperties: false tells a model
+// nothing it acts on, so it is left out of what every turn pays for. Calls
+// are still validated against the full schema.
+function advertisedDefinition(definition) {
+  const strip = (value) => {
+    if (Array.isArray(value)) {
+      return value.map(strip);
+    }
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(
+          ([key, item]) => !(key === "additionalProperties" && item === false),
+        )
+        .map(([key, item]) => [key, strip(item)]),
+    );
+  };
+  return strip(definition);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -240,7 +262,7 @@ export class McpBrowserDevToolsServer {
       stepSchema: stepSchema(stepTools),
       conditionOptions: { expression: this.config.enableEvaluate },
     });
-    tools.push(runStepsTool(this.stepRunner, stepTools));
+    tools.push(runStepsTool(this.stepRunner));
     this.tabRunner = new TabRunner({
       stepRunner: this.stepRunner,
       browserAdapter: this.browserAdapter,
@@ -334,8 +356,7 @@ export class McpBrowserDevToolsServer {
               name: SERVER_NAME,
               version: SERVER_VERSION,
             },
-            instructions:
-              'Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To see what a page offers, call get_snapshot first: it lists the visible headings and controls, one line each with a ref such as e12, and ref=e12 works as the selector of any tool; it is far cheaper than get_document or a screenshot. To act on a page, prefer run_steps: send the actions you already know (such as every field of a form) in one call instead of several round trips, for example {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"headphones"}},{"tool":"press_key","arguments":{"key":"Enter"}}]}. Actions and batches with actions return changes once the page settles: headings and controls added, removed, or updated (snapshot lines with refs), new text such as an error or a toast, the URL and title, console errors and dialogs, and after a navigation a snapshot of the new page. That is usually the check, so a screenshot or another get_snapshot is rarely needed; add wait_for for something that arrives later. Add an if step when the page can be in more than one state. To read several pages, open them together with run_tabs and read each with read_text. Locators: ref=e12 takes the element get_snapshot listed, until the page navigates; plain CSS (or css=) takes the first match; text=Foo takes the first visible element whose text equals Foo, else contains it, in document order, so it can match a wrapper; role=button[name="Save"] matches ARIA role and accessible name (equal or containing) without a visibility check; name=Foo takes the first visible element whose accessible name equals or contains Foo, and a matched <label> resolves to its control when that control is visible. Comparisons are case-sensitive; iframes and shadow roots are not searched.',
+            instructions: `Browser tools for Chromium (CDP) and Firefox (BiDi). Call attach_tab first; tools that take sessionId use the one it returns. To see what a page offers, call get_snapshot: one line per visible heading and control, each with a ref such as e12; it is far cheaper than get_document or a screenshot. To act, prefer run_steps: send the actions you already know, such as every field of a form, in one call: {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"ref=e4"}}]}. Actions return changes once the page settles: controls added, removed, or updated (snapshot lines with refs), new text such as an error or a toast, URL and title, console errors, and after a navigation the new page's snapshot. That is usually the check; add wait_for only for something that comes later. Read several pages at once with run_tabs and read_text. Locators: ref=e12 is an element from get_snapshot, until the page navigates; plain CSS (or css=) takes the first match; text=Foo the first visible element whose text equals, else contains, Foo; role=button[name="Save"] matches role and accessible name; name=Foo the first visible element whose accessible name equals or contains Foo (a label resolves to its control). Matching is case-sensitive; iframes and shadow roots are not searched. x and y are viewport CSS pixels; a screenshot's cssRect and scale convert image pixels.`,
           });
         case "notifications/initialized":
           return null;
@@ -343,7 +364,9 @@ export class McpBrowserDevToolsServer {
           return success(id, {});
         case "tools/list":
           return success(id, {
-            tools: Array.from(this.tools.values(), (tool) => tool.definition),
+            tools: Array.from(this.tools.values(), (tool) =>
+              advertisedDefinition(tool.definition),
+            ),
           });
         case "tools/call":
           return success(id, await this.callTool(message.params));

@@ -11,11 +11,7 @@ import {
   asToolResult,
   moveScreenshotImage,
 } from "../tool-results.mjs";
-import {
-  LOCATOR_DESCRIPTION,
-  selectorProperty,
-  sessionWithLimitSchema,
-} from "../tool-schemas.mjs";
+import { selectorProperty, sessionWithLimitSchema } from "../tool-schemas.mjs";
 
 const DEFAULT_READ_CHARS = 8000;
 const DEFAULT_SNAPSHOT_NODES = 100;
@@ -51,8 +47,7 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "get_console_messages",
-          description:
-            "Read buffered console, log, and exception messages for an attached session.",
+          description: "Buffered console messages and exceptions.",
           inputSchema: sessionWithLimitSchema(),
         },
         handler: async (args) => ({
@@ -68,8 +63,7 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "get_network_requests",
-          description:
-            "Summarize buffered network requests for an attached session in a DevTools-network-tab style view.",
+          description: "Buffered network requests.",
           inputSchema: sessionWithLimitSchema(),
         },
         handler: async (args) => ({
@@ -86,27 +80,24 @@ export function inspectionTools(server) {
         definition: {
           name: "get_snapshot",
           description:
-            'List the page\'s visible headings and controls in document order, one line each: a ref, the role, the accessible name, and value, checked, or disabled state, for example e3 textbox "Email" value="ada@example.com". Pass ref=e3 as the selector of any tool. Refs last until the page navigates. Use this before get_document or a screenshot to decide what to do next.',
+            'List visible headings and controls, one line each with a ref, role, name, and state, e.g. e3 textbox "Email" value="ada@example.com". ref=e3 works as any tool\'s selector until the page navigates. Far cheaper than get_document or a screenshot.',
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               selector: {
                 type: "string",
-                description: `Only list nodes inside this element. ${LOCATOR_DESCRIPTION}`,
+                description: "Only inside this element.",
               },
               limit: {
                 type: "integer",
                 minimum: 1,
                 maximum: MAX_SNAPSHOT_NODES,
-                description: `Most nodes to return (default ${DEFAULT_SNAPSHOT_NODES}); more tells how many were left out.`,
+                description: `Default ${DEFAULT_SNAPSHOT_NODES}.`,
               },
               headings: {
                 type: "boolean",
-                description: "Include headings (default true).",
+                description: "Default true.",
               },
             },
             required: ["sessionId"],
@@ -127,19 +118,15 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "get_document",
-          description: "Fetch the DOM document tree for an attached page.",
+          description: "The DOM tree (Firefox: the full HTML).",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               depth: {
                 type: "integer",
                 minimum: 1,
-                description:
-                  "How many levels of child nodes to include (default 2). Chromium and Edge only; Firefox returns the full document HTML regardless.",
+                description: "Default 2.",
               },
             },
             required: ["sessionId"],
@@ -156,14 +143,11 @@ export function inspectionTools(server) {
         definition: {
           name: "inspect_element",
           description:
-            "Describe one element: its box, visibility, role, accessible name, state, and styles. Scrolls it into view first, so the box reflects the scrolled position.",
+            "One element's box, visibility, role, name, state, and styles, after scrolling it into view.",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               selector: selectorProperty(),
             },
             required: ["sessionId", "selector"],
@@ -179,30 +163,27 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "read_text",
-          description: `Read the visible text of the main content (main or role=main, else a single article, else the body), or of selector, as plain lines up to maxChars. With links, also list its links with text and absolute URL, for example search results. inspect_element clips text to 400 characters.`,
+          description: `Visible text of the main content, or of selector, as lines up to maxChars; with links, also its links.`,
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               selector: selectorProperty(),
               maxChars: {
                 type: "integer",
                 minimum: 1,
                 maximum: MAX_READ_CHARS,
-                description: `Most characters of text to return (default ${DEFAULT_READ_CHARS}, at most ${MAX_READ_CHARS}); totalChars and truncated tell whether there was more.`,
+                description: `Default ${DEFAULT_READ_CHARS}.`,
               },
               links: {
                 type: "boolean",
-                description: `Also return the http(s) links inside, deduplicated, at most maxLinks (default false).`,
+                description: `Also list http(s) links (default false).`,
               },
               maxLinks: {
                 type: "integer",
                 minimum: 1,
                 maximum: MAX_READ_LINKS,
-                description: `Most links to return (default ${DEFAULT_READ_LINKS}, at most ${MAX_READ_LINKS}); moreLinks counts the rest.`,
+                description: `Default ${DEFAULT_READ_LINKS}.`,
               },
             },
             required: ["sessionId"],
@@ -224,35 +205,29 @@ export function inspectionTools(server) {
         definition: {
           name: "take_screenshot",
           description:
-            "Screenshot the page, or one element with selector. Returns base64 data in the JSON by default; output image returns image content instead, and output file (or path) writes a file and returns its path.",
+            "Screenshot the page or selector: base64 in the JSON (output data, default), image content (image), or a file (file, or path). cssRect and scale convert image pixels to x, y.",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               format: {
                 type: "string",
                 enum: screenshotFormatsFor(server.config.browserFamily),
-                description:
-                  "Image format (default png). With path, it must match the extension.",
+                description: "Default png; must match path's extension.",
               },
               selector: selectorProperty(),
               output: {
                 type: "string",
                 enum: ["data", "image", "file"],
-                description:
-                  "data (default) puts base64 in the JSON, image returns image content with metadata in the JSON, file writes a file and returns its path (the default when path is given).",
+                description: "Default data; file when path is given.",
               },
               path: {
                 type: "string",
-                description: `Absolute path for output file, ending in ${screenshotFileExtensions(server.config.browserFamily).join(", ")} (the extension sets the format); parent directories are created. Default: a new file in a private temp directory.`,
+                description: `Absolute, ending in ${screenshotFileExtensions(server.config.browserFamily).join(", ")}; default a temp file.`,
               },
               overwrite: {
                 type: "boolean",
-                description:
-                  "For output file: replace path if it already exists (default false: fail instead).",
+                description: "Replace an existing file.",
               },
             },
             required: ["sessionId"],
@@ -278,20 +253,15 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "get_events",
-          description:
-            "Read buffered console, log, exception, and network events for an attached session.",
+          description: "Buffered console, network, page, and dialog events.",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               limit: {
                 type: "integer",
                 minimum: 1,
-                description:
-                  "Return the most recent N events from the session buffer (default 50).",
+                description: "Most recent N (default 50).",
               },
             },
             required: ["sessionId"],
@@ -314,28 +284,24 @@ export function inspectionTools(server) {
       {
         definition: {
           name: "evaluate_js",
-          description: "Evaluate JavaScript in the attached page context.",
+          description:
+            "Run JavaScript in the page; top-level await works, and the last expression's value is returned.",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "Session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
               expression: {
                 type: "string",
-                description:
-                  "JavaScript to evaluate in the page's main world. Top-level await works, and the value of the last expression statement is returned.",
+                description: "JavaScript.",
               },
               awaitPromise: {
                 type: "boolean",
-                description:
-                  "Wait for a returned promise to settle and return its result (default true).",
+                description: "Default true.",
               },
               returnByValue: {
                 type: "boolean",
                 description:
-                  "Return a JSON value (default true); false returns a short description of the object. Chromium and Edge only; Firefox always returns a serialized value.",
+                  "JSON value (default true); false gives a short description (Chromium only).",
               },
             },
             required: ["sessionId", "expression"],

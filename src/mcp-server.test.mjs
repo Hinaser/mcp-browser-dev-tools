@@ -903,7 +903,7 @@ test("unsafe launch args are only exposed when explicitly enabled", async () => 
         type: "string",
       },
     });
-    assert.match(description, /command-line flags/);
+    assert.match(description, /Extra browser flags/);
   }
 });
 
@@ -1269,4 +1269,35 @@ test("a failed run_steps batch reports the page and its controls", async () => {
   ).result.structuredContent;
   assert.equal(snapshotFailed.ok, false);
   assert.equal("page" in snapshotFailed, false);
+});
+
+// Every turn of every conversation pays for the tool definitions, so their
+// size is held to a budget; raise it only for something worth the cost.
+test("the tool definitions and instructions stay within their size budget", async () => {
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: createFakeManager(),
+  });
+  const { tools } = (
+    await server.handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+  ).result;
+  const { instructions } = (
+    await server.handleRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1" },
+      },
+    })
+  ).result;
+
+  assert.ok(
+    JSON.stringify(tools).length <= 22_500,
+    `tool definitions are ${JSON.stringify(tools).length} characters`,
+  );
+  assert.ok(instructions.length <= 1_600);
+  assert.doesNotMatch(JSON.stringify(tools), /additionalProperties/);
 });

@@ -2,7 +2,6 @@ import { retryUntilActionable } from "../action-retry.mjs";
 import { parseKeyCombo } from "../keyboard.mjs";
 import { DEFAULT_DRAG_STEPS, MOUSE_BUTTONS } from "../page-context.mjs";
 import {
-  LOCATOR_DESCRIPTION,
   actionTimeoutProperty,
   pointProperties,
   pointerTarget,
@@ -27,13 +26,12 @@ export function actionTools(server) {
       {
         definition: {
           name: "navigate",
-          description:
-            "Navigate an attached tab to a URL and optionally wait for interactive or complete load state.",
+          description: "Load a URL.",
           inputSchema: sessionSchema(
             {
               url: {
                 type: "string",
-                description: "Absolute URL to load.",
+                description: "Absolute URL.",
               },
               waitUntil: waitUntilProperty(),
             },
@@ -51,14 +49,12 @@ export function actionTools(server) {
       {
         definition: {
           name: "reload",
-          description:
-            "Reload the attached tab and optionally ignore cache while waiting for interactive or complete load state.",
+          description: "Reload the tab.",
           inputSchema: sessionSchema(
             {
               ignoreCache: {
                 type: "boolean",
-                description:
-                  "Bypass the HTTP cache for this reload (default false).",
+                description: "Bypass the cache.",
               },
               waitUntil: waitUntilProperty(),
             },
@@ -78,7 +74,7 @@ export function actionTools(server) {
         definition: {
           name: "click",
           description:
-            "Click an element with real mouse input at its center, or the point x, y; fails if another element covers the element. button and clickCount give right, middle, and double clicks. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
+            "Click with real mouse input at an element's center (fails if something covers it) or at x, y. Accepts alert and confirm dialogs, dismisses prompts. Returns changes: what changed on the page.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -86,14 +82,13 @@ export function actionTools(server) {
               button: {
                 type: "string",
                 enum: MOUSE_BUTTONS,
-                description: "Mouse button (default left).",
+                description: "Default left.",
               },
               clickCount: {
                 type: "integer",
                 minimum: 1,
                 maximum: 3,
-                description:
-                  "2 for a double click, 3 for a triple click (default 1).",
+                description: "2 for a double click.",
               },
               timeoutMs: actionTimeoutProperty(
                 ", covered, outside the viewport, or disabled",
@@ -125,7 +120,7 @@ export function actionTools(server) {
         definition: {
           name: "hover",
           description:
-            "Move the real mouse pointer to an element's center, or to the point x, y. Returns changes, what it changed on the page.",
+            "Move the real mouse pointer to an element's center or x, y. Returns changes.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
@@ -159,21 +154,21 @@ export function actionTools(server) {
         definition: {
           name: "drag",
           description:
-            "Drag with real mouse input: press on selector (or at x, y), move in steps, and release on toSelector (or at toX, toY). Works for HTML5 draggable elements and for pages that follow mouse or pointer events (sliders, sortable lists, canvases). Both points must be in the viewport; the source is scrolled into view, the drop point is not. Returns changes, what it changed on the page.",
+            "Drag with real mouse input from selector or x, y to toSelector or toX, toY, both in view; handles HTML5 and pointer-driven drags. Returns changes.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
               ...pointProperties(),
               toSelector: {
                 type: "string",
-                description: `Where to drop. ${LOCATOR_DESCRIPTION}`,
+                description: "Drop target locator.",
               },
               ...pointProperties("to"),
               steps: {
                 type: "integer",
                 minimum: 1,
                 maximum: 100,
-                description: `Pointer moves between press and release (default ${DEFAULT_DRAG_STEPS}).`,
+                description: `Moves (default ${DEFAULT_DRAG_STEPS}).`,
               },
               timeoutMs: actionTimeoutProperty(
                 ", covered, or outside the viewport",
@@ -207,19 +202,19 @@ export function actionTools(server) {
         definition: {
           name: "type",
           description:
-            "Type into an input, textarea, or contenteditable with real text input, replacing its content unless clear is false. Returns changes, what it changed on the page; batch actions with run_steps.",
+            "Type with real text input into an input, textarea, or contenteditable, replacing its content unless clear is false. Returns changes.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
               text: {
                 type: "string",
                 description:
-                  "Text to enter; each newline is an Enter press (a line break in a textarea, form submission in a single-line input). Date, time, datetime-local, month, week, color, and range inputs get the value set directly, in their value format (for example 2026-09-27). An empty string with clear empties the field.",
+                  "Each newline presses Enter. Picker inputs (date, time, datetime-local, month, week, color, range) take their value format, e.g. 2026-09-27.",
               },
               clear: {
                 type: "boolean",
                 description:
-                  "Replace the existing content (default true); false inserts at the end. The picker inputs listed under text are always replaced.",
+                  "false appends (default true); picker inputs are always replaced.",
               },
               timeoutMs: actionTimeoutProperty(""),
             },
@@ -247,19 +242,17 @@ export function actionTools(server) {
         definition: {
           name: "select",
           description:
-            "Select an option in a native <select> by value or label (the first option matching either) and fire input and change events; fails if none matches. Use click for custom dropdowns. Returns changes, what it changed on the page; batch actions with run_steps.",
+            "Pick a native <select> option by value or label and fire change events; use click for custom dropdowns. Returns changes.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
               value: {
                 type: "string",
-                description:
-                  "Matches an option whose value attribute or full text equals this string.",
+                description: "Option value or full text.",
               },
               label: {
                 type: "string",
-                description:
-                  "Matches an option whose visible text contains this string (case-sensitive).",
+                description: "Text the option contains.",
               },
               timeoutMs: actionTimeoutProperty(""),
             },
@@ -290,16 +283,16 @@ export function actionTools(server) {
         definition: {
           name: "press_key",
           description:
-            "Press a key or combination with real keyboard input on the focused element, or on selector after focusing it (fails if it cannot take focus). Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
+            "Press a key or combination with real keyboard input on selector (focused first) or the focused element. Returns changes.",
           inputSchema: sessionSchema(
             {
               key: {
                 type: "string",
                 description:
-                  "A single character, or a named key: Enter, Tab, Escape, Backspace, Delete, Insert, ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, Space, F1-F12, Shift, Control, Alt, or Meta. Join modifiers with + (Shift+Tab, Control+Enter, Meta+a). Names are case-insensitive; unknown names are rejected.",
+                  "A character or key name (Enter, Tab, Escape, ArrowDown, PageUp, F5, ...); join modifiers with +, e.g. Shift+Tab, Meta+a.",
               },
               selector: selectorProperty(),
-              timeoutMs: actionTimeoutProperty("; only applies with selector"),
+              timeoutMs: actionTimeoutProperty(""),
             },
             ["key"],
           ),
@@ -327,26 +320,23 @@ export function actionTools(server) {
         definition: {
           name: "scroll",
           description:
-            "Scroll the page by deltas, scroll an element into view, or send a real mouse wheel at the point x, y or over selector with deltas, which scrolls whatever is under the pointer (a list or map inside the page).",
+            "Scroll the page by deltas, an element into view, or with a real wheel at x, y or over selector with deltas (scrolls what is under the pointer).",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
               ...pointProperties(),
               deltaX: {
                 type: "integer",
-                description:
-                  "Horizontal scroll distance in CSS pixels; negative scrolls left.",
+                description: "CSS px; negative is left.",
               },
               deltaY: {
                 type: "integer",
-                description:
-                  "Vertical scroll distance in CSS pixels; negative scrolls up.",
+                description: "CSS px; negative is up.",
               },
               block: {
                 type: "string",
                 enum: ["start", "center", "end", "nearest"],
-                description:
-                  "Vertical alignment when scrolling selector into view (default center).",
+                description: "Default center.",
               },
             },
             [],
@@ -380,30 +370,27 @@ export function actionTools(server) {
       {
         definition: {
           name: "set_viewport",
-          description:
-            "Override the page viewport to a specific width and height for responsive debugging.",
+          description: "Override the viewport size.",
           inputSchema: sessionSchema(
             {
               width: {
                 type: "integer",
                 minimum: 1,
-                description: "Viewport width in CSS pixels.",
+                description: "CSS px.",
               },
               height: {
                 type: "integer",
                 minimum: 1,
-                description: "Viewport height in CSS pixels.",
+                description: "CSS px.",
               },
               deviceScaleFactor: {
                 type: "number",
                 minimum: 0.1,
-                description:
-                  "Device pixel ratio to emulate. Chromium and Edge use 1 when omitted; Firefox keeps its current ratio.",
+                description: "Device pixel ratio (Chromium default 1).",
               },
               mobile: {
                 type: "boolean",
-                description:
-                  "Emulate a mobile device, including meta viewport handling (default false). Chromium and Edge only; ignored on Firefox.",
+                description: "Mobile emulation (Chromium only).",
               },
             },
             ["width", "height"],

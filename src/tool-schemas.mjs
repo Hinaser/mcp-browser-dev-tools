@@ -14,15 +14,11 @@ export function sessionWithLimitSchema(description) {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       limit: {
         type: "integer",
         minimum: 1,
-        description:
-          "Return the most recent N entries from the session buffer (default 50).",
+        description: "Most recent N (default 50).",
       },
     },
     required: ["sessionId"],
@@ -32,7 +28,7 @@ export function sessionWithLimitSchema(description) {
 }
 
 export const LOCATOR_DESCRIPTION =
-  'Locator: ref=e12 (from get_snapshot), CSS, text=Visible text, role=button[name="Save"], or name=Accessible name.';
+  'Locator: ref=e3, CSS, text=\u2026, role=button[name="\u2026"], or name=\u2026';
 
 // A copy of schema without descriptions, for a schema repeated inside another
 // whose fields are already described once; validation is unchanged.
@@ -66,13 +62,9 @@ export function pointProperties(prefix = "") {
     [name("x")]: {
       type: "number",
       minimum: 0,
-      description: `Viewport x in CSS pixels, with ${name("y")}, instead of ${prefix ? `${prefix}Selector` : "selector"}; a screenshot's cssRect and scale convert image pixels.`,
+      description: `Viewport CSS px, with ${name("y")}, instead of ${prefix ? `${prefix}Selector` : "selector"}.`,
     },
-    [name("y")]: {
-      type: "number",
-      minimum: 0,
-      description: `Viewport y in CSS pixels, with ${name("x")}.`,
-    },
+    [name("y")]: { type: "number", minimum: 0 },
   };
 }
 
@@ -106,10 +98,7 @@ export function sessionSchema(properties, required, description) {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       ...properties,
     },
     required: ["sessionId", ...required],
@@ -123,7 +112,7 @@ export function waitUntilProperty() {
     type: "string",
     enum: ["none", "interactive", "complete"],
     description:
-      "When to return: none returns once navigation starts, interactive after DOMContentLoaded, complete after the load event (default complete).",
+      "Return at none (navigation started), interactive (DOMContentLoaded), or complete (load; default).",
   };
 }
 
@@ -136,42 +125,41 @@ export function pageConditionProperties({ expression = false } = {}) {
       type: "string",
       enum: ["present", "visible", "hidden"],
       description:
-        "Selector state (default visible). present: in the DOM. hidden: absent or not visible. Requires selector.",
+        "With selector (default visible); hidden means absent or not visible.",
     },
     url: {
       type: "string",
-      description: "The page URL equals this string exactly.",
+      description: "Page URL equals this.",
     },
     urlIncludes: {
       type: "string",
-      description: "The page URL contains this string.",
+      description: "Page URL contains this.",
     },
     readyState: {
       type: "string",
       enum: ["interactive", "complete"],
-      description: "document.readyState has reached this state or later.",
+      description: "document.readyState is at least this.",
     },
     textEquals: {
       type: "string",
       description:
-        "The selector's full visible text equals this, with whitespace collapsed. Requires selector; not with state hidden.",
+        "The selector's visible text equals this (whitespace collapsed).",
     },
     textIncludes: {
       type: "string",
-      description:
-        "The selector's full visible text contains this, with whitespace collapsed. Requires selector; not with state hidden.",
+      description: "The selector's visible text contains this.",
     },
     textExcludes: {
       type: "string",
       description:
-        "The selector's visible text no longer contains this, for example Processing; never holds for a missing element. Requires selector; not with state hidden.",
+        "The selector's visible text no longer contains this; false for a missing element.",
     },
     ...(expression
       ? {
           expression: {
             type: "string",
             description:
-              "JavaScript in the page's main world; holds when its result (awaited if a promise) is truthy, for example document.querySelectorAll('.row').length >= 5. Throwing fails the check; each evaluation must settle within the remaining wait (5000ms in if and repeat).",
+              "Page JavaScript; holds when its (awaited) result is truthy. Throwing fails.",
           },
         }
       : {}),
@@ -199,7 +187,7 @@ export function anyOfProperty(options) {
       additionalProperties: false,
     },
     description:
-      "Alternative conditions with the fields above, instead of them; holds when any one holds, checked in order, for example a status of either Paid or Declined. The result reports matchedIndex.",
+      "Conditions with the fields above, instead of them; holds when any holds (result: matchedIndex).",
   };
 }
 
@@ -207,21 +195,18 @@ export function waitForInputSchema(options) {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       ...pageConditionProperties(options),
       anyOf: anyOfProperty(options),
       timeoutMs: {
         type: "integer",
         minimum: 1,
-        description: "How long to wait before failing (default 10000).",
+        description: "ms before failing (default 10000).",
       },
       pollIntervalMs: {
         type: "integer",
         minimum: 1,
-        description: "Delay between checks (default 100).",
+        description: "ms between checks (default 100).",
       },
     },
     required: ["sessionId"],
@@ -234,7 +219,7 @@ export function actionTimeoutProperty(what) {
     type: "integer",
     minimum: 0,
     maximum: 30_000,
-    description: `How long to keep retrying while the element is missing${what}, before failing (default ${DEFAULT_ACTION_TIMEOUT_MS}; 0 fails at once).`,
+    description: `ms to retry while the element is missing${what} (default ${DEFAULT_ACTION_TIMEOUT_MS}).`,
   };
 }
 
@@ -242,14 +227,8 @@ export function compareSessionsSchema(properties, required) {
   return {
     type: "object",
     properties: {
-      sessionIdA: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
-      sessionIdB: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionIdA: { type: "string" },
+      sessionIdB: { type: "string" },
       ...properties,
     },
     required: ["sessionIdA", "sessionIdB", ...required],
@@ -261,14 +240,11 @@ export function storageInputSchema() {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       area: {
         type: "string",
         enum: ["all", "localStorage", "sessionStorage"],
-        description: "Which storage to return (default all).",
+        description: "Default all.",
       },
     },
     required: ["sessionId"],
@@ -280,28 +256,25 @@ export function captureDebugReportInputSchema(browserFamily) {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       consoleLimit: {
         type: "integer",
         minimum: 1,
-        description: "Most recent console entries to include (default 20).",
+        description: "Default 20.",
       },
       networkLimit: {
         type: "integer",
         minimum: 1,
-        description: "Most recent network requests to include (default 20).",
+        description: "Default 20.",
       },
       includeScreenshot: {
         type: "boolean",
-        description: "Include a viewport screenshot (default true).",
+        description: "Default true.",
       },
       screenshotFormat: {
         type: "string",
         enum: screenshotFormatsFor(browserFamily),
-        description: "Screenshot image format (default png).",
+        description: "Default png.",
       },
     },
     required: ["sessionId"],
@@ -313,19 +286,14 @@ export function restoreSessionSnapshotInputSchema() {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description: "Session id returned by attach_tab.",
-      },
+      sessionId: { type: "string" },
       snapshot: {
         type: "string",
-        description:
-          "The JSON output of capture_session_snapshot, as a string. Only entries for the current page origin are restored.",
+        description: "capture_session_snapshot's JSON output, as a string.",
       },
       clearStorage: {
         type: "boolean",
-        description:
-          "Clear localStorage and sessionStorage before restoring (default false).",
+        description: "Clear web storage first (default false).",
       },
     },
     required: ["sessionId", "snapshot"],
@@ -337,7 +305,7 @@ export function newTabInputSchema(browserFamily) {
   const properties = {
     url: {
       type: "string",
-      description: "URL to open (default about:blank).",
+      description: "Default about:blank.",
     },
   };
   const required = [];
@@ -346,7 +314,7 @@ export function newTabInputSchema(browserFamily) {
     properties.browserFamily = {
       type: "string",
       enum: ["chromium", "firefox"],
-      description: "Browser to open the tab in.",
+      description: "Required in auto mode.",
     };
     required.push("browserFamily");
   }
@@ -366,7 +334,7 @@ export function unsafeArgsProperty() {
       type: "string",
     },
     description:
-      "Extra browser command-line flags, each starting with -. Flags that conflict with broker-managed launch options (debugging port, address, profile) are rejected.",
+      "Extra browser flags; ones that set the port, address, or profile are rejected.",
   };
 }
 
@@ -377,40 +345,38 @@ export function launchBrowserInputSchema(
   const properties = {
     url: {
       type: "string",
-      description: "URL to open in the launched browser (default about:blank).",
+      description: "Default about:blank.",
     },
     browserFamily: {
       type: "string",
       enum: supportedLaunchFamilies(browserFamily),
-      description:
-        "Browser to launch. Required when the broker runs in auto mode.",
+      description: "Required in auto mode.",
     },
     port: {
       type: "integer",
       minimum: 1,
       description:
-        "Remote debugging port to launch on (default: the port of the configured browser endpoint, usually 9222).",
+        "Debugging port (default: the configured endpoint's, usually 9222).",
     },
     address: {
       type: "string",
       description:
-        "Remote debugging bind address for Chromium and Edge (ignored for Firefox). Must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
+        "Chromium/Edge bind address; loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
     },
     userDataDir: {
       type: "string",
       description:
-        "Profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR). Without either, Chromium and Edge use a temporary profile if already running, else the default one.",
+        "Profile for a new launch (default MCP_BROWSER_USER_DATA_DIR).",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
-      description:
-        "How long to wait for the debugging endpoint to answer after launch (default 5000).",
+      description: "ms to wait for the endpoint after launch (default 5000).",
     },
     skipDoctor: {
       type: "boolean",
       description:
-        "Return right after spawning the browser, without waiting for the endpoint or running the doctor report (default false).",
+        "Return right after spawning, without waiting or a doctor report.",
     },
   };
   if (enableUnsafeLaunchArgs) {
@@ -434,49 +400,45 @@ export function ensureBrowserInputSchema(
     browserFamily: {
       type: "string",
       enum: supportedLaunchFamilies(browserFamily),
-      description:
-        "Browser to check or launch. Required when the broker runs in auto mode.",
+      description: "Required in auto mode.",
     },
     url: {
       type: "string",
-      description: "URL to open in a new tab once the browser is reachable.",
+      description: "Open this in a new tab.",
     },
     createTab: {
       type: "boolean",
-      description:
-        "Open a tab after the browser is reachable (default: true when url is given).",
+      description: "Default: true when url is given.",
     },
     launchIfMissing: {
       type: "boolean",
-      description:
-        "Launch a browser when none is reachable (default true). When false and none is reachable, return the status without launching or opening a tab.",
+      description: "Launch when none is reachable (default true).",
     },
     port: {
       type: "integer",
       minimum: 1,
       description:
-        "Remote debugging port to launch on (default: the port of the configured browser endpoint, usually 9222).",
+        "Debugging port (default: the configured endpoint's, usually 9222).",
     },
     address: {
       type: "string",
       description:
-        "Remote debugging bind address for Chromium and Edge (ignored for Firefox). Must be loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
+        "Chromium/Edge bind address; loopback unless MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1.",
     },
     userDataDir: {
       type: "string",
       description:
-        "Profile directory for a new launch (default: MCP_BROWSER_USER_DATA_DIR). Without either, Chromium and Edge use a temporary profile if already running, else the default one.",
+        "Profile for a new launch (default MCP_BROWSER_USER_DATA_DIR).",
     },
     waitMs: {
       type: "integer",
       minimum: 0,
-      description:
-        "How long to wait for the debugging endpoint to answer after launch (default 5000).",
+      description: "ms to wait for the endpoint after launch (default 5000).",
     },
     skipDoctor: {
       type: "boolean",
       description:
-        "Return right after spawning the browser, without waiting for the endpoint or running the doctor report (default false).",
+        "Return right after spawning, without waiting or a doctor report.",
     },
   };
   if (enableUnsafeLaunchArgs) {

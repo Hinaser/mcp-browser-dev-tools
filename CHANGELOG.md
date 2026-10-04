@@ -20,6 +20,10 @@ release history retroactively.
 - `scroll` with `x` and `y`, or with a `selector` and deltas, sends a real mouse wheel there, so it can scroll a list or map inside the page
 - `take_screenshot` reports the image's `width` and `height`, `cssRect`, the viewport area it shows, and `scale`, image pixels per CSS pixel, so a point seen in the image converts to `click` coordinates
 
+### Changed
+
+- The tool definitions are trimmed from 36.0k to 22.1k characters and the server instructions from 1.9k to 1.4k, which every model turn pays for. Descriptions say once what they repeated (locators, sessionId, timeouts, coordinates now live in the server instructions or a short line), `run_steps` and `run_tabs` keep one compact example each and no longer list every step tool, and the advertised schemas leave out `additionalProperties: false`; calls are still validated against the full schemas. A test holds the definitions to 22.5k characters
+
 ### Fixed
 
 - Firefox sessions record requests that fail (`network.fetchError`), so `get_network_requests` and `get_har` report them as failed instead of unfinished
