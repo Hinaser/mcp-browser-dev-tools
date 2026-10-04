@@ -21,7 +21,7 @@ export function browserTools(server) {
         definition: {
           name: "browser_status",
           description:
-            "Report whether the configured browser endpoint is reachable and how many active sessions are attached.",
+            "Whether the browser endpoint answers, and the attached sessions.",
           inputSchema: emptyObjectSchema(),
         },
         handler: async () => ({
@@ -36,8 +36,7 @@ export function browserTools(server) {
       {
         definition: {
           name: "list_tabs",
-          description:
-            "List inspectable page targets exposed by the configured browser adapter.",
+          description: "List the browser's tabs.",
           inputSchema: emptyObjectSchema(),
         },
         handler: async () => ({
@@ -51,7 +50,7 @@ export function browserTools(server) {
         definition: {
           name: "launch_browser",
           description:
-            "Launch a local debug-enabled browser for this server's configuration and return launch details and an optional doctor report. When port, address, userDataDir, and unsafeArgs are omitted and a browser of this family is reachable, returns it with reused: true, opening url in a new tab if given. On macOS and Linux it never opens a second browser on a profile already in use. Prefer ensure_browser.",
+            "Launch a debug-enabled browser, or reuse a reachable one unless port, address, userDataDir, or unsafeArgs is given; on macOS and Linux, never a second browser on a profile in use. Prefer ensure_browser.",
           inputSchema: launchBrowserInputSchema(
             server.config.browserFamily,
             server.config.enableUnsafeLaunchArgs,
@@ -110,7 +109,7 @@ export function browserTools(server) {
         definition: {
           name: "ensure_browser",
           description:
-            "Reuse a reachable browser or launch one (with the MCP_BROWSER_USER_DATA_DIR profile when set), optionally opening url in a new tab. Checks three times before launching, does not launch again for 30 seconds while a browser it launched is starting, and on macOS and Linux never opens a second browser on a profile already in use.",
+            "Reuse a reachable browser or launch one (with the MCP_BROWSER_USER_DATA_DIR profile when set), optionally opening url in a new tab. On macOS and Linux it never launches twice on one profile.",
           inputSchema: ensureBrowserInputSchema(
             server.config.browserFamily,
             server.config.enableUnsafeLaunchArgs,
@@ -125,8 +124,7 @@ export function browserTools(server) {
       {
         definition: {
           name: "list_sessions",
-          description:
-            "List active attached debugging sessions held by this broker.",
+          description: "List attached sessions.",
           inputSchema: emptyObjectSchema(),
         },
         handler: async () => ({
@@ -139,8 +137,7 @@ export function browserTools(server) {
       {
         definition: {
           name: "new_tab",
-          description:
-            "Create a new browser tab and return the resulting target metadata.",
+          description: "Open a tab; returns its target id.",
           inputSchema: newTabInputSchema(server.config.browserFamily),
         },
         handler: async (args) =>
@@ -154,14 +151,13 @@ export function browserTools(server) {
       {
         definition: {
           name: "close_tab",
-          description:
-            "Close a browser tab by target id. Any attached session for that tab will disconnect.",
+          description: "Close a tab and its session.",
           inputSchema: {
             type: "object",
             properties: {
               targetId: {
                 type: "string",
-                description: "Target id returned by list_tabs or new_tab.",
+                description: "From list_tabs or new_tab.",
               },
             },
             required: ["targetId"],
@@ -178,13 +174,13 @@ export function browserTools(server) {
         definition: {
           name: "attach_tab",
           description:
-            "Attach to a page target and start buffering console, log, and network events.",
+            "Attach to a tab: returns the sessionId other tools take, and buffers its console and network events from now on.",
           inputSchema: {
             type: "object",
             properties: {
               targetId: {
                 type: "string",
-                description: "The target id returned by list_tabs.",
+                description: "From list_tabs or new_tab.",
               },
             },
             required: ["targetId"],
@@ -200,14 +196,11 @@ export function browserTools(server) {
       {
         definition: {
           name: "detach_tab",
-          description: "Close an attached debugging session.",
+          description: "Detach a session; the tab stays open.",
           inputSchema: {
             type: "object",
             properties: {
-              sessionId: {
-                type: "string",
-                description: "The session id returned by attach_tab.",
-              },
+              sessionId: { type: "string" },
             },
             required: ["sessionId"],
             additionalProperties: false,

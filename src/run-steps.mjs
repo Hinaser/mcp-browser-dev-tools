@@ -94,20 +94,21 @@ export function repeatStepSchema(conditionOptions) {
   };
 }
 
-export function stepSchema(stepTools) {
+// Without stepTools, the schema leaves the tool names out: the definitions
+// clients see describe them in a few words, and prepareSteps still checks
+// each step against the full list.
+export function stepSchema(stepTools = null) {
   return {
     type: "object",
     properties: {
       tool: {
         type: "string",
-        enum: ["sleep", "if", "repeat", ...stepTools],
-        description:
-          "A tool that takes sessionId, sleep to pause, if to branch, or repeat to loop.",
+        ...(stepTools ? { enum: ["sleep", "if", "repeat", ...stepTools] } : {}),
+        description: "A tool that takes sessionId, or sleep, if, repeat.",
       },
       arguments: {
         type: "object",
-        description:
-          "The tool's arguments without sessionId (default {}). sleep takes { ms }; if takes { condition, then, elseIf, else }; repeat takes { steps, until, max }.",
+        description: "The tool's arguments without sessionId.",
       },
     },
     required: ["tool"],
@@ -115,26 +116,21 @@ export function stepSchema(stepTools) {
   };
 }
 
-export function runStepsInputSchema(stepTools) {
+export function runStepsInputSchema() {
   return {
     type: "object",
     properties: {
-      sessionId: {
-        type: "string",
-        description:
-          "Session id returned by attach_tab. Every step runs on this session.",
-      },
+      sessionId: { type: "string" },
       steps: {
         type: "array",
         minItems: 1,
         maxItems: MAX_RUN_STEPS,
-        description: `Steps to run in order (at most ${MAX_RUN_STEPS}, counting steps inside if branches and repeat bodies once; if and repeat nest at most ${MAX_STEP_DEPTH} deep).`,
-        items: stepSchema(stepTools),
+        description: `At most ${MAX_RUN_STEPS}, counting nested steps.`,
+        items: stepSchema(),
       },
       continueOnError: {
         type: "boolean",
-        description:
-          "Run the remaining steps after a step fails (default false: stop at the first failure).",
+        description: "Default false.",
       },
     },
     required: ["sessionId", "steps"],
@@ -529,15 +525,14 @@ export class StepRunner {
   }
 }
 
-export function runStepsTool(runner, stepTools) {
+export function runStepsTool(runner) {
   return [
     "run_steps",
     {
       definition: {
         name: "run_steps",
-        description:
-          'Run tools on one attached session in order, in a single call, to act and check the result together: [{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"text=Save"}}]. Each step names a tool that takes sessionId (or sleep) with that tool\'s arguments minus sessionId. if branches once, without waiting, on conditions with the wait_for fields: {"tool":"if","arguments":{"condition":{"selector":"text=Accept cookies"},"then":[...],"elseIf":[{"condition":{...},"then":[...]}],"else":[...]}}; the result reports the branch taken and what each condition observed. repeat retries or polls: {"tool":"repeat","arguments":{"steps":[...],"until":{"selector":"#list","textIncludes":"Order #1042"},"max":5}} runs its steps, then checks until once, at most max passes (default 5, at most 10); it fails if until never holds, and a failing step ends the loop. All steps are validated before any runs. A batch with click, hover, type, select, or press_key returns changes for the whole batch, as those tools do alone, and its steps report none. A step fails when its tool throws or reports found: false (except inspect_element); the batch stops there unless continueOnError, and the result then includes page, the visible controls with a locator for each. Screenshots come back as image content; each step result keeps image, its 1-based position. Prefer wait_for over sleep.',
-        inputSchema: runStepsInputSchema(stepTools),
+        description: `Run session tools in order in one call: [{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"text=Save"}}]. Arguments omit sessionId. Also: sleep {ms}; if {condition, then, elseIf: [{condition, then}], else}, which branches once on wait_for fields; repeat {steps, until, max (default ${DEFAULT_REPEAT})}, which reruns steps until until holds. All steps are validated first. A step fails when it throws or reports found: false (not inspect_element); the batch stops there unless continueOnError and reports the page's controls. A batch with actions returns one changes for the whole batch. Prefer wait_for to sleep.`,
+        inputSchema: runStepsInputSchema(),
       },
       handler: async (args) => runner.runSteps(args),
       formatResult: asImageToolResult,
