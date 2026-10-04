@@ -16,6 +16,9 @@ import {
 import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
 import {
+  takeFileTarget,
+  assertFileInput,
+  uploadResult,
   describePointer,
   dragEnd,
   dragPath,
@@ -1360,6 +1363,42 @@ export class FirefoxBidiSessionManager {
       ...(delivery.resent ? { resent: true } : {}),
       node,
     };
+  }
+
+  // Sets files on a file input. WebDriver BiDi sets them on an element; a
+  // button that opens a chooser from script needs its hidden input passed.
+  async uploadFiles(sessionId, selector, files) {
+    const session = this.getSession(sessionId);
+    const token = crypto.randomUUID();
+    const target = await this.runPageAction(session, {
+      action: "file_input",
+      selector,
+      token,
+      clear: files.length === 0,
+    });
+    if (!target.found) {
+      return target;
+    }
+    if (target.cleared) {
+      return uploadResult("firefox", selector, files);
+    }
+    if (!target.fileInput) {
+      throw new Error(
+        `"${selector}" is not a file input and has none inside; on Firefox, pass the <input type="file">, which may be hidden`,
+      );
+    }
+    const handle = await this.evaluateInContext(session, takeFileTarget(token));
+    const sharedId = handle.result?.sharedId;
+    assertFileInput(target, files);
+    await this.send("input.setFiles", {
+      context: session.target.targetId,
+      element: { sharedId },
+      files,
+    });
+    return uploadResult("firefox", selector, files, {
+      multiple: target.multiple,
+      accept: target.accept,
+    });
   }
 
   async select(sessionId, selector, options = {}) {

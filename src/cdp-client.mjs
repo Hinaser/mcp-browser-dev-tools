@@ -15,6 +15,9 @@ import {
 import { buildCdpKeyEvents } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
 import {
+  takeFileTarget,
+  assertFileInput,
+  uploadResult,
   describePointer,
   dragEnd,
   wheelScroll,
@@ -26,6 +29,8 @@ import {
 // How long a drag waits after its first move for the page to start an HTML5
 // drag, and the longest a drag's interception stays open.
 const DRAG_START_MS = 100;
+// How long a click may take to open a file chooser.
+const FILE_CHOOSER_MS = 2000;
 const DRAG_SESSION_MS = 30_000;
 
 function sleep(ms) {
@@ -1232,6 +1237,91 @@ export class CdpSession {
     };
   }
 
+  // Sets files on a file input, or, for a button that opens a file chooser
+  // from script, intercepts the chooser its click opens.
+  async uploadFiles(selector, files) {
+    const token = crypto.randomUUID();
+    const target = await this.runPageAction({
+      action: "file_input",
+      selector,
+      token,
+      clear: files.length === 0,
+    });
+    if (!target.found) {
+      return target;
+    }
+    const family = cdpBrowserFamily(this.config);
+    if (target.cleared) {
+      return uploadResult(family, selector, files);
+    }
+    if (target.fileInput) {
+      const handle = await this.send("Runtime.evaluate", {
+        expression: takeFileTarget(token),
+        returnByValue: false,
+      });
+      const objectId = handle.result?.objectId;
+      try {
+        assertFileInput(target, files);
+        await this.send("DOM.setFileInputFiles", { files, objectId });
+      } finally {
+        this.send("Runtime.releaseObject", { objectId }).catch(() => {});
+      }
+      return uploadResult(family, selector, files, {
+        multiple: target.multiple,
+        accept: target.accept,
+      });
+    }
+
+    // One chooser at a time per tab, so a chooser goes to the upload whose
+    // click opened it.
+    const previous = this.chooserTurn ?? Promise.resolve();
+    let finished;
+    this.chooserTurn = new Promise((resolve) => {
+      finished = resolve;
+    });
+    await previous;
+    try {
+      return await this.uploadThroughChooser(selector, files, family);
+    } finally {
+      finished();
+    }
+  }
+
+  async uploadThroughChooser(selector, files, family) {
+    await this.send("Page.setInterceptFileChooserDialog", { enabled: true });
+    const chooser = this.createEventWaiter(
+      "Page.fileChooserOpened",
+      () => true,
+      FILE_CHOOSER_MS,
+    );
+    try {
+      await this.click(selector);
+      let opened;
+      try {
+        opened = await chooser.promise;
+      } catch {
+        throw new Error(
+          `"${selector}" is not a file input, and clicking it opened no file chooser; pass the <input type="file">, which may be hidden`,
+        );
+      }
+      if (files.length > 1 && opened.mode !== "selectMultiple") {
+        throw new Error(
+          `The file chooser "${selector}" opened takes one file, not ${files.length}`,
+        );
+      }
+      await this.send("DOM.setFileInputFiles", {
+        files,
+        backendNodeId: opened.backendNodeId,
+      });
+    } finally {
+      chooser.cancel();
+      await this.send("Page.setInterceptFileChooserDialog", {
+        enabled: false,
+      }).catch(() => {});
+    }
+    return uploadResult(family, selector, files, { chooser: true });
+  }
+
   async select(selector, options = {}) {
     return this.runPageAction(
       {
@@ -1865,6 +1955,10 @@ export class CdpSessionManager {
 
   async drag(sessionId, from, to, options) {
     return this.getSession(sessionId).drag(from, to, options);
+  }
+
+  async uploadFiles(sessionId, selector, files) {
+    return this.getSession(sessionId).uploadFiles(selector, files);
   }
 
   async type(sessionId, selector, text, options) {

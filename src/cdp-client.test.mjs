@@ -1105,3 +1105,73 @@ test("CdpSession releases the button when a drag fails after the press", async (
     params: { enabled: false },
   });
 });
+
+test("CdpSession sets files on a file input through its object handle", async () => {
+  const { session, sentCommands } = createInputSession({
+    file_input: (payload) => ({
+      found: true,
+      selector: payload.selector,
+      fileInput: true,
+      multiple: true,
+      accept: ".csv",
+      disabled: false,
+    }),
+  });
+  const send = session.send;
+  session.send = async (method, params) => {
+    await send(method, params);
+    return method === "Runtime.evaluate"
+      ? { result: { objectId: "obj-1" } }
+      : {};
+  };
+
+  const result = await session.uploadFiles("#files", [
+    "/tmp/a.csv",
+    "/tmp/b.csv",
+  ]);
+
+  assert.deepEqual(result.uploaded, ["a.csv", "b.csv"]);
+  assert.deepEqual(
+    sentCommands.find(({ method }) => method === "DOM.setFileInputFiles")
+      .params,
+    { files: ["/tmp/a.csv", "/tmp/b.csv"], objectId: "obj-1" },
+  );
+});
+
+test("CdpSession takes the file chooser a button opens", async () => {
+  const { session, sentCommands } = createInputSession({
+    file_input: (payload) => ({
+      found: true,
+      selector: payload.selector,
+      fileInput: false,
+    }),
+    pointer_target: pointerTarget,
+    input_probe: delivered,
+  });
+  const send = session.send;
+  session.send = async (method, params) => {
+    const result = await send(method, params);
+    if (params?.type === "mouseReleased") {
+      session.bufferEvent("Page.fileChooserOpened", {
+        mode: "selectSingle",
+        backendNodeId: 42,
+      });
+    }
+    return result;
+  };
+
+  const result = await session.uploadFiles("#pick", ["/tmp/a.csv"]);
+
+  assert.equal(result.chooser, true);
+  assert.deepEqual(
+    sentCommands.find(({ method }) => method === "DOM.setFileInputFiles")
+      .params,
+    { files: ["/tmp/a.csv"], backendNodeId: 42 },
+  );
+  assert.deepEqual(
+    sentCommands
+      .filter(({ method }) => method === "Page.setInterceptFileChooserDialog")
+      .map(({ params }) => params.enabled),
+    [true, false],
+  );
+});

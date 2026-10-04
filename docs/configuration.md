@@ -168,6 +168,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `CDP_BASE_URL` defaults to `http://127.0.0.1:9222`; when left at that default the broker probes loopback ports `9222` through `9226` for a reachable CDP browser endpoint
 - `FIREFOX_BIDI_WS_URL` defaults to `ws://127.0.0.1:9222`; when left at that default the broker probes loopback ports `9222` through `9226`, and when pointed at the root Firefox remote debugging port it connects to the `/session` websocket and creates a BiDi session there
 - in `auto` mode, assign CDP and Firefox different ports so both browsers can run at once
+- `MCP_BROWSER_UPLOAD_DIRS` lists more directories `upload_file` may read files from, separated by `:` (`;` on Windows). Without it, `upload_file` reads only from the server's working directory and the system temp directory. Paths are compared after resolving symlinks, so a link inside an allowed directory cannot point outside it. This keeps a page that prompts the agent from getting it to upload files such as SSH keys
 - `MCP_BROWSER_USER_DATA_DIR` sets the browser profile directory that `ensure_browser` and `launch_browser` use when `userDataDir` is not passed; a leading `~/` expands to the home directory
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`

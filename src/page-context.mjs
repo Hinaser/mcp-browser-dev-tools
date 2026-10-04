@@ -131,3 +131,32 @@ export function wheelScroll(options) {
   const deltas = options.deltaX !== undefined || options.deltaY !== undefined;
   return options.x !== undefined || Boolean(options.selector && deltas);
 }
+
+// An expression that takes the file input fileInput() left on the window
+// under token, removing it there.
+export function takeFileTarget(token) {
+  const key = JSON.stringify(token);
+  return `(() => { const targets = window.__mcpBrowserDevToolsFileTargets; const input = targets?.get(${key}); targets?.delete(${key}); return input; })()`;
+}
+
+// Checks a file input before files are set on it.
+export function assertFileInput(target, files) {
+  if (target.disabled) {
+    throw notActionable(`File input "${target.selector}" is disabled`);
+  }
+  if (files.length > 1 && !target.multiple) {
+    throw new Error(
+      `File input "${target.selector}" takes one file, not ${files.length}`,
+    );
+  }
+}
+
+export function uploadResult(browserFamily, selector, files, extra = {}) {
+  return {
+    browserFamily,
+    selector,
+    found: true,
+    uploaded: files.map((file) => file.split(/[\\/]/).pop()),
+    ...extra,
+  };
+}

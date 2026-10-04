@@ -23,6 +23,7 @@ export const CHANGE_REPORTING_TOOLS = new Set([
   "type",
   "select",
   "press_key",
+  "upload_file",
 ]);
 
 function sleep(ms) {

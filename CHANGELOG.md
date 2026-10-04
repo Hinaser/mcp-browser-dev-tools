@@ -17,6 +17,7 @@ release history retroactively.
 
 - `click` and `hover` take viewport coordinates, `x` and `y`, instead of a selector, and report the element found there with a ref. `click` takes `button` (`left`, `middle`, `right`) and `clickCount` for right, middle, double, and triple clicks
 - `drag` presses on an element or point, moves in steps, and releases on another. HTML5 drag and drop works: Chromium hands the drag over to the server, which finishes it with drag events; on Firefox, which does not finish such a drag, it is dispatched from the page with a shared `DataTransfer`
+- `upload_file` sets files on a file input (or its label, or an element holding one) and fires `input` and `change`; on Chromium it also takes the file chooser a button opens from script. Files can come only from the server's working directory, the system temp directory, and the new `MCP_BROWSER_UPLOAD_DIRS`, compared after resolving symlinks. Snapshots show a file input as `file` with its file names
 - `scroll` with `x` and `y`, or with a `selector` and deltas, sends a real mouse wheel there, so it can scroll a list or map inside the page
 - `take_screenshot` reports the image's `width` and `height`, `cssRect`, the viewport area it shows, and `scale`, image pixels per CSS pixel, so a point seen in the image converts to `click` coordinates
 

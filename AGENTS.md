@@ -32,6 +32,7 @@ Version-controlled ruleset definitions live in `.github/rulesets/`.
 - Keep browser endpoints loopback-only by default.
 - Do not allow non-loopback `open --address` unless `MCP_BROWSER_ALLOW_REMOTE_ENDPOINTS=1`.
 - `evaluate_js` and `expression` conditions are on by default; keep `MCP_BROWSER_ENABLE_EVAL=0` working as the way to turn both off.
+- `upload_file` reads only from the server's working directory, the system temp directory, and `MCP_BROWSER_UPLOAD_DIRS`, comparing real paths so symlinks cannot reach outside them.
 - Keep inbound JSON-RPC/stdin message size bounded.
 - Prefer trusted publishing over long-lived npm tokens.
 - Keep `package-lock.json` out of the repo; `pnpm-lock.yaml` is the canonical lockfile.

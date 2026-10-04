@@ -1802,3 +1802,54 @@ test("change_report leaves out text that only repeats the controls inside it", (
   });
   assert.deepEqual(report.text, { items: ["2 results"], more: 0 });
 });
+
+test("file_input finds the input behind a label and clears it with events", () => {
+  const input = new FakeHTMLInputElement({
+    type: "file",
+    attrs: { type: "file", id: "avatar" },
+  });
+  input.multiple = false;
+  input.accept = "image/*";
+  const label = new FakeHTMLElement({
+    tagName: "label",
+    attrs: { for: "avatar" },
+    textContent: "Upload avatar",
+  });
+  label.control = input;
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [label, input],
+    selectorMap: { "#label": label },
+  });
+
+  const result = runAction(context, {
+    action: "file_input",
+    selector: "#label",
+    token: "u1",
+  });
+  assert.deepEqual(
+    {
+      fileInput: result.fileInput,
+      multiple: result.multiple,
+      accept: result.accept,
+    },
+    { fileInput: true, multiple: false, accept: "image/*" },
+  );
+  assert.equal(context.window.__mcpBrowserDevToolsFileTargets.get("u1"), input);
+
+  // Another upload's token keeps its own input.
+  runAction(context, { action: "file_input", selector: "#label", token: "u2" });
+  assert.equal(context.window.__mcpBrowserDevToolsFileTargets.get("u1"), input);
+  assert.equal(context.window.__mcpBrowserDevToolsFileTargets.size, 2);
+
+  input.value = "C:\\fakepath\\a.png";
+  const cleared = runAction(context, {
+    action: "file_input",
+    selector: "#label",
+    clear: true,
+  });
+  assert.equal(cleared.cleared, true);
+  assert.equal(input.value, "");
+  assert.deepEqual(input.dispatchEvents, ["input", "change"]);
+});
