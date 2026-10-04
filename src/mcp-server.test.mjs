@@ -1301,10 +1301,10 @@ test("the default core tool set stays within its size budget", async () => {
   ).result;
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
-    [...TOOL_GROUPS.core].sort(),
+    [...TOOL_GROUPS.core, "more_tools"].sort(),
   );
   assert.ok(
-    JSON.stringify(tools).length <= 17_000,
+    JSON.stringify(tools).length <= 17_200,
     `core tool definitions are ${JSON.stringify(tools).length} characters`,
   );
 });

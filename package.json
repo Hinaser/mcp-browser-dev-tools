@@ -60,6 +60,7 @@
     "src/tools/action-tools.mjs",
     "src/tools/browser-tools.mjs",
     "src/tools/inspection-tools.mjs",
+    "src/tools/more-tools.mjs",
     "src/tools/performance-tools.mjs",
     "src/tools/state-tools.mjs",
     "README.md"

@@ -2,6 +2,7 @@ import { ChangeTracker } from "./action-changes.mjs";
 import { actionTools } from "./tools/action-tools.mjs";
 import { browserTools } from "./tools/browser-tools.mjs";
 import { inspectionTools } from "./tools/inspection-tools.mjs";
+import { moreToolsTool } from "./tools/more-tools.mjs";
 import { performanceTools } from "./tools/performance-tools.mjs";
 import { stateTools } from "./tools/state-tools.mjs";
 import { appendFile } from "node:fs/promises";
@@ -245,24 +246,30 @@ export class McpBrowserDevToolsServer {
 
   createTools() {
     this.changeTracker = new ChangeTracker(this.browserAdapter);
-    // config.tools is the enabled set (null for all); run_steps and
-    // run_tabs, whose steps can name only enabled tools, are core.
+    // config.tools is the set listed to clients (null for all). The others
+    // stay reachable through more_tools and as run_steps and run_tabs
+    // steps, which can use every session tool.
     const enabled = this.config.tools;
-    const tools = [
+    const all = [
       ...browserTools(this),
       ...stateTools(this),
       ...actionTools(this),
       ...inspectionTools(this),
       ...performanceTools(this),
-    ].filter(([name]) => !enabled || enabled.has(name));
+    ];
+    const tools = all.filter(([name]) => !enabled || enabled.has(name));
+    const hidden = new Map(
+      all.filter(([name]) => enabled && !enabled.has(name)),
+    );
+    this.stepToolMap = new Map(all);
 
-    const stepTools = tools
+    const stepTools = all
       .filter(([, tool]) =>
         tool.definition.inputSchema.required?.includes("sessionId"),
       )
       .map(([name]) => name);
     this.stepRunner = new StepRunner({
-      getTools: () => this.tools,
+      getTools: () => this.stepToolMap,
       browserAdapter: this.browserAdapter,
       changeTracker: this.changeTracker,
       stepSchema: stepSchema(stepTools),
@@ -276,6 +283,9 @@ export class McpBrowserDevToolsServer {
     tools.push(
       runTabsTool(this.tabRunner, stepTools, this.config.browserFamily),
     );
+    if (hidden.size > 0) {
+      tools.push(moreToolsTool(hidden, advertisedDefinition));
+    }
 
     return new Map(tools);
   }
@@ -362,7 +372,7 @@ export class McpBrowserDevToolsServer {
               name: SERVER_NAME,
               version: SERVER_VERSION,
             },
-            instructions: `Browser tools for Chromium (CDP) and Firefox (BiDi). Call attach_tab first; tools that take sessionId use the one it returns. To see a page, call get_snapshot: one line per visible heading and control (iframes too), each with a ref such as e12 or f1e3, far cheaper than a screenshot. To act, prefer run_steps: send the actions you already know, such as every field of a form, in one call: {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"ref=e4"}}]}. Actions return changes once the page settles: controls added, removed, or updated, new text such as an error or a toast, URL and title, console errors, and after a navigation the new page's snapshot. That is usually the check; add wait_for only for something later. Read several pages at once with run_tabs and read_text. Locators: ref=e12 is a get_snapshot element, until the page navigates; plain CSS (or css=) takes the first match; text=Foo the first visible element whose text equals, else contains, Foo; role=button[name="Save"] matches role and accessible name; name=Foo the first visible element whose accessible name equals or contains Foo (a label resolves to its control). Matching is case-sensitive; only refs reach into iframes. x and y are viewport CSS pixels; a screenshot's cssRect and scale convert image pixels. More tools (drag, cookies, request mocking, HAR, and others) come with the MCP_BROWSER_TOOLS setting.`,
+            instructions: `Browser tools for Chromium (CDP) and Firefox (BiDi). Call attach_tab first; tools that take sessionId use the one it returns. To see a page, call get_snapshot: one line per visible heading and control (iframes too), each with a ref such as e12 or f1e3, far cheaper than a screenshot. To act, prefer run_steps: send the actions you already know, such as every field of a form, in one call: {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"ref=e4"}}]}. Actions return changes once the page settles: controls added, removed, or updated, new text such as an error or a toast, URL and title, console errors, and after a navigation the new page's snapshot. That is usually the check; add wait_for only for something later. Read several pages at once with run_tabs and read_text. Locators: ref=e12 is a get_snapshot element, until the page navigates; plain CSS (or css=) takes the first match; text=Foo the first visible element whose text equals, else contains, Foo; role=button[name="Save"] matches role and accessible name; name=Foo the first visible element whose accessible name equals or contains Foo (a label resolves to its control). Matching is case-sensitive; only refs reach into iframes. x and y are viewport CSS pixels; a screenshot's cssRect and scale convert image pixels. more_tools lists the tools not listed here (drag, cookies, request mocking, HAR, performance) and calls them; they also work as run_steps steps.`,
           });
         case "notifications/initialized":
           return null;
@@ -400,7 +410,7 @@ export class McpBrowserDevToolsServer {
           params.name === "evaluate_js" && !this.config.enableEvaluate
             ? "evaluate_js is turned off by MCP_BROWSER_ENABLE_EVAL=0"
             : group
-              ? `${params.name} is not enabled; it is in the ${group} tool group, which MCP_BROWSER_TOOLS=${group} (or all) adds`
+              ? `${params.name} is not listed directly; call it through more_tools ({"name":"${params.name}","arguments":{...}}) or as a run_steps step, or list it with MCP_BROWSER_TOOLS=${group}`
               : `Unknown tool: ${params.name}`,
         );
       }
