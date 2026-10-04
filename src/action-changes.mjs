@@ -4,8 +4,8 @@
 // headings and controls before the action; afterwards the server waits for
 // the page to settle and asks for the difference.
 
-// The page has settled when its DOM has been quiet this long and the requests
-// the action started have finished.
+// The page has settled when its DOM has been quiet this long, and the
+// requests and short timers the action started have finished.
 export const CHANGE_QUIET_MS = 150;
 // Most time to wait for that on the same document.
 export const CHANGE_SETTLE_MS = 2000;
@@ -254,6 +254,7 @@ export class ChangeTracker {
       const quiet =
         elapsed >= this.quietMs &&
         status.quietMs >= this.quietMs &&
+        !(status.timers > 0) &&
         pending.length === 0;
       if (
         status.document === "new" &&
