@@ -1,6 +1,10 @@
 import { retryUntilActionable } from "../action-retry.mjs";
 import { parseKeyCombo } from "../keyboard.mjs";
-import { DEFAULT_DRAG_STEPS, MOUSE_BUTTONS } from "../page-context.mjs";
+import {
+  DEFAULT_DRAG_STEPS,
+  MOUSE_BUTTONS,
+  parseFrameRef,
+} from "../page-context.mjs";
 import { allowedUploadDirs, resolveUploadPaths } from "../upload-files.mjs";
 import {
   actionTimeoutProperty,
@@ -17,7 +21,11 @@ function reportChanges(server, args, options, action) {
   if (options?.reportChanges === false || !server.changeTracker) {
     return action();
   }
-  return server.changeTracker.around(args.sessionId, action);
+  return server.changeTracker.around(
+    args.sessionId,
+    action,
+    parseFrameRef(args.selector)?.frameKey ?? null,
+  );
 }
 
 export function actionTools(server) {

@@ -1,3 +1,5 @@
+import { prefixFrameReport } from "./page-context.mjs";
+
 // Actions (click, type, select, press_key, hover, and run_steps batches that
 // contain them) report what they changed, so an agent can confirm the result
 // without reading the page again. The page records a baseline of its visible
@@ -174,7 +176,9 @@ export class ChangeTracker {
 
   // Records the baseline. Returns null when the page cannot take one (it is
   // mid-navigation, or blocks scripts), and the action then reports nothing.
-  async begin(sessionId) {
+  // With frameKey, the changes are those inside that frame (an action on
+  // an element named by a frame ref).
+  async begin(sessionId, frameKey = null) {
     const changeId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
     const active = this.activeIds(sessionId);
@@ -183,9 +187,14 @@ export class ChangeTracker {
       const { documentId } = await this.browserAdapter.trackChanges(
         sessionId,
         "baseline",
-        { changeId, owner: this.owner, active: Array.from(active) },
+        {
+          changeId,
+          owner: this.owner,
+          active: Array.from(active),
+          ...(frameKey ? { frameKey } : {}),
+        },
       );
-      return { sessionId, changeId, documentId, startedAt };
+      return { sessionId, changeId, documentId, startedAt, frameKey };
     } catch {
       this.finish({ sessionId, changeId });
       return null;
@@ -194,10 +203,14 @@ export class ChangeTracker {
 
   // Ends tracking without a report, for an action that failed.
   async stop(baseline) {
-    const { sessionId, changeId, documentId } = baseline;
+    const { sessionId, changeId, documentId, frameKey } = baseline;
     this.finish(baseline);
     await this.browserAdapter
-      .trackChanges(sessionId, "stop", { changeId, documentId })
+      .trackChanges(sessionId, "stop", {
+        changeId,
+        documentId,
+        ...(frameKey ? { frameKey } : {}),
+      })
       .catch(() => {});
   }
 
@@ -226,8 +239,13 @@ export class ChangeTracker {
   // navigation it started has loaded, within the settle and navigation
   // limits; then asks the page for the report.
   async settle(baseline) {
-    const { sessionId, changeId, documentId, startedAt } = baseline;
-    const ids = { changeId, documentId, owner: this.owner };
+    const { sessionId, changeId, documentId, startedAt, frameKey } = baseline;
+    const ids = {
+      changeId,
+      documentId,
+      owner: this.owner,
+      ...(frameKey ? { frameKey } : {}),
+    };
     const actionEndedAt = Date.now();
     let pending;
     let timedOut = false;
@@ -286,6 +304,9 @@ export class ChangeTracker {
     } finally {
       this.finish(baseline);
     }
+    if (frameKey) {
+      report = prefixFrameReport(report, frameKey);
+    }
     return formatChanges({
       report,
       events: eventChanges(await this.events(sessionId), startedAt),
@@ -296,8 +317,8 @@ export class ChangeTracker {
   // Runs action between a baseline and a report, and adds the report to its
   // result as changes. An action that throws, or whose element was not
   // found, ends tracking and returns as it would without it.
-  async around(sessionId, action) {
-    const baseline = await this.begin(sessionId);
+  async around(sessionId, action, frameKey = null) {
+    const baseline = await this.begin(sessionId, frameKey);
     let result;
     try {
       result = await action();

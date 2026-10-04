@@ -1287,3 +1287,54 @@ test("CdpSession applies overlapping set_network calls in order", async () => {
   );
   assert.equal(conditions.at(-1).params.offline, false);
 });
+
+test("CdpSession runs a frame ref's action in that frame and moves its point", async () => {
+  const { session, sentCommands } = createInputSession({});
+  session.frameKeys.keyFor("frame-x", {
+    id: "frame-x",
+    url: "https://x",
+    sessionId: "child-1",
+    root: true,
+  });
+  session.frameSessions.set("child-1", {
+    sessionId: "child-1",
+    frameId: "frame-x",
+    parentSessionId: null,
+  });
+  session.send = async (method, params, sessionId) => {
+    sentCommands.push({ method, params, sessionId });
+    if (method === "DOM.getFrameOwner") {
+      return { backendNodeId: 7 };
+    }
+    if (method === "DOM.getBoxModel") {
+      return { model: { content: [200, 100, 0, 0, 0, 0, 0, 0] } };
+    }
+    if (method === "Runtime.evaluate") {
+      return {
+        result: {
+          value: JSON.stringify({
+            found: true,
+            selector: "ref=e2",
+            point: { x: 10, y: 20 },
+            receivesEvents: true,
+          }),
+        },
+      };
+    }
+    return {};
+  };
+  delete session.runPageAction;
+
+  const result = await session.runPageAction({
+    action: "pointer_target",
+    selector: "ref=f1e2",
+  });
+
+  assert.deepEqual(result.point, { x: 210, y: 120 });
+  assert.equal(result.selector, "ref=f1e2");
+  const evaluate = sentCommands.find(
+    ({ method }) => method === "Runtime.evaluate",
+  );
+  assert.equal(evaluate.sessionId, "child-1");
+  assert.match(evaluate.params.expression, /"selector":"ref=e2"/);
+});

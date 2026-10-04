@@ -22,6 +22,14 @@ import {
   takeMatchingRule,
 } from "./network-control.mjs";
 import {
+  FrameKeys,
+  probeScope,
+  restoreFrameSelector,
+  addFrameSnapshots,
+  frameElementSnapshot,
+  parseFrameRef,
+  shiftFramePoints,
+  unknownFrame,
   takeFileTarget,
   assertFileInput,
   uploadResult,
@@ -427,6 +435,12 @@ export class CdpSession {
     this.lastNavigationAt = null;
     this.lastReloadAt = null;
     this.viewportOverride = null;
+    // Frames: child sessions of cross-site iframes (attached in flatten
+    // mode, by session id), the default execution context of each frame,
+    // keyed by session and frame id, and the frame keys refs use.
+    this.frameSessions = new Map();
+    this.frameContexts = new Map();
+    this.frameKeys = new FrameKeys();
   }
 
   markClosed() {
@@ -500,6 +514,7 @@ export class CdpSession {
       this.send("Log.enable"),
       this.send("Network.enable"),
     ]);
+    await this.autoAttachFrames(null);
 
     await this.installInputRecorder();
     await this.seedBufferedState();
@@ -533,7 +548,245 @@ export class CdpSession {
       return;
     }
 
+    // Events of a cross-site iframe's session only keep the frame records,
+    // except a file chooser opened there, which an upload waits for.
+    if (message.sessionId) {
+      if (message.method === "Page.fileChooserOpened") {
+        this.resolveEventWaiters(message.method, {
+          ...message.params,
+          sessionId: message.sessionId,
+        });
+      }
+      this.trackFrameEvent(
+        message.method,
+        message.params ?? {},
+        message.sessionId,
+      );
+      return;
+    }
+
+    this.trackFrameEvent(message.method, message.params ?? {}, null);
     this.bufferEvent(message.method, message.params ?? {});
+  }
+
+  // Cross-site iframes run in their own targets; attaching to them in
+  // flatten mode gives a session on this connection for each, and doing
+  // the same in each such session reaches iframes nested in them.
+  async autoAttachFrames(sessionId) {
+    await this.send(
+      "Target.setAutoAttach",
+      { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+      sessionId,
+    ).catch(() => {});
+  }
+
+  trackFrameEvent(method, params, sessionId) {
+    const scope = sessionId ?? "";
+    if (method === "Runtime.executionContextCreated") {
+      const { id, auxData } = params.context ?? {};
+      if (auxData?.isDefault && auxData.frameId) {
+        this.frameContexts.set(`${scope}:${auxData.frameId}`, id);
+        // A frame document that was already loaded gets the recorder late
+        // (a new one has it from its start, which this leaves alone).
+        this.send(
+          "Runtime.evaluate",
+          {
+            expression: buildInputRecorderExpression(false),
+            contextId: id,
+            awaitPromise: false,
+            returnByValue: true,
+          },
+          sessionId,
+        ).catch(() => {});
+      }
+    } else if (method === "Runtime.executionContextDestroyed") {
+      for (const [key, id] of this.frameContexts) {
+        if (key.startsWith(`${scope}:`) && id === params.executionContextId) {
+          this.frameContexts.delete(key);
+        }
+      }
+    } else if (method === "Runtime.executionContextsCleared") {
+      for (const key of Array.from(this.frameContexts.keys())) {
+        if (key.startsWith(`${scope}:`)) {
+          this.frameContexts.delete(key);
+        }
+      }
+    } else if (
+      method === "Target.attachedToTarget" &&
+      params.targetInfo?.type === "iframe"
+    ) {
+      const child = params.sessionId;
+      this.frameSessions.set(child, {
+        sessionId: child,
+        frameId: params.targetInfo.targetId,
+        parentSessionId: sessionId,
+      });
+      for (const enable of ["Runtime.enable", "DOM.enable", "Page.enable"]) {
+        this.send(enable, {}, child).catch(() => {});
+      }
+      void this.installInputRecorder(child);
+      void this.autoAttachFrames(child);
+    } else if (method === "Target.detachedFromTarget") {
+      this.frameSessions.delete(params.sessionId);
+    }
+  }
+
+  // The tab's iframes, outermost first: the top target's own frames, then
+  // each cross-site iframe's target and its own frames.
+  async listFrames() {
+    const frames = [];
+    const walk = (node, sessionId) => {
+      for (const child of node.childFrames ?? []) {
+        frames.push({
+          id: child.frame.id,
+          url: child.frame.url,
+          sessionId,
+          root: false,
+        });
+        walk(child, sessionId);
+      }
+    };
+    const top = await this.send("Page.getFrameTree");
+    walk(top.frameTree, null);
+    for (const child of this.frameSessions.values()) {
+      const tree = await this.send(
+        "Page.getFrameTree",
+        {},
+        child.sessionId,
+      ).catch(() => null);
+      frames.push({
+        id: child.frameId,
+        url: tree?.frameTree.frame.url ?? "",
+        sessionId: child.sessionId,
+        root: true,
+      });
+      if (tree) {
+        walk(tree.frameTree, child.sessionId);
+      }
+    }
+    return frames;
+  }
+
+  // The frame's owner element, found in whichever session holds it, and
+  // the top-left of its content box in that session's viewport.
+  async frameOwner(frameId) {
+    for (const sessionId of [null, ...this.frameSessions.keys()]) {
+      try {
+        const { backendNodeId } = await this.send(
+          "DOM.getFrameOwner",
+          { frameId },
+          sessionId,
+        );
+        const { model } = await this.send(
+          "DOM.getBoxModel",
+          { backendNodeId },
+          sessionId,
+        );
+        return {
+          sessionId,
+          backendNodeId,
+          x: model.content[0],
+          y: model.content[1],
+        };
+      } catch {
+        // Not in this session.
+      }
+    }
+    return null;
+  }
+
+  // Where the frame's viewport starts in the top page's viewport, adding up
+  // the owners of the cross-site frames it is nested in; null when the
+  // frame has no box (hidden) or is gone. With scroll, each owner is
+  // scrolled into view first, outermost first.
+  async frameOffset(frameId, scroll = false) {
+    const owner = await this.frameOwner(frameId);
+    if (!owner) {
+      return null;
+    }
+    const parent = owner.sessionId
+      ? this.frameSessions.get(owner.sessionId)
+      : null;
+    if (scroll) {
+      if (parent) {
+        await this.frameOffset(parent.frameId, true);
+      }
+      await this.send(
+        "DOM.scrollIntoViewIfNeeded",
+        { backendNodeId: owner.backendNodeId },
+        owner.sessionId,
+      ).catch(() => {});
+      return this.frameOffset(frameId, false);
+    }
+    const base = parent
+      ? await this.frameOffset(parent.frameId)
+      : { x: 0, y: 0 };
+    return base ? { x: base.x + owner.x, y: base.y + owner.y } : null;
+  }
+
+  // Runs a page action in a frame: in its target's session for a cross-site
+  // frame's own document, else in the frame's default execution context.
+  async runInFrame(frameKey, payload, options = {}) {
+    const frame = this.frameKeys.get(frameKey);
+    if (!frame) {
+      return unknownFrame(frameKey, payload.selector);
+    }
+    // Change tracking needs no position, and works in a hidden frame.
+    const positioned = options.offset !== false;
+    // A drop target is read without scrolling, so the drag's source stays
+    // where it was measured.
+    const before = positioned
+      ? await this.frameOffset(
+          frame.id,
+          options.scroll ?? payload.scrollIntoView !== false,
+        )
+      : { x: 0, y: 0 };
+    const contextId = frame.root
+      ? undefined
+      : this.frameContexts.get(`${frame.sessionId ?? ""}:${frame.id}`);
+    if (!before || (!frame.root && contextId === undefined)) {
+      return unknownFrame(frameKey, payload.selector);
+    }
+    const response = await this.send(
+      "Runtime.evaluate",
+      {
+        expression: buildPageContextExpression(
+          { browserFamily: cdpBrowserFamily(this.config), ...payload },
+          { serialize: true },
+        ),
+        awaitPromise: true,
+        returnByValue: true,
+        userGesture: options.userGesture ?? false,
+        ...(contextId !== undefined ? { contextId } : {}),
+      },
+      frame.sessionId,
+    );
+    if (response.exceptionDetails) {
+      throw new Error(pageExceptionMessage(response.exceptionDetails));
+    }
+    const value = response.result?.value;
+    const result = typeof value === "string" ? JSON.parse(value) : value;
+    // The action may have scrolled the frame's ancestors, moving the frame.
+    const offset = positioned
+      ? ((await this.frameOffset(frame.id)) ?? before)
+      : before;
+    return shiftFramePoints(result, offset);
+  }
+
+  // Where a frame ref's own document runs, for protocol calls that must
+  // reach it: the session and execution context.
+  frameScope(selector) {
+    const route = parseFrameRef(selector);
+    const frame = route ? this.frameKeys.get(route.frameKey) : null;
+    if (!frame) {
+      return { sessionId: null, contextId: undefined };
+    }
+    return {
+      sessionId: frame.sessionId,
+      contextId: frame.root
+        ? undefined
+        : this.frameContexts.get(`${frame.sessionId ?? ""}:${frame.id}`),
+    };
   }
 
   bufferEvent(method, params) {
@@ -728,13 +981,18 @@ export class CdpSession {
     this.pending.clear();
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, sessionId = null) {
     if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
       throw new Error(`CDP session ${this.id} is not connected`);
     }
 
     const id = this.nextMessageId++;
-    const payload = JSON.stringify({ id, method, params });
+    const payload = JSON.stringify({
+      id,
+      method,
+      params,
+      ...(sessionId ? { sessionId } : {}),
+    });
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -828,6 +1086,15 @@ export class CdpSession {
   }
 
   async runPageAction(payload, options = {}) {
+    const route = parseFrameRef(payload.selector);
+    if (route) {
+      const result = await this.runInFrame(
+        route.frameKey,
+        { ...payload, selector: route.selector },
+        options,
+      );
+      return restoreFrameSelector(result, route, payload.selector);
+    }
     const result = await this.evaluateRuntime(
       buildPageContextExpression(
         {
@@ -1009,12 +1276,57 @@ export class CdpSession {
     return this.runSnapshotAction({ action: "controls_snapshot" });
   }
 
+  // The top page's headings and controls, then each iframe's.
   async snapshotPage(options = {}) {
-    return this.runSnapshotAction({ action: "snapshot", ...options });
+    const runInFrame = (key, payload, runOptions) =>
+      this.runInFrame(key, payload, runOptions);
+    const route = parseFrameRef(options.selector);
+    if (route) {
+      return frameElementSnapshot({
+        route,
+        frameKeys: this.frameKeys,
+        runInFrame,
+        options,
+      });
+    }
+    const result = await this.runSnapshotAction({
+      action: "snapshot",
+      ...options,
+    });
+    if (options.selector) {
+      return result;
+    }
+    return addFrameSnapshots({
+      result,
+      frames: await this.listFrames().catch(() => []),
+      frameKeys: this.frameKeys,
+      runInFrame,
+      options,
+    });
   }
 
   async trackChanges(phase, options = {}) {
-    return this.runSnapshotAction({ action: `change_${phase}`, ...options });
+    const { frameKey, ...rest } = options;
+    if (!frameKey) {
+      return this.runSnapshotAction({ action: `change_${phase}`, ...rest });
+    }
+    // In a frame, refs number on from the frame's own last snapshot. A frame
+    // that is gone ends tracking as a lost baseline does.
+    const entry = this.frameKeys.get(frameKey);
+    const result = entry
+      ? await this.runInFrame(
+          frameKey,
+          { action: `change_${phase}`, ...rest, refStart: entry.refStart ?? 1 },
+          { offset: false },
+        )
+      : null;
+    if (!result || result.error?.startsWith("Unknown frame")) {
+      if (phase === "baseline") {
+        throw new Error(`Unknown frame ${frameKey}`);
+      }
+      return { document: "same", lost: true };
+    }
+    return takeNextRef(entry, result);
   }
 
   async readText(options = {}) {
@@ -1054,12 +1366,13 @@ export class CdpSession {
     });
   }
 
-  async readInputProbe(token, disarm) {
+  async readInputProbe(token, disarm, target = null) {
     try {
       const probe = await this.runPageAction({
         action: "input_probe",
         token,
         disarm,
+        ...probeScope(target),
       });
       return probe.armed ? probe : null;
     } catch {
@@ -1110,7 +1423,7 @@ export class CdpSession {
 
     const delivery = await sendCheckedInput({
       send: () => this.dispatchClick(resolved.point, options),
-      readProbe: (disarm) => this.readInputProbe(token, disarm),
+      readProbe: (disarm) => this.readInputProbe(token, disarm, target),
       recover: () => this.bringToFront(),
       describe: `The click on ${describePointer(target)}`,
     });
@@ -1154,13 +1467,13 @@ export class CdpSession {
     const token = crypto.randomUUID();
     const source = await this.resolvePointer(from, { inputProbe: token });
     if (!source.found) {
-      await this.readInputProbe(token, true);
+      await this.readInputProbe(token, true, from);
       return source;
     }
     // The drop point is read without scrolling, so the source stays put.
     const target = await this.resolvePointer(to, { scrollIntoView: false });
     if (!target.found) {
-      await this.readInputProbe(token, true);
+      await this.readInputProbe(token, true, from);
       return target;
     }
 
@@ -1190,7 +1503,7 @@ export class CdpSession {
             clickCount: 1,
           });
         },
-        readProbe: (disarm) => this.readInputProbe(token, disarm),
+        readProbe: (disarm) => this.readInputProbe(token, disarm, from),
         recover: () => this.bringToFront(),
         describe: `The press to drag ${describePointer(from)}`,
       });
@@ -1296,12 +1609,12 @@ export class CdpSession {
     if (text || options.clear !== false) {
       delivery = await sendCheckedInput({
         send: sendText,
-        readProbe: (disarm) => this.readInputProbe(token, disarm),
+        readProbe: (disarm) => this.readInputProbe(token, disarm, selector),
         recover: () => this.bringToFront(),
         describe: `The text for "${selector}"`,
       });
     } else {
-      await this.readInputProbe(token, true);
+      await this.readInputProbe(token, true, selector);
     }
 
     let node = delivery.node;
@@ -1342,16 +1655,32 @@ export class CdpSession {
       return uploadResult(family, selector, files);
     }
     if (target.fileInput) {
-      const handle = await this.send("Runtime.evaluate", {
-        expression: takeFileTarget(token),
-        returnByValue: false,
-      });
+      // The input's handle and the files go to the session of the
+      // document it is in, a frame's for a frame ref.
+      const scope = this.frameScope(selector);
+      const handle = await this.send(
+        "Runtime.evaluate",
+        {
+          expression: takeFileTarget(token),
+          returnByValue: false,
+          ...(scope.contextId !== undefined
+            ? { contextId: scope.contextId }
+            : {}),
+        },
+        scope.sessionId,
+      );
       const objectId = handle.result?.objectId;
       try {
         assertFileInput(target, files);
-        await this.send("DOM.setFileInputFiles", { files, objectId });
+        await this.send(
+          "DOM.setFileInputFiles",
+          { files, objectId },
+          scope.sessionId,
+        );
       } finally {
-        this.send("Runtime.releaseObject", { objectId }).catch(() => {});
+        this.send("Runtime.releaseObject", { objectId }, scope.sessionId).catch(
+          () => {},
+        );
       }
       return uploadResult(family, selector, files, {
         multiple: target.multiple,
@@ -1374,8 +1703,19 @@ export class CdpSession {
     }
   }
 
+  // The chooser opens in the session of the document whose script opens it,
+  // the button's frame or the top page, so both intercept it.
   async uploadThroughChooser(selector, files, family) {
-    await this.send("Page.setInterceptFileChooserDialog", { enabled: true });
+    const sessions = Array.from(
+      new Set([null, this.frameScope(selector).sessionId]),
+    );
+    for (const sessionId of sessions) {
+      await this.send(
+        "Page.setInterceptFileChooserDialog",
+        { enabled: true },
+        sessionId,
+      ).catch(() => {});
+    }
     const chooser = this.createEventWaiter(
       "Page.fileChooserOpened",
       () => true,
@@ -1396,15 +1736,20 @@ export class CdpSession {
           `The file chooser "${selector}" opened takes one file, not ${files.length}`,
         );
       }
-      await this.send("DOM.setFileInputFiles", {
-        files,
-        backendNodeId: opened.backendNodeId,
-      });
+      await this.send(
+        "DOM.setFileInputFiles",
+        { files, backendNodeId: opened.backendNodeId },
+        opened.sessionId ?? null,
+      );
     } finally {
       chooser.cancel();
-      await this.send("Page.setInterceptFileChooserDialog", {
-        enabled: false,
-      }).catch(() => {});
+      for (const sessionId of sessions) {
+        await this.send(
+          "Page.setInterceptFileChooserDialog",
+          { enabled: false },
+          sessionId,
+        ).catch(() => {});
+      }
     }
     return uploadResult(family, selector, files, { chooser: true });
   }
@@ -1438,7 +1783,7 @@ export class CdpSession {
 
     const delivery = await sendCheckedInput({
       send: () => this.dispatchKeyEvents(events),
-      readProbe: (disarm) => this.readInputProbe(token, disarm),
+      readProbe: (disarm) => this.readInputProbe(token, disarm, selector),
       recover: () => this.bringToFront(),
       describe: `The key press "${key}"`,
     });
@@ -1584,15 +1929,23 @@ export class CdpSession {
   // Counts trusted input from the start of every later document, and from
   // now on in the current one, so input actions can check that their input
   // arrived. Without it they are reported as sent, unchecked.
-  async installInputRecorder() {
+  // A cross-site iframe's target gets the recorder too, by its session.
+  async installInputRecorder(sessionId = null) {
     try {
-      await this.send("Page.addScriptToEvaluateOnNewDocument", {
-        source: buildInputRecorderExpression(true),
-      });
-      await this.evaluateRuntime(buildInputRecorderExpression(false), {
-        awaitPromise: false,
-        replMode: false,
-      });
+      await this.send(
+        "Page.addScriptToEvaluateOnNewDocument",
+        { source: buildInputRecorderExpression(true) },
+        sessionId,
+      );
+      await this.send(
+        "Runtime.evaluate",
+        {
+          expression: buildInputRecorderExpression(false),
+          awaitPromise: false,
+          returnByValue: true,
+        },
+        sessionId,
+      );
     } catch {
       // Ignore recorder failures so attach still succeeds.
     }
