@@ -1,8 +1,8 @@
 # Performance
 
-How fast an AI agent finishes browser tasks through this MCP server, and what it costs. Every number here is for the current server, build `38d4ed2`, measured on 2026-10-04 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Earlier builds' numbers are in this file's history.
+How fast an AI agent finishes browser tasks through this MCP server, and what it costs. Every number here is for the current server, build `f00bf00`, measured on 2026-10-04 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Earlier builds' numbers are in this file's history; the previous run, on build `38d4ed2`, is the "before" in the comparisons below.
 
-Seven models at medium effort ran the four [scenarios](#scenarios) 3 times each with the full tool set (`batch` mode), and Sonnet 5.5 ran them again with one action per call (`single` mode): 96 runs, 95 passed, $14.00 in total. Each chart bar is the median of 3 runs, or for a model's bar, the average over the scenarios of each scenario's median.
+Seven models at medium effort ran the four [scenarios](#scenarios) 3 times each with the default tool set (`batch` mode), and Sonnet 5.5 ran them again with one action per call (`single` mode): 96 runs, all passed, $11.72 in total. Haiku 4.5's `research` runs were repeated after a fixture fix (see [Method](#method)). Each chart bar is the median of 3 runs, or for a model's bar, the average over the scenarios of each scenario's median.
 
 ## Model comparison
 
@@ -14,30 +14,31 @@ Seven models at medium effort ran the four [scenarios](#scenarios) 3 times each 
 
 Per task: the average over the four scenarios of each scenario's median wall time, turns, and cost; then each scenario's median wall time · turns · cost.
 
-| Model       | Via         | OK    | Wall time | Turns | Cost     | `signup`              | `payment-retry`        | `settings-login`       | `research`            |
-| ----------- | ----------- | ----- | --------- | ----- | -------- | --------------------- | ---------------------- | ---------------------- | --------------------- |
-| Fable 5.1   | Claude Code | 12/12 | 23.2 s    | 5.8   | $0.273   | 13.6 s · 5 · $0.249   | 21.4 s · 6 · $0.243    | 46.0 s · 8 · $0.364    | 11.7 s · 4 · $0.234   |
-| Opus 5.5    | Claude Code | 12/12 | 15.7 s    | 6.5   | $0.104   | 12.8 s · 6 · $0.093   | 21.6 s · 8 · $0.121    | 17.0 s · 8 · $0.119    | 11.4 s · 4 · $0.081   |
-| Sonnet 5.5  | Claude Code | 12/12 | 14.6 s    | 7.0   | $0.063   | 9.7 s · 5 · $0.057    | 27.0 s · 12 · $0.068   | 12.7 s · 7 · $0.082    | 9.0 s · 4 · $0.047    |
-| Haiku 4.5   | Claude Code | 11/12 | 38.2 s    | 13.5  | $0.074   | 32.8 s · 7 · $0.058   | 27.5 s · 7 · $0.051    | 34.3 s · 9 · $0.055    | 58.2 s · 31 · $0.131  |
-| GPT-6-Astra | Codex CLI   | 12/12 | 44.1 s    | 7.2   | $0.433\* | 34.5 s · 5 · $0.362\* | 47.4 s · 12 · $0.495\* | 62.2 s · 7 · $0.514\*  | 32.3 s · 5 · $0.361\* |
-| GPT-6.1 Sol | Codex CLI   | 12/12 | 37.3 s    | 6.2   | $0.077\* | 31.9 s · 5 · $0.076\* | 47.4 s · 8 · $0.069\*  | 41.2 s · 7 · $0.093\*  | 28.8 s · 5 · $0.071\* |
-| GPT-6-Luna  | Codex CLI   | 12/12 | 33.3 s    | 9.0   | $0.006\* | 30.8 s · 8 · $0.005\* | 36.0 s · 11 · $0.007\* | 43.3 s · 11 · $0.007\* | 22.9 s · 6 · $0.005\* |
+| Model       | Via         | OK    | Wall time | Turns | Cost     | `signup`              | `payment-retry`       | `settings-login`       | `research`            |
+| ----------- | ----------- | ----- | --------- | ----- | -------- | --------------------- | --------------------- | ---------------------- | --------------------- |
+| Fable 5.1   | Claude Code | 12/12 | 30.6 s    | 5.3   | $0.241   | 26.1 s · 4 · $0.232   | 32.9 s · 6 · $0.228   | 39.9 s · 7 · $0.278    | 23.3 s · 4 · $0.226   |
+| Opus 5.5    | Claude Code | 12/12 | 15.1 s    | 6.5   | $0.086   | 11.5 s · 4 · $0.075   | 18.9 s · 9 · $0.084   | 18.2 s · 8 · $0.105    | 11.8 s · 5 · $0.080   |
+| Sonnet 5.5  | Claude Code | 12/12 | 13.8 s    | 5.8   | $0.047   | 10.2 s · 4 · $0.040   | 19.1 s · 8 · $0.046   | 17.5 s · 7 · $0.061    | 8.5 s · 4 · $0.042    |
+| Haiku 4.5   | Claude Code | 12/12 | 26.5 s    | 10.5  | $0.047   | 20.8 s · 7 · $0.041   | 21.2 s · 10 · $0.039  | 20.0 s · 7 · $0.037    | 44.0 s · 18 · $0.073  |
+| GPT-6-Astra | Codex CLI   | 12/12 | 33.8 s    | 5.0   | $0.385\* | 27.6 s · 4 · $0.358\* | 48.4 s · 7 · $0.409\* | 29.9 s · 5 · $0.393\*  | 29.5 s · 4 · $0.380\* |
+| GPT-6.1 Sol | Codex CLI   | 12/12 | 33.1 s    | 5.3   | $0.068\* | 26.2 s · 4 · $0.065\* | 39.5 s · 7 · $0.068\* | 35.2 s · 5 · $0.070\*  | 31.4 s · 5 · $0.070\* |
+| GPT-6-Luna  | Codex CLI   | 12/12 | 27.2 s    | 6.5   | $0.004\* | 19.4 s · 4 · $0.003\* | 27.6 s · 7 · $0.004\* | 38.2 s · 10 · $0.006\* | 23.8 s · 5 · $0.004\* |
 
 \* Estimated from OpenAI's standard list prices, because Codex under a ChatGPT login reports tokens but no cost.
 
-1. **Sonnet 5.5 and Opus 5.5 are the fastest, at 14.6 s and 15.7 s per task.** Sonnet is the cheapest model per task here apart from GPT-6-Luna ($0.063; Haiku's $0.074 is pulled up by its `research` runs) and the fastest per turn (2.1 s); Opus needs slightly fewer turns at 1.7 times the cost.
-2. **Fable 5.1 takes the fewest turns (5.8) but 23.2 s per task at 2.6 times Opus's cost.** Its turns are long: `settings-login` took 46 s in 8 turns with 0.1 s of server time, all of it model time. It gained nothing over Opus on these tasks.
-3. **Fable and Opus retried the payment inside one `repeat` step in every run** and finished `payment-retry` in 6 and 8 turns; GPT-6-Luna did in 1 of 3 runs, and no other model did. Sonnet handles each attempt in its own turns (12).
-4. **Every model started every form task with `get_snapshot`** and acted by ref. Opus and Luna also use it as the check at the end of a batch. Haiku 4.5 is the only model that also takes screenshots (24 across its 12 runs), and it lost time to batches that failed partway and to timed-out waits: 6–13 s of server time per form task.
-5. **Haiku 4.5 is the slowest Claude model and had the only failure.** No `research` run used `run_tabs`: all three opened the articles one at a time, in 18–31 turns and 49–68 s, and one of them, which clicked each link and took a screenshot after it, reported 1 of 5 codenames.
-6. **The GPT models are slower per turn**: 5.7–6.0 s for GPT-6.1 Sol and GPT-6-Astra and 4.2 s for GPT-6-Luna, against 2.1–3.9 s for the Claude models, so they take 33–44 s per task on 6–9 turns. The Codex CLI's own startup accounts for 4–9 s of each run (see [Method](#method)).
-7. **GPT-6-Astra is the most expensive**, an estimated $0.433 per task. In 2 of its 3 `settings-login` runs, Chrome delivered none of the clicks sent right after the login redirect; the tools reported that the input had no effect instead of success, and Astra finished the form with `evaluate_js`. That is the dropped-input case the delivery check was added for, and it has only ever been seen in Astra runs.
-8. **GPT-6.1 Sol's estimated cost is close to Sonnet's ($0.077), and GPT-6-Luna's is about a tenth of Haiku's ($0.006)**, with every run passing. Luna takes the most turns of the GPT models (9) and reads `get_document` where the others do not.
+1. **Every model costs less per task than on the previous build, and six of seven need fewer turns.** The default tool list is now 25 tools in 17.0k characters, against 39 tools in 33.0k, and it is sent on every turn. Sonnet 5.5 went from $0.063 to $0.047 and from 7.0 to 5.8 turns; Haiku 4.5 from 13.5 to 10.5 turns; GPT-6-Astra from 7.2 to 5.0; GPT-6-Luna from 9.0 to 6.5. Opus 5.5 stayed at 6.5 turns, at $0.086 instead of $0.104.
+2. **Sonnet 5.5 is the fastest and, with Haiku 4.5, the cheapest Claude model**: 13.8 s and $0.047 per task. Opus 5.5 takes 15.1 s at 1.8 times the cost.
+3. **Clicks now wait for the outcome, so `payment-retry` needs no waits.** Each click on Pay returns after about 1.4 s, once the page has settled, with what changed: the decline message or the receipt. Most runs clicked three times and read the result from each reply; no GPT run of it used `wait_for`. Sonnet's `batch` median fell from 27.0 s to 19.1 s. Fable 5.1 retried inside one `repeat` step in every run, and Opus 5.5 in one of three.
+4. **Fable 5.1 takes few turns (5.3) but is the slowest Claude model, 30.6 s per task at 2.8 times Opus's cost.** Its turns average 6.1 s, against 2.4–2.6 s for the other Claude models, and it gained nothing over Opus on these tasks.
+5. **Haiku 4.5 passes everything but is slow on `research`**: no run used `run_tabs`, and each clicked through the five articles one at a time, in 17–19 turns and 38–46 s.
+6. **The GPT models are slower per turn**, 6.2–6.5 s for GPT-6-Astra and GPT-6.1 Sol and 4.1 s for GPT-6-Luna, so they take 27–34 s per task even on 5.0–6.5 turns. The Codex CLI's own startup accounts for 4–9 s of each run (see [Method](#method)).
+7. **The dropped-input case came back, only in GPT runs.** In all three GPT-6-Luna `settings-login` runs and one GPT-6.1 Sol run, the first click on the settings page after the login redirect failed with "the browser delivered no input events", even after the automatic resend. The agents finished the form with `evaluate_js`, which is why Luna's `settings-login` takes 10 turns and why Luna used `evaluate_js` 12 times. None of the 15 Claude `settings-login` runs hit it.
+8. **GPT-6-Astra is the most expensive**, an estimated $0.385 per task. GPT-6.1 Sol falls between Sonnet and Opus ($0.068), and GPT-6-Luna costs about a twelfth of Haiku ($0.004).
+9. **No run needed a tool outside the default set**, and none called `more_tools`.
 
 ## Batching
 
-Sonnet 5.5 with one action per call (`single`: `run_steps` and `run_tabs` disallowed) against Sonnet and Opus with the full tool set:
+Sonnet 5.5 with one action per call (`single`: `run_steps` and `run_tabs` disallowed) against Sonnet and Opus with the default tool set:
 
 ![Wall time per scenario: Sonnet single, Sonnet batch, and Opus batch](docs/images/bench-wall-time.svg)
 
@@ -45,11 +46,11 @@ Sonnet 5.5 with one action per call (`single`: `run_steps` and `run_tabs` disall
 
 ![Cost per scenario in US cents](docs/images/bench-cost.svg)
 
-1. **Batching halves the turns.** With `run_steps`, Sonnet's `signup` takes 5 turns instead of 11 and `settings-login` 7 instead of 14; with `run_tabs`, `research` takes 4 instead of 7. Every `batch` run of `signup` and `settings-login` sent each form as one batch, and every `research` run opened the five articles in one `run_tabs` call. Wall time follows: 9.7 s against 15.9 s, 12.7 s against 20.5 s, and 9.0 s against 28.1 s.
-2. **Model time is most of the wall time.** Server time is under 2 s per task except where a wait ran to its timeout, so needing fewer turns matters far more than faster tools.
-3. **`payment-retry` is decided by how the agent waits.** The page has one button, so the snapshot saves nothing. Sonnet's `batch` median of 27.0 s hides one run that lost 20 s to a `wait_for` on `#pay` with `textExcludes: "Processing"` that reached its timeout; the `single` runs (16.3 s) happened not to.
-4. **Without `run_tabs`, agents look for a shortcut.** Every `single` run of `research` first tried to `fetch()` the articles from the page with `evaluate_js`, which the browser blocks across origins, then navigated to them one by one; one run took 14 turns and 34 s.
-5. **Tool definitions are most of the input tokens.** The 39 tool definitions are 33.0k characters, sent (and cached) on every turn, so cost grows with turns more than with page content. A `get_snapshot` of the settings page is 6 lines; the same page from `get_document` is several kilobytes.
+1. **Batching still cuts turns on forms and research.** With `run_steps`, Sonnet's `signup` takes 4 turns instead of 9 and `settings-login` 7 instead of 11; with `run_tabs`, `research` takes 4 instead of 6. Wall time follows for `signup` (10.2 s against 15.0 s) and `research` (8.5 s against 27.7 s), but not for `settings-login` (17.5 s against 16.2 s).
+2. **One action per call got cheaper too.** Actions now report what changed once the page settles, so fewer separate checks are needed: on the previous build `single` mode took 11, 13, 14, and 7 turns, and now 9, 8, 11, and 6. In `payment-retry`, `single` and `batch` both take 8 turns.
+3. **Server time went up, and turns went down.** An action now waits until the page settles (the DOM quiet for 150 ms, and the requests and short timers it started finished), so a form batch spends 1–2 s in the server instead of 0.1–0.9 s, and a Pay click 1.4 s. That is time an agent used to spend on `wait_for` calls and extra turns. Model time is still most of the wall time, except in `single` runs of `research`, where loading the slow articles one by one takes 11–15 s of server time.
+4. **Without `run_tabs`, agents look for a shortcut.** Every `single` run of `research` first tried to `fetch()` the articles from the page with `evaluate_js`, which the browser blocks across origins, then navigated to them one by one.
+5. **Tool definitions are a large share of the input tokens.** They are sent (and cached) on every turn, so cost grows with turns more than with page content. A `get_snapshot` of the settings page is 6 lines; the same page from `get_document` is several kilobytes.
 
 ## Results
 
@@ -57,89 +58,89 @@ Median of 3 runs, with the range in parentheses when runs differ. The column mea
 
 ### Sonnet 5.5, medium effort, `single` mode
 
-| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | ---------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 15.9 s (12.4 s–17.1 s) | 11 (11–12) | 10 (10–11) | 0.1 s (0.1 s–0.1 s)  | 9.7k (9.0k–12.4k)   | 100.9k (99.9k–117.6k)  | 1.1k (1.1k–1.2k) | $0.063 ($0.061–$0.108) |
-| `payment-retry`  | 3/3 | 16.3 s (13.2 s–44.1 s) | 13 (12–13) | 12 (11–12) | 1.8 s (0.4 s–30.7 s) | 9.0k (7.1k–12.8k)   | 116.4k (113.1k–161.5k) | 1.3k (1.3k–1.5k) | $0.070 ($0.065–$0.075) |
-| `settings-login` | 3/3 | 20.5 s (15.0 s–21.3 s) | 14 (13–15) | 13 (12–14) | 0.1 s (0.1 s–0.1 s)  | 12.4k (10.6k–13.5k) | 152.8k (152.0k–152.8k) | 1.5k (1.5k–1.6k) | $0.081 ($0.079–$0.082) |
-| `research`       | 3/3 | 28.1 s (21.3 s–34.0 s) | 7 (6–14)   | 6 (5–13)   | 9.2 s (4.6 s–16.6 s) | 8.3k (6.8k–12.7k)   | 111.2k (94.7k–190.2k)  | 0.9k (0.8k–1.5k) | $0.055 ($0.054–$0.089) |
+| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time            | Response chars      | Input tokens         | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ---------- | ---------- | ---------------------- | ------------------- | -------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 15.0 s (10.7 s–29.2 s) | 9          | 8          | 2.0 s (2.0 s–2.0 s)    | 9.5k (9.5k–9.5k)    | 57.7k (57.6k–57.8k)  | 0.9k (0.9k–0.9k) | $0.048 ($0.048–$0.074) |
+| `payment-retry`  | 3/3 | 20.6 s (18.3 s–21.7 s) | 8 (8–10)   | 7 (7–9)    | 4.2 s (4.2 s–4.2 s)    | 5.6k (5.6k–6.3k)    | 76.9k (76.3k–77.6k)  | 0.8k (0.7k–0.9k) | $0.045 ($0.044–$0.049) |
+| `settings-login` | 3/3 | 16.2 s (14.1 s–16.6 s) | 11 (10–11) | 10 (9–10)  | 2.8 s (2.8 s–2.8 s)    | 10.9k (10.6k–10.9k) | 85.6k (70.9k–86.0k)  | 1.1k (1.0k–1.1k) | $0.059 ($0.054–$0.059) |
+| `research`       | 3/3 | 27.7 s (24.5 s–34.0 s) | 6 (6–14)   | 5 (5–13)   | 15.1 s (10.6 s–15.2 s) | 8.6k (8.3k–12.1k)   | 66.9k (66.6k–123.9k) | 0.8k (0.8k–1.5k) | $0.047 ($0.047–$0.076) |
 
 ### Fable 5.1, medium effort, `batch` mode
 
 | Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
 | ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 13.6 s (11.1 s–14.5 s) | 5 (4–5) | 4 (3–4)    | 0.9 s (0.9 s–1.1 s) | 13.2k (13.1k–13.2k) | 101.7k (79.4k–101.7k)  | 0.7k (0.6k–0.7k) | $0.249 ($0.247–$0.502) |
-| `payment-retry`  | 3/3 | 21.4 s (17.2 s–29.4 s) | 6 (6–7) | 5 (5–6)    | 3.7 s (2.9 s–3.8 s) | 12.5k (12.4k–15.5k) | 99.9k (99.7k–142.3k)   | 0.8k (0.8k–1.1k) | $0.243 ($0.241–$0.278) |
-| `settings-login` | 3/3 | 46.0 s (16.0 s–52.7 s) | 8 (6–9) | 7 (5–8)    | 0.1 s (0.1 s–0.7 s) | 20.1k (19.5k–22.1k) | 177.1k (126.0k–199.9k) | 1.4k (1.0k–1.4k) | $0.364 ($0.317–$0.370) |
-| `research`       | 3/3 | 11.7 s (11.7 s–22.0 s) | 4       | 3          | 1.7 s (1.7 s–1.8 s) | 11.0k (11.0k–11.0k) | 79.8k (79.8k–79.8k)    | 0.6k (0.6k–0.7k) | $0.234 ($0.233–$0.236) |
+| `signup`         | 3/3 | 26.1 s (20.4 s–29.1 s) | 4 (4–5) | 3 (3–4)    | 1.1 s (1.1 s–1.3 s) | 11.9k (11.9k–12.4k) | 56.3k (56.3k–73.2k)    | 0.6k (0.6k–0.6k) | $0.232 ($0.218–$0.378) |
+| `payment-retry`  | 3/3 | 32.9 s (31.0 s–53.4 s) | 6       | 5          | 4.2 s (4.2 s–4.2 s) | 11.4k (11.4k–15.0k) | 83.4k (70.8k–83.5k)    | 0.8k (0.7k–0.9k) | $0.228 ($0.223–$0.239) |
+| `settings-login` | 3/3 | 39.9 s (31.7 s–54.3 s) | 7       | 6          | 2.1 s (2.1 s–2.1 s) | 15.3k (15.3k–17.6k) | 107.9k (107.8k–110.4k) | 0.9k (0.9k–1.1k) | $0.278 ($0.275–$0.301) |
+| `research`       | 3/3 | 23.3 s (21.3 s–28.4 s) | 4       | 3          | 1.7 s (1.7 s–1.7 s) | 11.0k (10.7k–11.0k) | 56.9k (56.8k–56.9k)    | 0.6k (0.6k–0.6k) | $0.226 ($0.220–$0.226) |
 
 ### Opus 5.5, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time              | Turns    | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | -------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 12.8 s (12.7 s–19.3 s) | 6 (5–6)  | 5 (4–5)    | 0.9 s (0.9 s–1.1 s) | 13.2k (12.9k–13.3k) | 92.8k (92.1k–92.8k)    | 0.7k (0.7k–0.7k) | $0.093 ($0.089–$0.200) |
-| `payment-retry`  | 3/3 | 21.6 s (16.6 s–22.7 s) | 8 (8–10) | 7 (7–9)    | 3.0 s (2.8 s–3.1 s) | 20.2k (14.9k–28.7k) | 113.4k (112.6k–132.0k) | 1.1k (0.9k–1.4k) | $0.121 ($0.112–$0.122) |
-| `settings-login` | 3/3 | 17.0 s (15.2 s–19.8 s) | 8 (7–8)  | 7 (6–7)    | 1.1 s (1.1 s–1.3 s) | 17.6k (17.4k–19.0k) | 133.5k (113.5k–136.2k) | 1.0k (1.0k–1.0k) | $0.119 ($0.112–$0.120) |
-| `research`       | 3/3 | 11.4 s (11.3 s–11.5 s) | 4        | 3          | 1.7 s (1.7 s–1.7 s) | 10.7k (10.7k–10.7k) | 72.0k (72.0k–72.1k)    | 0.5k (0.5k–0.5k) | $0.081 ($0.081–$0.081) |
+| Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time          | Response chars      | Input tokens        | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ------- | ---------- | -------------------- | ------------------- | ------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 11.5 s (10.6 s–13.9 s) | 4 (4–5) | 3 (3–4)    | 1.1 s (1.1 s–1.1 s)  | 11.9k               | 48.6k (48.5k–49.1k) | 0.5k (0.5k–0.6k) | $0.075 ($0.072–$0.135) |
+| `payment-retry`  | 3/3 | 18.9 s (17.2 s–38.7 s) | 9 (7–9) | 8 (6–8)    | 4.2 s (4.1 s–23.1 s) | 7.9k (5.4k–14.7k)   | 87.1k (61.9k–87.3k) | 0.8k (0.8k–0.9k) | $0.084 ($0.079–$0.088) |
+| `settings-login` | 3/3 | 18.2 s (17.3 s–18.4 s) | 8 (7–9) | 7 (6–8)    | 1.9 s (1.9 s–2.1 s)  | 16.0k (16.0k–16.0k) | 95.8k (95.1k–96.2k) | 0.9k (0.8k–1.0k) | $0.105 ($0.101–$0.109) |
+| `research`       | 3/3 | 11.8 s (11.4 s–13.7 s) | 5       | 4          | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 49.8k (49.8k–49.9k) | 0.6k (0.6k–0.7k) | $0.080 ($0.080–$0.080) |
 
 ### Sonnet 5.5, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time              | Turns     | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | --------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 9.7 s (9.6 s–10.1 s)   | 5 (5–6)   | 4 (4–5)    | 0.1 s (0.1 s–0.1 s)  | 15.5k (12.7k–15.5k) | 93.4k (92.6k–93.4k)    | 0.7k (0.7k–0.8k) | $0.057 ($0.055–$0.109) |
-| `payment-retry`  | 3/3 | 27.0 s (20.8 s–31.4 s) | 12 (7–13) | 11 (6–12)  | 7.1 s (1.5 s–20.1 s) | 8.2k (7.9k–8.2k)    | 129.1k (127.8k–184.5k) | 1.3k (0.8k–1.4k) | $0.068 ($0.058–$0.079) |
-| `settings-login` | 3/3 | 12.7 s (12.3 s–17.7 s) | 7 (7–12)  | 6 (6–11)   | 0.1 s (0.1 s–0.2 s)  | 20.1k (17.3k–25.8k) | 139.6k (136.0k–157.2k) | 1.1k (1.0k–1.3k) | $0.082 ($0.075–$0.083) |
-| `research`       | 3/3 | 9.0 s (8.7 s–11.3 s)   | 4         | 3          | 1.7 s (1.7 s–1.7 s)  | 10.7k (10.7k–10.7k) | 72.0k (72.0k–72.1k)    | 0.5k (0.5k–0.6k) | $0.047 ($0.047–$0.047) |
+| Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens        | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 10.2 s (8.2 s–11.3 s)  | 4       | 3          | 1.1 s (1.1 s–1.1 s) | 11.9k (11.9k–11.9k) | 48.6k (48.6k–48.6k) | 0.5k (0.5k–0.5k) | $0.040 ($0.040–$0.071) |
+| `payment-retry`  | 3/3 | 19.1 s (13.8 s–21.8 s) | 8 (6–8) | 7 (5–7)    | 4.2 s (4.2 s–4.2 s) | 5.6k (4.8k–5.6k)    | 85.2k (71.4k–85.3k) | 0.7k (0.5k–0.7k) | $0.046 ($0.039–$0.046) |
+| `settings-login` | 3/3 | 17.5 s (16.0 s–18.5 s) | 7       | 6          | 2.1 s (1.9 s–2.1 s) | 16.0k (15.4k–16.0k) | 93.9k (93.8k–95.7k) | 0.9k (0.8k–0.9k) | $0.061 ($0.060–$0.061) |
+| `research`       | 3/3 | 8.5 s (8.4 s–9.4 s)    | 4       | 3          | 1.7 s (1.7 s–1.7 s) | 10.7k (10.7k–10.7k) | 49.3k (49.2k–49.3k) | 0.5k (0.5k–0.5k) | $0.042 ($0.042–$0.043) |
 
 ### Haiku 4.5, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | ---------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 32.8 s (28.1 s–37.3 s) | 7 (7–8)    | 6 (6–7)    | 12.6 s (4.2 s–14.3 s) | 22.8k (16.2k–23.4k) | 151.0k (149.0k–170.5k) | 2.1k (1.7k–2.4k) | $0.058 ($0.056–$0.074) |
-| `payment-retry`  | 3/3 | 27.5 s (21.3 s–38.5 s) | 7 (6–11)   | 6 (5–10)   | 10.2 s (6.2 s–14.2 s) | 8.4k (7.8k–10.1k)   | 151.7k (124.4k–239.5k) | 1.3k (1.2k–1.9k) | $0.051 ($0.044–$0.066) |
-| `settings-login` | 3/3 | 34.3 s (31.1 s–36.8 s) | 9 (8–9)    | 8 (7–8)    | 6.1 s (3.3 s–10.3 s)  | 19.8k (19.4k–26.2k) | 191.1k (170.1k–209.9k) | 1.9k (1.9k–2.2k) | $0.055 ($0.053–$0.070) |
-| `research`       | 2/3 | 58.2 s (48.5 s–68.0 s) | 31 (18–31) | 30 (17–30) | 8.1 s (7.9 s–9.8 s)   | 23.5k (8.6k–27.0k)  | 735.1k (444.0k–848.3k) | 4.5k (3.0k–4.6k) | $0.131 ($0.100–$0.156) |
+| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ---------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 20.8 s (11.7 s–22.0 s) | 7 (4–8)    | 6 (3–7)    | 1.8 s (1.1 s–3.9 s)  | 16.9k (11.9k–18.3k) | 109.9k (57.2k–125.7k)  | 1.5k (0.9k–1.6k) | $0.041 ($0.026–$0.054) |
+| `payment-retry`  | 3/3 | 21.2 s (17.4 s–40.1 s) | 10 (8–14)  | 9 (7–13)   | 4.3 s (4.3 s–16.3 s) | 6.7k (6.0k–6.9k)    | 149.3k (116.6k–213.2k) | 1.4k (1.2k–2.0k) | $0.039 ($0.034–$0.049) |
+| `settings-login` | 3/3 | 20.0 s (18.8 s–20.3 s) | 7 (7–8)    | 6 (6–7)    | 2.0 s (1.9 s–2.6 s)  | 15.6k (14.3k–16.1k) | 108.1k (107.8k–126.6k) | 1.4k (1.4k–1.5k) | $0.037 ($0.036–$0.040) |
+| `research`       | 3/3 | 44.0 s (38.4 s–46.3 s) | 18 (17–19) | 17 (16–18) | 9.4 s (9.4 s–11.4 s) | 24.0k (23.7k–24.7k) | 318.7k (298.4k–337.6k) | 2.6k (2.4k–2.7k) | $0.073 ($0.069–$0.076) |
 
 ### GPT-6-Astra, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | ---------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 34.5 s (23.9 s–42.2 s) | 5          | 4          | 0.1 s (0.1 s–0.1 s)   | 16.8k (12.5k–17.4k) | 131.5k (125.3k–132.3k) | 0.5k (0.4k–0.5k) | $0.362 ($0.351–$0.492) |
-| `payment-retry`  | 3/3 | 47.4 s (36.5 s–66.3 s) | 12 (12–13) | 11 (11–12) | 2.6 s (2.6 s–2.6 s)   | 12.7k (12.7k–12.8k) | 193.4k (168.4k–195.0k) | 0.7k (0.7k–0.7k) | $0.495 ($0.454–$0.591) |
-| `settings-login` | 3/3 | 62.2 s (50.7 s–74.4 s) | 7 (7–9)    | 6 (6–8)    | 10.6 s (0.1 s–10.6 s) | 20.6k (14.4k–22.0k) | 208.5k (180.7k–264.1k) | 0.7k (0.6k–0.9k) | $0.514 ($0.478–$0.584) |
-| `research`       | 3/3 | 32.3 s (30.6 s–35.9 s) | 5          | 4          | 1.7 s (1.7 s–1.7 s)   | 10.7k (10.5k–11.0k) | 121.2k (121.1k–121.4k) | 0.4k (0.4k–0.4k) | $0.361 ($0.358–$0.539) |
+| Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 27.6 s (24.9 s–30.5 s) | 4       | 3          | 1.1 s (1.1 s–1.1 s) | 11.9k               | 98.3k (98.2k–98.4k)    | 0.3k (0.3k–0.3k) | $0.358 ($0.357–$0.358) |
+| `payment-retry`  | 3/3 | 48.4 s (39.5 s–49.5 s) | 7       | 6          | 4.2 s (4.2 s–4.3 s) | 5.0k (5.0k–5.1k)    | 162.8k (140.3k–162.8k) | 0.4k (0.4k–0.4k) | $0.409 ($0.408–$0.570) |
+| `settings-login` | 3/3 | 29.9 s (27.8 s–30.6 s) | 5       | 4          | 1.9 s (1.9 s–1.9 s) | 13.8k (13.8k–13.8k) | 122.9k (120.5k–123.0k) | 0.4k (0.4k–0.4k) | $0.393 ($0.373–$0.397) |
+| `research`       | 3/3 | 29.5 s (28.3 s–29.6 s) | 4 (4–5) | 3 (3–4)    | 1.7 s (1.7 s–1.7 s) | 10.6k (10.2k–11.0k) | 100.9k (98.9k–119.8k)  | 0.3k (0.3k–0.3k) | $0.380 ($0.364–$0.445) |
 
 ### GPT-6.1 Sol, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time              | Turns    | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ---------------------- | -------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 31.9 s (30.6 s–33.8 s) | 5        | 4          | 0.1 s (0.1 s–0.1 s)  | 16.8k (16.8k–17.3k) | 131.9k (130.8k–132.5k) | 0.5k (0.4k–0.5k) | $0.076 ($0.059–$0.077) |
-| `payment-retry`  | 3/3 | 47.4 s (45.3 s–47.4 s) | 8 (7–14) | 7 (6–13)   | 2.5 s (2.5 s–2.6 s)  | 17.4k (13.1k–17.5k) | 180.2k (177.5k–203.6k) | 0.7k (0.6k–0.7k) | $0.069 ($0.065–$0.081) |
-| `settings-login` | 3/3 | 41.2 s (40.8 s–54.6 s) | 7 (7–8)  | 6 (6–7)    | 0.2 s (0.1 s–10.2 s) | 24.1k (22.1k–26.8k) | 194.1k (185.5k–226.2k) | 0.7k (0.6k–0.7k) | $0.093 ($0.066–$0.096) |
-| `research`       | 3/3 | 28.8 s (28.6 s–31.5 s) | 5        | 4          | 1.7 s (1.7 s–1.8 s)  | 11.5k (11.5k–11.5k) | 124.4k (124.1k–127.0k) | 0.4k (0.4k–0.4k) | $0.071 ($0.071–$0.074) |
+| Scenario         | OK  | Wall time              | Turns   | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 26.2 s (25.0 s–27.4 s) | 4       | 3          | 1.1 s (1.1 s–1.1 s) | 11.9k (11.9k–11.9k) | 98.5k (98.5k–98.6k)    | 0.3k (0.3k–0.3k) | $0.065 ($0.064–$0.084) |
+| `payment-retry`  | 3/3 | 39.5 s (37.7 s–41.4 s) | 7       | 6          | 4.3 s (4.3 s–4.3 s) | 5.0k                | 163.1k (163.0k–163.2k) | 0.4k (0.4k–0.4k) | $0.068 ($0.068–$0.087) |
+| `settings-login` | 3/3 | 35.2 s (29.6 s–51.8 s) | 5 (5–8) | 4 (4–7)    | 1.9 s (1.9 s–3.2 s) | 13.8k (11.6k–13.8k) | 123.4k (123.1k–199.1k) | 0.4k (0.4k–0.6k) | $0.070 ($0.070–$0.129) |
+| `research`       | 3/3 | 31.4 s (27.2 s–34.8 s) | 5       | 4          | 1.7 s (1.7 s–1.7 s) | 11.5k (11.5k–11.8k) | 123.5k (122.9k–125.5k) | 0.4k (0.3k–0.4k) | $0.070 ($0.070–$0.072) |
 
 ### GPT-6-Luna, medium effort, `batch` mode
 
-| Scenario         | OK  | Wall time               | Turns      | Tool calls | Server time          | Response chars      | Input tokens           | Output tokens    | Cost                   |
-| ---------------- | --- | ----------------------- | ---------- | ---------- | -------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
-| `signup`         | 3/3 | 30.8 s (27.3 s–31.5 s)  | 8 (7–8)    | 7 (6–7)    | 2.1 s (1.2 s–2.4 s)  | 16.0k (14.9k–16.2k) | 222.6k (201.3k–222.7k) | 0.7k (0.7k–0.8k) | $0.005 ($0.004–$0.006) |
-| `payment-retry`  | 3/3 | 36.0 s (32.0 s–111.6 s) | 11 (10–12) | 10 (9–11)  | 2.1 s (2.1 s–63.5 s) | 14.6k (12.0k–16.2k) | 312.2k (228.4k–352.7k) | 0.9k (0.7k–1.2k) | $0.007 ($0.006–$0.008) |
-| `settings-login` | 3/3 | 43.3 s (34.0 s–46.3 s)  | 11 (11–12) | 10 (10–11) | 1.0 s (0.9 s–1.4 s)  | 12.3k (10.7k–12.7k) | 298.1k (266.7k–298.7k) | 1.1k (0.9k–1.3k) | $0.007 ($0.006–$0.007) |
-| `research`       | 3/3 | 22.9 s (21.5 s–23.6 s)  | 6 (6–7)    | 5 (5–6)    | 1.7 s (1.7 s–1.8 s)  | 12.0k (12.0k–12.9k) | 159.4k (137.1k–160.5k) | 0.5k (0.5k–0.6k) | $0.005 ($0.004–$0.005) |
+| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time         | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ---------- | ---------- | ------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 19.4 s (17.9 s–24.3 s) | 4 (4–5)    | 3 (3–4)    | 1.1 s (1.1 s–3.3 s) | 11.9k (11.9k–13.7k) | 95.4k (95.3k–120.6k)   | 0.4k (0.3k–0.4k) | $0.003 ($0.003–$0.004) |
+| `payment-retry`  | 3/3 | 27.6 s (25.5 s–31.1 s) | 7          | 6          | 4.3 s (4.2 s–4.3 s) | 5.0k (4.9k–6.1k)    | 157.9k (157.7k–159.2k) | 0.5k (0.4k–0.5k) | $0.004 ($0.004–$0.005) |
+| `settings-login` | 3/3 | 38.2 s (34.9 s–44.8 s) | 10 (10–11) | 9 (9–10)   | 2.4 s (2.4 s–2.4 s) | 9.9k (9.9k–14.3k)   | 247.8k (243.4k–269.7k) | 0.9k (0.9k–1.0k) | $0.006 ($0.005–$0.006) |
+| `research`       | 3/3 | 23.8 s (19.7 s–24.3 s) | 5          | 4          | 1.7 s (1.7 s–1.7 s) | 10.4k (10.3k–10.4k) | 138.7k (116.3k–139.8k) | 0.5k (0.4k–0.5k) | $0.004 ($0.004–$0.004) |
 
 ## Method
 
 `bench/run.mjs` runs every scenario through headless Claude Code, or through the Codex CLI for `gpt-*` models, with a fresh MCP server per run.
 
 - **Browser.** A throwaway headless Chrome with its own temporary profile, on port 9333, so benchmark runs never touch a real profile.
-- **Pages.** `bench/fixture-server.mjs` serves the fixture pages from `bench/fixtures/` on loopback, with no network access. It keeps per-run state (what was submitted, how many attempts were made) so a run can be judged by what actually happened on the page.
+- **Pages.** `bench/fixture-server.mjs` serves the fixture pages from `bench/fixtures/` on loopback, with no network access. It keeps per-run state (what was submitted, how many attempts were made) so a run can be judged by what actually happened on the page. Until `275faa1`, an article's "Back to results" link dropped the run id, so an agent that clicked back and forth read another run's codenames; Haiku 4.5 does that, and its `research` runs here were made after the fix.
 - **Agent.** `claude -p` with `--model` and `--effort`, isolated from the machine it runs on: `--setting-sources ""` (no user or project `CLAUDE.md` or settings), `--strict-mcp-config` with only this server, `--tools ""` (no built-in tools such as Bash or Read), and `--allowedTools mcp__browser`. The runner opens the tab and gives the agent its URL and target id.
 - **GPT models.** `codex exec --json` with `--ignore-user-config`, `--ephemeral`, a read-only sandbox, only this server (its tools approved in advance), and Codex's built-in browser, shell, web, app, and plugin tools turned off. Codex calls MCP tools through its code-mode `exec` tool, which stays on. Codex also loads the user's global `~/.codex/AGENTS.md` whatever the flags, so that file was moved aside during the GPT runs, matching the Claude runs, which load no user instructions.
 - **Fixed overhead.** Answering "OK" with the same isolation and server takes 2.2–4.2 s through Claude Code and 4.1–8.6 s through Codex, so the CLI accounts for a few seconds of each run, not the gap between the models.
 - **Modes.**
   - `single`: `run_steps` and `run_tabs` are disallowed, so every action and check is its own tool call.
-  - `batch`: the full tool set, and the prompt does not mention batching.
-  - `batch-hinted`: the full tool set, and the prompt asks the agent to prefer `run_steps` (the exact wording is `MODES` in `bench/run.mjs`).
+  - `batch`: the default tool set (`MCP_BROWSER_TOOLS` unset), and the prompt does not mention batching.
+  - `batch-hinted`: the default tool set, and the prompt asks the agent to prefer `run_steps` (the exact wording is `MODES` in `bench/run.mjs`).
 - **Success.** Each scenario's `check` in `bench/scenarios.mjs` passes only if the fixture server recorded the right outcome (for example, the exact signup values, or a completed payment with no overlapping attempts) and the agent's reply contains the code the page showed at the end.
 - **Repeats.** Model runs vary by several seconds between runs, so each scenario and mode runs several times. The tables show the median, with the range in parentheses when runs differ. Turns and server time vary less than wall time and are the more reliable signals.
 
