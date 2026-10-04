@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="362" viewBox="0 0 880 362" role="img" aria-labelledby="title desc">
+  <title id="title">Wall time per scenario</title>
+  <desc id="desc">signup: Sonnet 5.5 single 15.9, Sonnet 5.5 batch 9.7, Opus 5.5 batch 12.8. payment-retry: Sonnet 5.5 single 16.3, Sonnet 5.5 batch 27.0, Opus 5.5 batch 21.6. settings-login: Sonnet 5.5 single 20.5, Sonnet 5.5 batch 12.7, Opus 5.5 batch 17.0. research: Sonnet 5.5 single 28.1, Sonnet 5.5 batch 9.0, Opus 5.5 batch 11.4</desc>
+  <style>
+    .bg { fill: #f6f8fa; stroke: #d1d9e0; }
+    .rule { stroke: #d1d9e0; }
+    .text { fill: #1f2328; }
+    .muted { fill: #59636e; }
+    .s0 { fill: #0969da; }
+    .s1 { fill: #bf8700; }
+    .s2 { fill: #1a7f37; }
+    .s3 { fill: #8250df; }
+    .s4 { fill: #cf222e; }
+    .s5 { fill: #1b7c83; }
+    .s6 { fill: #bc4c00; }
+    .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; stroke: #3d444d; }
+      .rule { stroke: #3d444d; }
+      .text { fill: #f0f6fc; }
+      .muted { fill: #9198a1; }
+      .s0 { fill: #4493f8; }
+      .s1 { fill: #d29922; }
+      .s2 { fill: #3fb950; }
+      .s3 { fill: #ab7df8; }
+      .s4 { fill: #f85149; }
+      .s5 { fill: #39c5cf; }
+      .s6 { fill: #f0883e; }
+    }
+  </style>
+  <rect class="bg" x="0.5" y="0.5" width="879" height="361" rx="12" />
+  <text class="text sans" x="56" y="28" font-size="16" font-weight="600">Wall time (seconds)</text>
+  <rect class="s0" x="56" y="44" width="12" height="12" rx="2" />
+  <text class="muted sans" x="74" y="54" font-size="12">Sonnet 5.5 single</text>
+  <rect class="s1" x="256" y="44" width="12" height="12" rx="2" />
+  <text class="muted sans" x="274" y="54" font-size="12">Sonnet 5.5 batch</text>
+  <rect class="s2" x="456" y="44" width="12" height="12" rx="2" />
+  <text class="muted sans" x="474" y="54" font-size="12">Opus 5.5 batch</text>
+  <line class="rule" x1="56" x2="856" y1="306" y2="306" />
+  <text class="muted sans" x="48" y="310" font-size="11" text-anchor="end">0</text>
+  <line class="rule" x1="56" x2="856" y1="246" y2="246" />
+  <text class="muted sans" x="48" y="250" font-size="11" text-anchor="end">10</text>
+  <line class="rule" x1="56" x2="856" y1="186" y2="186" />
+  <text class="muted sans" x="48" y="190" font-size="11" text-anchor="end">20</text>
+  <line class="rule" x1="56" x2="856" y1="126" y2="126" />
+  <text class="muted sans" x="48" y="130" font-size="11" text-anchor="end">30</text>
+  <line class="rule" x1="56" x2="856" y1="66" y2="66" />
+  <text class="muted sans" x="48" y="70" font-size="11" text-anchor="end">40</text>
+  <rect class="s0" x="98" y="210.618" width="36" height="95.382" rx="3" />
+  <text class="text sans" x="116" y="205.618" font-size="11" text-anchor="middle">15.9</text>
+  <rect class="s1" x="138" y="247.752" width="36" height="58.24799999999999" rx="3" />
+  <text class="text sans" x="156" y="242.752" font-size="11" text-anchor="middle">9.7</text>
+  <rect class="s2" x="178" y="229.30200000000002" width="36" height="76.69799999999998" rx="3" />
+  <text class="text sans" x="196" y="224.30200000000002" font-size="11" text-anchor="middle">12.8</text>
+  <text class="text mono" x="156" y="328" font-size="12" text-anchor="middle">signup</text>
+  <rect class="s0" x="298" y="208.27800000000002" width="36" height="97.72199999999998" rx="3" />
+  <text class="text sans" x="316" y="203.27800000000002" font-size="11" text-anchor="middle">16.3</text>
+  <rect class="s1" x="338" y="143.712" width="36" height="162.288" rx="3" />
+  <text class="text sans" x="356" y="138.712" font-size="11" text-anchor="middle">27.0</text>
+  <rect class="s2" x="378" y="176.47199999999998" width="36" height="129.52800000000002" rx="3" />
+  <text class="text sans" x="396" y="171.47199999999998" font-size="11" text-anchor="middle">21.6</text>
+  <text class="text mono" x="356" y="328" font-size="12" text-anchor="middle">payment-retry</text>
+  <rect class="s0" x="498" y="182.766" width="36" height="123.23400000000001" rx="3" />
+  <text class="text sans" x="516" y="177.766" font-size="11" text-anchor="middle">20.5</text>
+  <rect class="s1" x="538" y="229.968" width="36" height="76.03200000000001" rx="3" />
+  <text class="text sans" x="556" y="224.968" font-size="11" text-anchor="middle">12.7</text>
+  <rect class="s2" x="578" y="203.736" width="36" height="102.26400000000001" rx="3" />
+  <text class="text sans" x="596" y="198.736" font-size="11" text-anchor="middle">17.0</text>
+  <text class="text mono" x="556" y="328" font-size="12" text-anchor="middle">settings-login</text>
+  <rect class="s0" x="698" y="137.172" width="36" height="168.828" rx="3" />
+  <text class="text sans" x="716" y="132.172" font-size="11" text-anchor="middle">28.1</text>
+  <rect class="s1" x="738" y="252.168" width="36" height="53.831999999999994" rx="3" />
+  <text class="text sans" x="756" y="247.168" font-size="11" text-anchor="middle">9.0</text>
+  <rect class="s2" x="778" y="237.762" width="36" height="68.238" rx="3" />
+  <text class="text sans" x="796" y="232.762" font-size="11" text-anchor="middle">11.4</text>
+  <text class="text mono" x="756" y="328" font-size="12" text-anchor="middle">research</text>
+</svg>

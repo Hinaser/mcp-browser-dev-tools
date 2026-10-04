@@ -129,25 +129,25 @@ The result lists every tab in the order given, each with its steps' results: her
 
 ## Measured
 
-Model turns per task, median of 3 runs, from the benchmark in [PERFORMANCE.md](PERFORMANCE.md):
+Median of 3 runs on the current build, from the benchmark in [PERFORMANCE.md](PERFORMANCE.md). "One action per call" disallows `run_steps` and `run_tabs`.
 
-| Task                                | Sonnet 5.5, one action per call | Sonnet 5.5 with `run_steps` | Opus 5.5 with `run_steps` |
-| ----------------------------------- | ------------------------------- | --------------------------- | ------------------------- |
-| Sign up through a form              | 10                              | 5                           | 4                         |
-| Pay, retrying declined attempts     | 12                              | 11                          | 4                         |
-| Sign in, then change settings       | 16                              | 9                           | 7                         |
-| Read five pages from a results list | 14                              | 4                           | 4                         |
+| Task                                | Sonnet 5.5, one action per call | Sonnet 5.5 with batching | Opus 5.5 with batching |
+| ----------------------------------- | ------------------------------- | ------------------------ | ---------------------- |
+| Sign up through a form              | 15.9 s · 11 turns               | 9.7 s · 5 turns          | 12.8 s · 6 turns       |
+| Pay, retrying declined attempts     | 16.3 s · 13 turns               | 27.0 s · 12 turns        | 21.6 s · 8 turns       |
+| Sign in, then change settings       | 20.5 s · 14 turns               | 12.7 s · 7 turns         | 17.0 s · 8 turns       |
+| Read five pages from a results list | 28.1 s · 7 turns                | 9.0 s · 4 turns          | 11.4 s · 4 turns       |
 
-Opus retried the payment inside a single `repeat` step. The last row uses `run_tabs` in place of `run_steps`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) completed all 63 runs of the first three tasks; PERFORMANCE.md has the time, cost, and turns for each, and how the runs were set up.
+Every form run started with `get_snapshot` and acted by ref, without being told to. Opus retried the payment inside a single `repeat` step; Sonnet's batched payment median includes one run that waited 20 s on a timeout. The last row uses `run_tabs`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) ran the same four tasks: 95 of 96 runs passed, and PERFORMANCE.md has the time, cost, and turns for each, the charts, and how the runs were set up.
 
 ## Tools
 
-38 tools, described in [docs/tools.md](docs/tools.md):
+39 tools, described in [docs/tools.md](docs/tools.md):
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `type`, `select`, `press_key`, `scroll`, `set_viewport`
 - **Wait and batch:** `wait_for`, `run_steps`, `run_tabs`
-- **Inspect:** `get_page_state`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
+- **Inspect:** `get_page_state`, `get_snapshot`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
 - **Console and network:** `get_console_messages`, `get_network_requests`, `get_events`, `get_har`
 - **Session state:** `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `compare_page_state`, `compare_selector`, `capture_debug_report`
 

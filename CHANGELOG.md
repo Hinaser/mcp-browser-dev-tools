@@ -8,6 +8,11 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `get_snapshot` lists the page's visible headings and controls, one line each with a ref such as `e12`, and every tool accepts `ref=e12` as its selector. It is the cheapest way to see what a page offers before acting, replacing `get_document` or a screenshot in most cases. Refs belong to the document that issued them, and a new document continues the numbering, so a stale or unknown ref fails with an error that says to take a new snapshot instead of naming another element. `run_steps` failure reports include a `ref` for each control
+- Headings (`h1` to `h6`) now have the inferred role `heading`, so `role=heading` locators and `inspect_element` report them
+
 ## [0.2.2] - 2026-10-01
 
 This release makes `click`, `type`, and `press_key` fail with an error

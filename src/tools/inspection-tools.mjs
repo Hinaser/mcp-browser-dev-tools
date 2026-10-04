@@ -11,9 +11,35 @@ import {
   asToolResult,
   moveScreenshotImage,
 } from "../tool-results.mjs";
-import { selectorProperty, sessionWithLimitSchema } from "../tool-schemas.mjs";
+import {
+  LOCATOR_DESCRIPTION,
+  selectorProperty,
+  sessionWithLimitSchema,
+} from "../tool-schemas.mjs";
 
 const DEFAULT_READ_CHARS = 8000;
+const DEFAULT_SNAPSHOT_NODES = 100;
+const MAX_SNAPSHOT_NODES = 500;
+
+// The snapshot's nodes are lines already; send them as plain text rather than
+// a JSON array, which costs quotes and escapes on every line.
+export function formatSnapshotResult(result) {
+  if (!Array.isArray(result?.nodes)) {
+    return asToolResult(result);
+  }
+  const { nodes, ...rest } = result;
+  const lines = [
+    `${rest.url ?? ""} ${JSON.stringify(rest.title ?? "")}`.trim(),
+    ...nodes,
+  ];
+  if (rest.more > 0) {
+    lines.push(`(${rest.more} more nodes; raise limit or pass a selector)`);
+  }
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+    structuredContent: result,
+  };
+}
 const MAX_READ_CHARS = 100_000;
 const DEFAULT_READ_LINKS = 50;
 const MAX_READ_LINKS = 200;
@@ -52,6 +78,48 @@ export function inspectionTools(server) {
             args.limit ?? 50,
           ),
         }),
+      },
+    ],
+    [
+      "get_snapshot",
+      {
+        definition: {
+          name: "get_snapshot",
+          description:
+            'List the page\'s visible headings and controls in document order, one line each: a ref, the role, the accessible name, and value, checked, or disabled state, for example e3 textbox "Email" value="ada@example.com". Pass ref=e3 as the selector of any tool. Refs last until the page navigates. Use this before get_document or a screenshot to decide what to do next.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              sessionId: {
+                type: "string",
+                description: "Session id returned by attach_tab.",
+              },
+              selector: {
+                type: "string",
+                description: `Only list nodes inside this element. ${LOCATOR_DESCRIPTION}`,
+              },
+              limit: {
+                type: "integer",
+                minimum: 1,
+                maximum: MAX_SNAPSHOT_NODES,
+                description: `Most nodes to return (default ${DEFAULT_SNAPSHOT_NODES}); more tells how many were left out.`,
+              },
+              headings: {
+                type: "boolean",
+                description: "Include headings (default true).",
+              },
+            },
+            required: ["sessionId"],
+            additionalProperties: false,
+          },
+        },
+        handler: async (args) =>
+          server.browserAdapter.snapshotPage(args.sessionId, {
+            selector: args.selector,
+            limit: args.limit ?? DEFAULT_SNAPSHOT_NODES,
+            headings: args.headings ?? true,
+          }),
+        formatResult: formatSnapshotResult,
       },
     ],
     [

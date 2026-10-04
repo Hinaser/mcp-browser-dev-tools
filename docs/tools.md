@@ -21,6 +21,7 @@ The server exposes 38 tools. Tools that take `sessionId` work on a tab attached 
 |                     | `run_steps`                                                  | Runs up to 50 steps in one call, with `sleep`, `if`/`elseIf`/`else`, and `repeat … until`.                                            |
 |                     | `run_tabs`                                                   | Runs step lists in up to 8 tabs at once, opening tabs for URLs, and returns every tab's results together.                             |
 | Inspect             | `get_page_state`                                             | URL, title, ready state, viewport, and scroll position.                                                                               |
+|                     | `get_snapshot`                                               | The visible headings and controls, one line each with a ref (`e12`) that any tool accepts as `ref=e12`.                               |
 |                     | `get_document`, `inspect_element`                            | The DOM tree, or one element's box, visibility, role, accessible name, and styles.                                                    |
 |                     | `read_text`                                                  | The readable text of the page's main content or one element, and optionally its links.                                                |
 |                     | `take_screenshot`                                            | The page or one element, as base64, an image block, or a file.                                                                        |
@@ -65,10 +66,13 @@ The server exposes 38 tools. Tools that take `sessionId` work on a tab attached 
 
 Interaction and inspection tools accept these locator forms:
 
+- a ref from `get_snapshot` such as `ref=e12`
 - CSS selectors such as `#app button.primary` or `css=.modal button`
 - visible-text lookup such as `text=Open settings`
 - role plus accessible name such as `role=button[name="Open settings"]`
 - accessible-name lookup such as `name=Open settings`
+
+`get_snapshot` is the cheapest way to see what a page offers. It lists the visible headings and controls in document order, one line each: the ref, the role (`h1` to `h6` for headings), the accessible name, and `value="…"`, `checked` or `unchecked`, and `disabled` where they apply, for example `e3 textbox "Email" value="ada@example.com"`. Pass `ref=e3` as the `selector` of any tool. An element keeps its ref across snapshots. Refs belong to the document that issued them: a new document gets new refs that continue the numbering, so an old ref never names a new element, and a document restored from the back/forward cache keeps its refs, which still name the same elements; a ref the page does not know, or whose element left the document, fails with an error that says to take a new snapshot. `limit` (default 100, at most 500) caps the lines and `more` counts the rest; `selector` restricts the snapshot to one element's subtree, and `headings: false` leaves headings out. Password fields are listed without their value. Called directly, the lines come back as plain text; as a `run_steps` step, they are the `nodes` array.
 
 A form field's accessible name comes from `aria-label`, `aria-labelledby`, a `<label for>`, or a `<label>` wrapped around it (not counting the field's own text).
 
@@ -99,7 +103,7 @@ A form field's accessible name comes from `aria-label`, `aria-labelledby`, a `<l
 }
 ```
 
-Any tool that takes `sessionId` can be a step, with its arguments minus `sessionId`, plus `sleep` (`ms`, at most 30000). Up to 50 steps are validated before any of them runs. A step fails when its tool throws or reports `found: false` for a missing element (`inspect_element` excepted, since it may be checking that an element is gone). The call stops at the first failing step unless `continueOnError` is true, and reports each step's result or error. When any step fails, the result also has a `page` field with the current URL, title, and up to 40 visible controls (role, name, value or checked state, and a `locator` to use in the next call), so the batch can be fixed without another look at the page. Password fields are listed without their value. Screenshots come back as image content blocks instead of base64 text; the step result keeps the metadata and an `image` field with the 1-based position of its image.
+Any tool that takes `sessionId` can be a step, with its arguments minus `sessionId`, plus `sleep` (`ms`, at most 30000). Up to 50 steps are validated before any of them runs. A step fails when its tool throws or reports `found: false` for a missing element (`inspect_element` excepted, since it may be checking that an element is gone). The call stops at the first failing step unless `continueOnError` is true, and reports each step's result or error. When any step fails, the result also has a `page` field with the current URL, title, and up to 40 visible controls (a `ref`, role, name, value or checked state, and a `locator` to use in the next call), so the batch can be fixed without another look at the page. Password fields are listed without their value. Screenshots come back as image content blocks instead of base64 text; the step result keeps the metadata and an `image` field with the 1-based position of its image.
 
 An `if` step branches on the page state without a round trip back to the client:
 

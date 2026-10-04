@@ -32,7 +32,7 @@ export function sessionWithLimitSchema(description) {
 }
 
 export const LOCATOR_DESCRIPTION =
-  'Locator: CSS, text=Visible text, role=button[name="Save"], or name=Accessible name.';
+  'Locator: ref=e12 (from get_snapshot), CSS, text=Visible text, role=button[name="Save"], or name=Accessible name.';
 
 // A copy of schema without descriptions, for a schema repeated inside another
 // whose fields are already described once; validation is unchanged.

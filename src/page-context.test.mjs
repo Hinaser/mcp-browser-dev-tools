@@ -7,6 +7,7 @@ import {
   assertPointerTarget,
   buildPageContextExpression,
   ELEMENT_NOT_ACTIONABLE,
+  takeNextRef,
 } from "./page-context.mjs";
 
 class FakeHTMLElement {
@@ -31,6 +32,7 @@ class FakeHTMLElement {
     this.outerHTML = outerHTML ?? `<${tagName}>${textContent}</${tagName}>`;
     this.childElementCount = childElementCount;
     this.hidden = false;
+    this.isConnected = true;
     this.disabled = false;
     this.isContentEditable = false;
     this.tabIndex = -1;
@@ -590,25 +592,188 @@ test("controls_snapshot lists visible controls with locators the tools accept", 
   assert.equal(result.title, "Example");
   assert.equal(result.moreControls, 0);
   assert.deepEqual(result.controls, [
-    { locator: "#save", role: "button", name: "Save" },
+    { ref: "e1", locator: "#save", role: "button", name: "Save" },
     {
+      ref: "e2",
       locator: 'input[name="email"]',
       role: "textbox",
       value: "ada@example.com",
     },
     {
+      ref: "e3",
       locator: 'role=checkbox[name="Accept terms"]',
       role: "checkbox",
       name: "Accept terms",
       checked: false,
     },
     {
+      ref: "e4",
       locator: 'role=button[name="Create account"]',
       role: "button",
       name: "Create account",
       disabled: true,
     },
   ]);
+});
+
+function snapshotFixture() {
+  const heading = new FakeHTMLElement({
+    tagName: "h1",
+    textContent: "Sign up",
+  });
+  const email = new FakeHTMLInputElement({
+    attrs: { name: "email", "aria-label": "Email" },
+    value: "ada@example.com",
+  });
+  const terms = new FakeHTMLInputElement({
+    type: "checkbox",
+    attrs: { type: "checkbox", "aria-label": "Accept terms" },
+  });
+  terms.checked = true;
+  const submit = new FakeHTMLElement({
+    tagName: "button",
+    textContent: "Create account",
+  });
+  submit.disabled = true;
+  const footer = new FakeHTMLElement({ tagName: "footer" });
+  const help = new FakeHTMLElement({
+    tagName: "a",
+    attrs: { href: "/help" },
+    textContent: "Help",
+  });
+  footer.querySelectorAll = () => [help];
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [heading, email, terms, submit, footer, help],
+    selectorMap: { footer },
+  });
+  return { context, heading, email, terms, submit, help };
+}
+
+test("snapshot lists headings and controls as lines with refs", () => {
+  const { context } = snapshotFixture();
+
+  const result = runAction(context, { action: "snapshot" });
+
+  assert.equal(result.found, true);
+  assert.equal(result.url, "https://example.com/profile");
+  assert.equal(result.more, 0);
+  assert.deepEqual(result.nodes, [
+    'e1 h1 "Sign up"',
+    'e2 textbox "Email" value="ada@example.com"',
+    'e3 checkbox "Accept terms" checked',
+    'e4 button "Create account" disabled',
+    'e5 link "Help"',
+  ]);
+});
+
+test("snapshot keeps an element's ref between calls and resolves ref= locators", () => {
+  const { context, email } = snapshotFixture();
+
+  const first = runAction(context, { action: "snapshot" });
+  const second = runAction(context, { action: "snapshot", headings: false });
+  assert.equal(second.nodes[0], first.nodes[1]);
+
+  const inspected = runAction(context, {
+    action: "inspect",
+    selector: "ref=e2",
+  });
+  assert.equal(inspected.found, true);
+  assert.equal(inspected.node.accessibleName, "Email");
+
+  const unknown = runAction(context, {
+    action: "inspect",
+    selector: "ref=e99",
+  });
+  assert.equal(unknown.found, false);
+  assert.match(unknown.error, /Unknown ref e99/);
+
+  email.isConnected = false;
+  const stale = runAction(context, { action: "inspect", selector: "ref=e2" });
+  assert.equal(stale.found, false);
+  assert.match(stale.error, /Stale ref e2/);
+});
+
+test("snapshot numbers refs from refStart, so an earlier page's refs never resolve", () => {
+  const { context } = snapshotFixture();
+
+  const result = runAction(context, { action: "snapshot", refStart: 7 });
+  assert.equal(result.nodes[0], 'e7 h1 "Sign up"');
+  assert.equal(result.nextRef, 12);
+
+  const old = runAction(context, { action: "inspect", selector: "ref=e1" });
+  assert.equal(old.found, false);
+  assert.match(old.error, /Unknown ref e1/);
+
+  // A lower refStart (the same page seen again) never rewinds the counter.
+  const again = runAction(context, { action: "snapshot", refStart: 1 });
+  assert.equal(again.nodes[0], 'e7 h1 "Sign up"');
+  assert.equal(again.nextRef, 12);
+});
+
+test("snapshot drops elements that left the document from the registry", () => {
+  const { context, email } = snapshotFixture();
+  runAction(context, { action: "snapshot" });
+
+  // The fixture's querySelectorAll still returns the detached element, as a
+  // real document would not; the check is only that the old ref is dropped.
+  email.isConnected = false;
+  runAction(context, { action: "snapshot", headings: false });
+
+  const gone = runAction(context, { action: "inspect", selector: "ref=e2" });
+  assert.equal(gone.found, false);
+  assert.match(gone.error, /Unknown ref e2/);
+});
+
+test("snapshot names a heading by its accessible name", () => {
+  const heading = new FakeHTMLElement({
+    tagName: "h2",
+    attrs: { "aria-label": "Billing" },
+    textContent: "Step 2",
+  });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [heading] });
+
+  const result = runAction(context, { action: "snapshot" });
+  assert.deepEqual(result.nodes, ['e1 h2 "Billing"']);
+});
+
+test("takeNextRef moves the page's next ref onto the session and off the result", () => {
+  const session = {};
+  assert.deepEqual(takeNextRef(session, { nodes: [], nextRef: 9 }), {
+    nodes: [],
+  });
+  assert.equal(session.refStart, 9);
+
+  assert.deepEqual(takeNextRef(session, { nodes: [], nextRef: 4 }), {
+    nodes: [],
+  });
+  assert.equal(session.refStart, 9);
+
+  const missing = { found: false };
+  assert.equal(takeNextRef(session, missing), missing);
+});
+
+test("snapshot honours limit and selector", () => {
+  const { context } = snapshotFixture();
+
+  const limited = runAction(context, { action: "snapshot", limit: 2 });
+  assert.equal(limited.nodes.length, 2);
+  assert.equal(limited.more, 3);
+
+  const scoped = runAction(context, {
+    action: "snapshot",
+    selector: "footer",
+  });
+  assert.deepEqual(scoped.nodes, ['e3 link "Help"']);
+
+  const missing = runAction(context, {
+    action: "snapshot",
+    selector: "#nope",
+  });
+  assert.equal(missing.found, false);
+  assert.equal(missing.nodes, undefined);
 });
 
 test("a wrapping label names its control, without the control's own text", () => {
@@ -730,7 +895,7 @@ test("controls_snapshot never reports a password's value", () => {
 
   const result = runAction(context, { action: "controls_snapshot" });
   assert.deepEqual(result.controls, [
-    { locator: 'input[name="password"]', role: "textbox" },
+    { ref: "e1", locator: 'input[name="password"]', role: "textbox" },
   ]);
   assert.equal(JSON.stringify(result).includes("hunter2"), false);
 });

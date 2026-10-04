@@ -20,6 +20,22 @@ export function buildPageContextExpression(
   return serialize ? `JSON.stringify(${body})` : body;
 }
 
+// Refs (e12) are numbered per page from refStart. The server remembers the
+// page's next ref on the session and passes it on, so numbering continues
+// across navigations and a ref from an earlier page never resolves on a
+// later one. The page reports nextRef with each snapshot; it is bookkeeping,
+// so it is removed from the result.
+export function takeNextRef(session, result) {
+  if (result && typeof result === "object" && "nextRef" in result) {
+    const { nextRef, ...rest } = result;
+    if (Number.isInteger(nextRef) && nextRef > (session.refStart ?? 1)) {
+      session.refStart = nextRef;
+    }
+    return rest;
+  }
+  return result;
+}
+
 function describeTarget(target) {
   if (!target) {
     return "another element";

@@ -91,7 +91,7 @@
     "prepare": "husky",
     "pack:check": "node scripts/pack-check.mjs",
     "bench": "node bench/run.mjs",
-    "bench:summary": "node bench/summarize.mjs",
+    "bench:report": "node bench/report.mjs",
     "prepublishOnly": "node --run check",
     "test": "node --test"
   },
