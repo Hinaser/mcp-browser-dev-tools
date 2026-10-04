@@ -252,3 +252,84 @@ test("take_screenshot without new arguments still returns base64 data", async ()
   assert.equal(response.result.structuredContent.data, "ZmFrZQ==");
   assert.equal(response.result.content.length, 1);
 });
+
+function png(width, height) {
+  const image = Buffer.alloc(33);
+  image.writeUInt32BE(0x89504e47, 0);
+  image.writeUInt32BE(0x0d0a1a0a, 4);
+  image.write("IHDR", 12, "ascii");
+  image.writeUInt32BE(width, 16);
+  image.writeUInt32BE(height, 20);
+  return image;
+}
+
+test("imageSize reads PNG, JPEG, and WebP headers", async () => {
+  const { imageSize } = await import("./screenshot-output.mjs");
+  assert.deepEqual(imageSize(png(2356, 1510)), { width: 2356, height: 1510 });
+
+  // SOI, an APP0 segment, then a baseline frame header.
+  const jpeg = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11,
+    0x08, 0x02, 0xd0, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+  ]);
+  assert.deepEqual(imageSize(jpeg), { width: 1280, height: 720 });
+
+  const webp = Buffer.alloc(30);
+  webp.write("RIFF", 0, "ascii");
+  webp.write("WEBP", 8, "ascii");
+  webp.write("VP8X", 12, "ascii");
+  webp.writeUIntLE(799, 24, 3);
+  webp.writeUIntLE(599, 27, 3);
+  assert.deepEqual(imageSize(webp), { width: 800, height: 600 });
+
+  assert.equal(imageSize(Buffer.from("not an image")), null);
+});
+
+test("take_screenshot reports the CSS area it covers and its scale", async () => {
+  const manager = createFakeManager();
+  manager.takeScreenshot = async (sessionId, format, options) => ({
+    format,
+    mimeType: "image/png",
+    encoding: "base64",
+    data: png(
+      options.selector ? 200 : 2560,
+      options.selector ? 80 : 1440,
+    ).toString("base64"),
+    ...(options.selector
+      ? { clip: { x: 30, y: 100, width: 100, height: 40, scale: 1 } }
+      : {}),
+  });
+  manager.getPageState = async () => ({
+    viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
+  });
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+
+  const page = (await callTool(server, "take_screenshot", { sessionId: "s" }))
+    .result.structuredContent;
+  assert.deepEqual(
+    {
+      width: page.width,
+      height: page.height,
+      cssRect: page.cssRect,
+      scale: page.scale,
+    },
+    {
+      width: 2560,
+      height: 1440,
+      cssRect: { x: 0, y: 0, width: 1280, height: 720 },
+      scale: 2,
+    },
+  );
+
+  const element = (
+    await callTool(server, "take_screenshot", {
+      sessionId: "s",
+      selector: "#save",
+    })
+  ).result.structuredContent;
+  assert.deepEqual(element.cssRect, { x: 30, y: 100, width: 100, height: 40 });
+  assert.equal(element.scale, 2);
+});

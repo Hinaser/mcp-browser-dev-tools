@@ -1404,3 +1404,232 @@ test("snapshot shows whether a password field is filled, never its value", () =>
     'e2 textbox "Confirm"',
   ]);
 });
+
+test("point_target reports the element at viewport coordinates, with a ref", () => {
+  const canvas = new FakeHTMLElement({
+    tagName: "canvas",
+    attrs: { id: "map" },
+  });
+  const save = new FakeHTMLElement({ tagName: "button", textContent: "Save" });
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({
+    body,
+    descendants: [canvas],
+    hit: canvas,
+  });
+
+  const result = runAction(context, { action: "point_target", x: 100, y: 50 });
+  assert.equal(result.found, true);
+  assert.deepEqual(result.point, { x: 100, y: 50 });
+  assert.deepEqual(result.target, {
+    ref: "e1",
+    tagName: "CANVAS",
+    id: "map",
+    className: null,
+  });
+
+  const button = createPageContext({ body, descendants: [save], hit: save });
+  assert.deepEqual(
+    runAction(button, { action: "point_target", x: 1, y: 1 }).target,
+    {
+      ref: "e1",
+      tagName: "BUTTON",
+      id: null,
+      className: null,
+      role: "button",
+      name: "Save",
+    },
+  );
+
+  const outside = runAction(context, { action: "point_target", x: 1280, y: 5 });
+  assert.equal(outside.found, false);
+  assert.match(outside.error, /outside the viewport \(1280x720\)/);
+});
+
+test("html5_drag dispatches a drag with one DataTransfer and reports the drop", () => {
+  const item = new FakeHTMLElement({ attrs: { draggable: "true" } });
+  const zone = new FakeHTMLElement({ attrs: { id: "zone" } });
+  const plain = new FakeHTMLElement({});
+  item.closest = () => item;
+  plain.closest = () => null;
+  const fired = [];
+  let takesDrop = true;
+  const record = (element, name) => (event) => {
+    fired.push([name, event.type]);
+    if (event.type === "dragstart") {
+      event.dataTransfer.setData("text/plain", "item-1");
+    }
+    if (event.type === "dragover" || (event.type === "drop" && takesDrop)) {
+      event.defaultPrevented = true;
+    }
+    if (event.type === "drop") {
+      fired.push(["data", event.dataTransfer.getData("text/plain")]);
+    }
+    if (event.type === "dragend") {
+      fired.push(["dropEffect", event.dataTransfer.dropEffect]);
+    }
+    return !event.defaultPrevented;
+  };
+  item.dispatchEvent = record(item, "item");
+  zone.dispatchEvent = record(zone, "zone");
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [item, zone] });
+  context.document.elementFromPoint = (x) =>
+    x < 100 ? item : x < 200 ? zone : plain;
+  context.DataTransfer = class {
+    constructor() {
+      this.store = new Map();
+      this.dropEffect = "none";
+      this.effectAllowed = "none";
+    }
+    setData(type, value) {
+      this.store.set(type, value);
+    }
+    getData(type) {
+      return this.store.get(type) ?? "";
+    }
+  };
+  context.DragEvent = class {
+    constructor(type, init) {
+      this.type = type;
+      Object.assign(this, init);
+      this.defaultPrevented = false;
+    }
+  };
+
+  const from = { x: 50, y: 10 };
+  assert.deepEqual(
+    runAction(context, { action: "html5_drag", from, to: from, check: true }),
+    { html5: true },
+  );
+  assert.deepEqual(
+    runAction(context, {
+      action: "html5_drag",
+      from: { x: 250, y: 10 },
+      to: from,
+      check: true,
+    }),
+    { html5: false },
+  );
+
+  const result = runAction(context, {
+    action: "html5_drag",
+    from,
+    to: { x: 150, y: 10 },
+  });
+  assert.deepEqual(result, { html5: true, dropped: true });
+  assert.deepEqual(fired, [
+    ["item", "dragstart"],
+    ["item", "drag"],
+    ["zone", "dragenter"],
+    ["zone", "dragover"],
+    ["zone", "drop"],
+    ["data", "item-1"],
+    ["item", "dragend"],
+    ["dropEffect", "copy"],
+  ]);
+
+  // A target that picks an operation the source does not allow.
+  item.dispatchEvent = (event) => {
+    fired.push(["item", event.type]);
+    if (event.type === "dragstart") {
+      event.dataTransfer.effectAllowed = "copy";
+    }
+    if (event.type === "dragend") {
+      fired.push(["dropEffect", event.dataTransfer.dropEffect]);
+    }
+    return true;
+  };
+  zone.dispatchEvent = (event) => {
+    if (event.type === "dragover") {
+      event.dataTransfer.dropEffect = "move";
+      return false;
+    }
+    fired.push(["zone", event.type]);
+    return event.type !== "drop";
+  };
+  fired.length = 0;
+  assert.deepEqual(
+    runAction(context, { action: "html5_drag", from, to: { x: 150, y: 10 } }),
+    { html5: true, dropped: false },
+  );
+  assert.equal(
+    fired.some(([, type]) => type === "drop"),
+    false,
+  );
+  assert.deepEqual(fired.at(-1), ["dropEffect", "none"]);
+  item.dispatchEvent = record(item, "item");
+  zone.dispatchEvent = record(zone, "zone");
+
+  // A target that allows the drop over it but does not take it.
+  takesDrop = false;
+  fired.length = 0;
+  assert.deepEqual(
+    runAction(context, { action: "html5_drag", from, to: { x: 150, y: 10 } }),
+    { html5: true, dropped: false },
+  );
+  assert.deepEqual(fired.at(-1), ["dropEffect", "none"]);
+});
+
+test("html5_drag gives a link its URL and finds the drop target after dragstart", () => {
+  const link = new FakeHTMLElement({ tagName: "a", attrs: { href: "/doc" } });
+  link.href = "https://example.com/doc";
+  link.closest = () => link;
+  const overlay = new FakeHTMLElement({ attrs: { id: "overlay" } });
+  const seen = [];
+  link.dispatchEvent = (event) => {
+    if (event.type === "dragstart") {
+      // The page shows a drop overlay once a drag starts.
+      started = true;
+    }
+    return true;
+  };
+  overlay.dispatchEvent = (event) => {
+    seen.push([
+      event.type,
+      event.dataTransfer.getData("text/uri-list"),
+      event.dataTransfer.dropEffect,
+    ]);
+    if (event.type === "dragover" || event.type === "drop") {
+      event.defaultPrevented = true;
+    }
+    return !event.defaultPrevented;
+  };
+  let started = false;
+  const body = new FakeHTMLElement({ tagName: "body" });
+  const context = createPageContext({ body, descendants: [link, overlay] });
+  context.document.elementFromPoint = (x) =>
+    x < 100 ? link : started ? overlay : body;
+  context.DataTransfer = class {
+    constructor() {
+      this.store = new Map();
+      this.dropEffect = "none";
+      this.effectAllowed = "none";
+    }
+    setData(type, value) {
+      this.store.set(type, value);
+    }
+    getData(type) {
+      return this.store.get(type) ?? "";
+    }
+  };
+  context.DragEvent = class {
+    constructor(type, init) {
+      this.type = type;
+      Object.assign(this, init);
+      this.defaultPrevented = false;
+    }
+  };
+
+  const result = runAction(context, {
+    action: "html5_drag",
+    from: { x: 10, y: 10 },
+    to: { x: 300, y: 10 },
+  });
+  assert.deepEqual(result, { html5: true, dropped: true });
+  assert.deepEqual(seen, [
+    ["dragenter", "https://example.com/doc", "link"],
+    ["dragover", "https://example.com/doc", "link"],
+    ["drop", "https://example.com/doc", "link"],
+  ]);
+});

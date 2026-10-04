@@ -86,3 +86,48 @@ export function assertEnabled(target) {
     throw notActionable(`Element "${target.selector}" is disabled`);
   }
 }
+
+// A pointer target is a locator, which resolves to the center of its
+// element's visible area, or viewport coordinates { x, y } in CSS pixels.
+export function describePointer(target) {
+  return typeof target === "string"
+    ? `"${target}"`
+    : `(${target.x}, ${target.y})`;
+}
+
+// The fields an action reports about where it acted: the selector and its
+// element, or the element found at the coordinates.
+export function pointerFields(target, resolved, node = resolved.node) {
+  return typeof target === "string"
+    ? { selector: target, point: resolved.point, node }
+    : { point: resolved.point, target: resolved.target };
+}
+
+// A drag reports where it pressed and released, without element details.
+export function dragEnd(target, resolved) {
+  return typeof target === "string"
+    ? { selector: target, point: resolved.point }
+    : { point: resolved.point, target: resolved.target };
+}
+
+export const DEFAULT_DRAG_STEPS = 10;
+
+// The points a drag moves through after pressing at from, ending at to, so
+// pages that track the pointer see a path rather than a jump.
+export function dragPath(from, to, steps = DEFAULT_DRAG_STEPS) {
+  return Array.from({ length: steps }, (_, index) => {
+    const fraction = (index + 1) / steps;
+    return {
+      x: from.x + (to.x - from.x) * fraction,
+      y: from.y + (to.y - from.y) * fraction,
+    };
+  });
+}
+
+export const MOUSE_BUTTONS = ["left", "middle", "right"];
+
+// Whether scroll sends a mouse wheel rather than scrolling from the page.
+export function wheelScroll(options) {
+  const deltas = options.deltaX !== undefined || options.deltaY !== undefined;
+  return options.x !== undefined || Boolean(options.selector && deltas);
+}

@@ -1,7 +1,11 @@
 import { retryUntilActionable } from "../action-retry.mjs";
 import { parseKeyCombo } from "../keyboard.mjs";
+import { DEFAULT_DRAG_STEPS, MOUSE_BUTTONS } from "../page-context.mjs";
 import {
+  LOCATOR_DESCRIPTION,
   actionTimeoutProperty,
+  pointProperties,
+  pointerTarget,
   selectorProperty,
   sessionSchema,
   waitUntilProperty,
@@ -74,21 +78,42 @@ export function actionTools(server) {
         definition: {
           name: "click",
           description:
-            "Click an element with real mouse input at its center; fails if another element covers that point. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
+            "Click an element with real mouse input at its center, or the point x, y; fails if another element covers the element. button and clickCount give right, middle, and double clicks. Accepts an alert or confirm dialog it opens and dismisses a prompt (get_events reports it). Returns changes, what it changed on the page; batch actions with run_steps.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
+              ...pointProperties(),
+              button: {
+                type: "string",
+                enum: MOUSE_BUTTONS,
+                description: "Mouse button (default left).",
+              },
+              clickCount: {
+                type: "integer",
+                minimum: 1,
+                maximum: 3,
+                description:
+                  "2 for a double click, 3 for a triple click (default 1).",
+              },
               timeoutMs: actionTimeoutProperty(
                 ", covered, outside the viewport, or disabled",
               ),
             },
-            ["selector"],
+            [],
           ),
+        },
+        validate: (args) => {
+          pointerTarget(args);
         },
         handler: async (args, options) =>
           reportChanges(server, args, options, () =>
             retryUntilActionable(
-              () => server.browserAdapter.click(args.sessionId, args.selector),
+              () =>
+                server.browserAdapter.click(
+                  args.sessionId,
+                  pointerTarget(args),
+                  { button: args.button, clickCount: args.clickCount },
+                ),
               args.timeoutMs,
             ),
           ),
@@ -100,21 +125,77 @@ export function actionTools(server) {
         definition: {
           name: "hover",
           description:
-            "Hover a single element located by CSS, text=..., role=..., or name=... syntax. Moves the real mouse pointer to the element center. Returns changes, what it changed on the page.",
+            "Move the real mouse pointer to an element's center, or to the point x, y. Returns changes, what it changed on the page.",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
+              ...pointProperties(),
               timeoutMs: actionTimeoutProperty(
                 ", covered, or outside the viewport",
               ),
             },
-            ["selector"],
+            [],
           ),
+        },
+        validate: (args) => {
+          pointerTarget(args);
         },
         handler: async (args, options) =>
           reportChanges(server, args, options, () =>
             retryUntilActionable(
-              () => server.browserAdapter.hover(args.sessionId, args.selector),
+              () =>
+                server.browserAdapter.hover(
+                  args.sessionId,
+                  pointerTarget(args),
+                ),
+              args.timeoutMs,
+            ),
+          ),
+      },
+    ],
+    [
+      "drag",
+      {
+        definition: {
+          name: "drag",
+          description:
+            "Drag with real mouse input: press on selector (or at x, y), move in steps, and release on toSelector (or at toX, toY). Works for HTML5 draggable elements and for pages that follow mouse or pointer events (sliders, sortable lists, canvases). Both points must be in the viewport; the source is scrolled into view, the drop point is not. Returns changes, what it changed on the page.",
+          inputSchema: sessionSchema(
+            {
+              selector: selectorProperty(),
+              ...pointProperties(),
+              toSelector: {
+                type: "string",
+                description: `Where to drop. ${LOCATOR_DESCRIPTION}`,
+              },
+              ...pointProperties("to"),
+              steps: {
+                type: "integer",
+                minimum: 1,
+                maximum: 100,
+                description: `Pointer moves between press and release (default ${DEFAULT_DRAG_STEPS}).`,
+              },
+              timeoutMs: actionTimeoutProperty(
+                ", covered, or outside the viewport",
+              ),
+            },
+            [],
+          ),
+        },
+        validate: (args) => {
+          pointerTarget(args);
+          pointerTarget(args, "to");
+        },
+        handler: async (args, options) =>
+          reportChanges(server, args, options, () =>
+            retryUntilActionable(
+              () =>
+                server.browserAdapter.drag(
+                  args.sessionId,
+                  pointerTarget(args),
+                  pointerTarget(args, "to"),
+                  { steps: args.steps },
+                ),
               args.timeoutMs,
             ),
           ),
@@ -246,19 +327,20 @@ export function actionTools(server) {
         definition: {
           name: "scroll",
           description:
-            "Scroll the page by deltas or scroll a specific element into view.",
+            "Scroll the page by deltas, scroll an element into view, or send a real mouse wheel at the point x, y or over selector with deltas, which scrolls whatever is under the pointer (a list or map inside the page).",
           inputSchema: sessionSchema(
             {
               selector: selectorProperty(),
+              ...pointProperties(),
               deltaX: {
                 type: "integer",
                 description:
-                  "Horizontal scroll distance in CSS pixels; negative scrolls left. Ignored when selector is given.",
+                  "Horizontal scroll distance in CSS pixels; negative scrolls left.",
               },
               deltaY: {
                 type: "integer",
                 description:
-                  "Vertical scroll distance in CSS pixels; negative scrolls up. Ignored when selector is given.",
+                  "Vertical scroll distance in CSS pixels; negative scrolls up.",
               },
               block: {
                 type: "string",
@@ -271,19 +353,22 @@ export function actionTools(server) {
           ),
         },
         validate: (args) => {
-          if (
-            !args.selector &&
-            args.deltaX === undefined &&
-            args.deltaY === undefined
-          ) {
+          const target = pointerTarget(args, "", false);
+          const deltas = args.deltaX !== undefined || args.deltaY !== undefined;
+          if (!target && !deltas) {
             throw new Error(
               "scroll requires either selector or deltaX/deltaY values",
             );
+          }
+          if (target && typeof target !== "string" && !deltas) {
+            throw new Error("scroll at x, y requires deltaX or deltaY");
           }
         },
         handler: async (args) =>
           server.browserAdapter.scroll(args.sessionId, {
             selector: args.selector,
+            x: args.x,
+            y: args.y,
             deltaX: args.deltaX,
             deltaY: args.deltaY,
             block: args.block,

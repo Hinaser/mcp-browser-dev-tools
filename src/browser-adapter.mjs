@@ -256,12 +256,16 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "reload", [options]);
   }
 
-  click(sessionId, selector) {
-    return this.delegateSession(sessionId, "click", [selector]);
+  click(sessionId, target, options) {
+    return this.delegateSession(sessionId, "click", [target, options]);
   }
 
-  hover(sessionId, selector) {
-    return this.delegateSession(sessionId, "hover", [selector]);
+  hover(sessionId, target) {
+    return this.delegateSession(sessionId, "hover", [target]);
+  }
+
+  drag(sessionId, from, to, options) {
+    return this.delegateSession(sessionId, "drag", [from, to, options]);
   }
 
   type(sessionId, selector, text, options) {

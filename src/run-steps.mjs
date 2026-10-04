@@ -438,7 +438,8 @@ export class StepRunner {
     if (result?.found === false && step.tool !== "inspect_element") {
       entry.ok = false;
       entry.error =
-        result.error ?? `No element matches selector ${step.args.selector}`;
+        result.error ??
+        `No element matches selector ${result.selector ?? step.args.selector}`;
     }
     return entry;
   }

@@ -14,7 +14,25 @@ import {
 } from "./page-context.mjs";
 import { buildCdpKeyEvents } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
-import { takeNextRef } from "./page-context.mjs";
+import {
+  describePointer,
+  dragEnd,
+  wheelScroll,
+  dragPath,
+  pointerFields,
+  takeNextRef,
+} from "./page-context.mjs";
+
+// How long a drag waits after its first move for the page to start an HTML5
+// drag, and the longest a drag's interception stays open.
+const DRAG_START_MS = 100;
+const DRAG_SESSION_MS = 30_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -924,9 +942,24 @@ export class CdpSession {
       action: "pointer_target",
       selector,
       ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
+      ...(options.scrollIntoView === false ? { scrollIntoView: false } : {}),
     });
     assertPointerTarget(target);
     return target;
+  }
+
+  // A locator, scrolled into view unless scrollIntoView is false, or
+  // viewport coordinates, which never scroll.
+  async resolvePointer(target, options = {}) {
+    if (typeof target === "string") {
+      return this.resolvePointerTarget(target, options);
+    }
+    return this.runSnapshotAction({
+      action: "point_target",
+      x: target.x,
+      y: target.y,
+      ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
+    });
   }
 
   async readInputProbe(token, disarm) {
@@ -942,11 +975,20 @@ export class CdpSession {
     }
   }
 
-  async dispatchClick(point) {
-    const press = { button: "left", clickCount: 1 };
+  // A double click is two presses, the second with clickCount 2, as the
+  // browser reports them.
+  async dispatchClick(point, options = {}) {
+    const button = options.button ?? "left";
+    const buttons = { left: 1, right: 2, middle: 4 }[button] ?? 1;
     await this.dispatchMouse("mouseMoved", point);
-    await this.dispatchMouse("mousePressed", point, { ...press, buttons: 1 });
-    await this.dispatchMouse("mouseReleased", point, { ...press, buttons: 0 });
+    for (let count = 1; count <= (options.clickCount ?? 1); count += 1) {
+      const press = { button, clickCount: count };
+      await this.dispatchMouse("mousePressed", point, { ...press, buttons });
+      await this.dispatchMouse("mouseReleased", point, {
+        ...press,
+        buttons: 0,
+      });
+    }
   }
 
   async dispatchMouse(type, point, extra = {}) {
@@ -964,31 +1006,29 @@ export class CdpSession {
     }
   }
 
-  async click(selector) {
+  async click(target, options = {}) {
     const token = crypto.randomUUID();
-    const target = await this.resolvePointerTarget(selector, {
-      inputProbe: token,
-    });
-    if (!target.found) {
-      return target;
+    const resolved = await this.resolvePointer(target, { inputProbe: token });
+    if (!resolved.found) {
+      return resolved;
     }
-    assertEnabled(target);
+    if (typeof target === "string") {
+      assertEnabled(resolved);
+    }
 
     const delivery = await sendCheckedInput({
-      send: () => this.dispatchClick(target.point),
+      send: () => this.dispatchClick(resolved.point, options),
       readProbe: (disarm) => this.readInputProbe(token, disarm),
       recover: () => this.bringToFront(),
-      describe: `The click on "${selector}"`,
+      describe: `The click on ${describePointer(target)}`,
     });
 
     return {
       browserFamily: cdpBrowserFamily(this.config),
-      selector,
       found: true,
       clicked: true,
       ...(delivery.resent ? { resent: true } : {}),
-      point: target.point,
-      node: delivery.node ?? target.node,
+      ...pointerFields(target, resolved, delivery.node ?? resolved.node),
     };
   }
 
@@ -998,22 +1038,130 @@ export class CdpSession {
     await this.send("Page.bringToFront").catch(() => {});
   }
 
-  async hover(selector) {
-    const target = await this.resolvePointerTarget(selector);
-    if (!target.found) {
-      return target;
+  async hover(target) {
+    const resolved = await this.resolvePointer(target);
+    if (!resolved.found) {
+      return resolved;
     }
 
-    await this.dispatchMouse("mouseMoved", target.point);
+    await this.dispatchMouse("mouseMoved", resolved.point);
 
     return {
       browserFamily: cdpBrowserFamily(this.config),
-      selector,
       found: true,
       hovered: true,
-      point: target.point,
-      node: target.node,
+      ...pointerFields(target, resolved),
     };
+  }
+
+  // Presses at from, moves through dragPath, and releases at to. Chrome
+  // does not run an HTML5 drag (draggable elements, dataTransfer) from CDP
+  // mouse input, so drags are intercepted: when the page starts one, Chrome
+  // hands over its data and the drag finishes with drag events instead.
+  async drag(from, to, options = {}) {
+    const token = crypto.randomUUID();
+    const source = await this.resolvePointer(from, { inputProbe: token });
+    if (!source.found) {
+      await this.readInputProbe(token, true);
+      return source;
+    }
+    // The drop point is read without scrolling, so the source stays put.
+    const target = await this.resolvePointer(to, { scrollIntoView: false });
+    if (!target.found) {
+      await this.readInputProbe(token, true);
+      return target;
+    }
+
+    await this.send("Input.setInterceptDrags", { enabled: true });
+    let dragData = null;
+    const intercepted = this.createEventWaiter(
+      "Input.dragIntercepted",
+      () => true,
+      DRAG_SESSION_MS,
+    );
+    intercepted.promise.then(
+      (params) => {
+        dragData = params.data;
+      },
+      () => {},
+    );
+    const held = { button: "left", buttons: 1 };
+    const release = { button: "left", buttons: 0, clickCount: 1 };
+    let delivery;
+    let released = false;
+    try {
+      delivery = await sendCheckedInput({
+        send: async () => {
+          await this.dispatchMouse("mouseMoved", source.point);
+          await this.dispatchMouse("mousePressed", source.point, {
+            ...held,
+            clickCount: 1,
+          });
+        },
+        readProbe: (disarm) => this.readInputProbe(token, disarm),
+        recover: () => this.bringToFront(),
+        describe: `The press to drag ${describePointer(from)}`,
+      });
+
+      const path = dragPath(source.point, target.point, options.steps);
+      let index = 0;
+      for (; index < path.length && !dragData; index += 1) {
+        await this.dispatchMouse("mouseMoved", path[index], held);
+        if (index === 0) {
+          // A page starts an HTML5 drag on the first move past a few pixels.
+          await Promise.race([intercepted.promise, sleep(DRAG_START_MS)]).catch(
+            () => {},
+          );
+        }
+      }
+      if (dragData) {
+        const rest = path.slice(index);
+        const enter = rest[0] ?? target.point;
+        await this.dispatchDrag("dragEnter", enter, dragData);
+        for (const point of rest) {
+          await this.dispatchDrag("dragOver", point, dragData);
+        }
+        await this.dispatchDrag("drop", target.point, dragData);
+      }
+      await this.dispatchMouse("mouseReleased", target.point, release);
+      released = true;
+    } finally {
+      // A drag that failed partway must not leave the button down for the
+      // next action.
+      if (!released) {
+        if (dragData) {
+          await this.dispatchDrag("dragCancel", target.point, dragData).catch(
+            () => {},
+          );
+        }
+        await this.dispatchMouse("mouseReleased", target.point, release).catch(
+          () => {},
+        );
+      }
+      intercepted.cancel();
+      await this.send("Input.setInterceptDrags", { enabled: false }).catch(
+        () => {},
+      );
+    }
+
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      found: true,
+      dragged: true,
+      html5: Boolean(dragData),
+      ...(delivery.resent ? { resent: true } : {}),
+      from: dragEnd(from, source),
+      to: dragEnd(to, target),
+    };
+  }
+
+  async dispatchDrag(type, point, data) {
+    await this.send("Input.dispatchDragEvent", {
+      type,
+      x: point.x,
+      y: point.y,
+      data,
+    });
   }
 
   async type(selector, text, options = {}) {
@@ -1127,7 +1275,29 @@ export class CdpSession {
     };
   }
 
+  // A selector alone scrolls its element into view and deltas alone scroll
+  // the page. Coordinates, or a selector with deltas, send a real mouse
+  // wheel there, which scrolls whatever is under the pointer, such as a list
+  // inside the page.
   async scroll(options = {}) {
+    if (wheelScroll(options)) {
+      const target = options.selector ?? { x: options.x, y: options.y };
+      const resolved = await this.resolvePointer(target);
+      if (!resolved.found) {
+        return resolved;
+      }
+      await this.dispatchMouse("mouseWheel", resolved.point, {
+        deltaX: options.deltaX ?? 0,
+        deltaY: options.deltaY ?? 0,
+      });
+      return {
+        browserFamily: cdpBrowserFamily(this.config),
+        found: true,
+        scrolled: true,
+        wheel: { deltaX: options.deltaX ?? 0, deltaY: options.deltaY ?? 0 },
+        ...pointerFields(target, resolved),
+      };
+    }
     return this.runPageAction(
       {
         action: "scroll",
@@ -1685,12 +1855,16 @@ export class CdpSessionManager {
     return this.getSession(sessionId).reload(options);
   }
 
-  async click(sessionId, selector) {
-    return this.getSession(sessionId).click(selector);
+  async click(sessionId, target, options) {
+    return this.getSession(sessionId).click(target, options);
   }
 
-  async hover(sessionId, selector) {
-    return this.getSession(sessionId).hover(selector);
+  async hover(sessionId, target) {
+    return this.getSession(sessionId).hover(target);
+  }
+
+  async drag(sessionId, from, to, options) {
+    return this.getSession(sessionId).drag(from, to, options);
   }
 
   async type(sessionId, selector, text, options) {

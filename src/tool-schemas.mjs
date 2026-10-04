@@ -59,6 +59,49 @@ export function selectorProperty() {
   };
 }
 
+// x and y place pointer input at viewport coordinates instead of an element.
+export function pointProperties(prefix = "") {
+  const name = (axis) => (prefix ? prefix + axis.toUpperCase() : axis);
+  return {
+    [name("x")]: {
+      type: "number",
+      minimum: 0,
+      description: `Viewport x in CSS pixels, with ${name("y")}, instead of ${prefix ? `${prefix}Selector` : "selector"}; a screenshot's cssRect and scale convert image pixels.`,
+    },
+    [name("y")]: {
+      type: "number",
+      minimum: 0,
+      description: `Viewport y in CSS pixels, with ${name("x")}.`,
+    },
+  };
+}
+
+// The selector, or the { x, y } point, that args name under prefix; throws
+// unless exactly one of the two is given.
+export function pointerTarget(args, prefix = "", required = true) {
+  const key = (name) =>
+    prefix ? prefix + name[0].toUpperCase() + name.slice(1) : name;
+  const selector = args[key("selector")];
+  const x = args[key("x")];
+  const y = args[key("y")];
+  const hasPoint = x !== undefined || y !== undefined;
+  if (hasPoint && (x === undefined || y === undefined)) {
+    throw new Error(`${key("x")} and ${key("y")} go together`);
+  }
+  if (selector !== undefined && hasPoint) {
+    throw new Error(
+      `Pass ${key("selector")} or ${key("x")}/${key("y")}, not both`,
+    );
+  }
+  if (selector === undefined && !hasPoint) {
+    if (!required) {
+      return null;
+    }
+    throw new Error(`Pass ${key("selector")} or ${key("x")} and ${key("y")}`);
+  }
+  return selector ?? { x, y };
+}
+
 export function sessionSchema(properties, required, description) {
   return {
     type: "object",

@@ -938,3 +938,47 @@ test("run_steps without an action takes no baseline", async () => {
   assert.equal(value.changes, undefined);
   assert.deepEqual(manager.trackCalls, []);
 });
+
+test("pointer tools take a selector or x and y, never both or neither", async () => {
+  const manager = createFakeManager();
+  const calls = [];
+  manager.click = async (sessionId, target, options) => {
+    calls.push([target, options]);
+    return { found: true, clicked: true };
+  };
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+  const click = (args) =>
+    callTool(server, "click", { sessionId: "s", ...args });
+
+  await click({ x: 10, y: 20, button: "right", clickCount: 2 });
+  assert.deepEqual(calls, [
+    [
+      { x: 10, y: 20 },
+      { button: "right", clickCount: 2 },
+    ],
+  ]);
+
+  for (const [args, message] of [
+    [{}, /Pass selector or x and y/],
+    [{ selector: "#a", x: 1, y: 2 }, /not both/],
+    [{ x: 1 }, /x and y go together/],
+  ]) {
+    const response = await click(args);
+    assert.match(
+      response.result?.content?.[0]?.text ?? response.error?.message,
+      message,
+    );
+  }
+
+  const drag = await callTool(server, "drag", {
+    sessionId: "s",
+    selector: "#a",
+  });
+  assert.match(
+    drag.result?.content?.[0]?.text ?? drag.error?.message,
+    /Pass toSelector or toX and toY/,
+  );
+});
