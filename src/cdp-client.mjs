@@ -15,6 +15,13 @@ import {
 import { buildCdpKeyEvents } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
 import {
+  applyNetworkOptions,
+  describeNetworkState,
+  inNetworkTurn,
+  mockHeaders,
+  takeMatchingRule,
+} from "./network-control.mjs";
+import {
   takeFileTarget,
   assertFileInput,
   uploadResult,
@@ -553,12 +560,92 @@ export class CdpSession {
       this.autoDismissDialog(params);
     }
 
+    if (method === "Fetch.requestPaused") {
+      void this.handleRequestPaused(params);
+    }
+
     this.pushEvent({
       method,
       capturedAt,
       ...normalizeEvent(method, params),
     });
     this.resolveEventWaiters(method, params);
+  }
+
+  // Fetch pauses only requests whose URL matches a rule's pattern, so other
+  // requests are not slowed by a round trip to the server.
+  // One call at a time per tab, so a reset cannot be undone by a call that
+  // started before it.
+  async setNetwork(options) {
+    return inNetworkTurn(this, () => this.applyNetwork(options));
+  }
+
+  async applyNetwork(options) {
+    const before = this.network;
+    const state = applyNetworkOptions(before, options);
+    // Requests paused once the new patterns apply see the new rules.
+    this.network = state;
+    if (state.rules.length > 0) {
+      await this.send("Fetch.enable", {
+        patterns: state.rules.map((rule) => ({
+          urlPattern: rule.url,
+          requestStage: "Request",
+        })),
+      });
+    } else if (before?.rules.length > 0) {
+      await this.send("Fetch.disable");
+    }
+    if (options.headers !== undefined || options.reset) {
+      await this.send("Network.setExtraHTTPHeaders", {
+        headers: state.headers,
+      });
+    }
+    const conditions = [
+      "offline",
+      "latencyMs",
+      "downloadKbps",
+      "uploadKbps",
+      "reset",
+    ];
+    if (conditions.some((key) => options[key] !== undefined)) {
+      const throughput = (kbps) => (kbps ? (kbps * 1024) / 8 : -1);
+      await this.send("Network.emulateNetworkConditions", {
+        offline: state.offline,
+        latency: state.latencyMs ?? 0,
+        downloadThroughput: throughput(state.downloadKbps),
+        uploadThroughput: throughput(state.uploadKbps),
+      });
+    }
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      ...describeNetworkState(state),
+    };
+  }
+
+  async handleRequestPaused(params) {
+    const { requestId } = params;
+    const rule = takeMatchingRule(this.network, params.request?.url ?? "");
+    try {
+      if (!rule) {
+        await this.send("Fetch.continueRequest", { requestId });
+      } else if (rule.action === "block") {
+        await this.send("Fetch.failRequest", {
+          requestId,
+          errorReason: "BlockedByClient",
+        });
+      } else {
+        await this.send("Fetch.fulfillRequest", {
+          requestId,
+          responseCode: rule.status,
+          responseHeaders: mockHeaders(rule),
+          body: Buffer.from(rule.body).toString("base64"),
+        });
+      }
+    } catch {
+      // Release the request if it is still paused; it may also have gone
+      // away, for example because the page navigated.
+      await this.send("Fetch.continueRequest", { requestId }).catch(() => {});
+    }
   }
 
   autoDismissDialog(params) {
@@ -1959,6 +2046,10 @@ export class CdpSessionManager {
 
   async uploadFiles(sessionId, selector, files) {
     return this.getSession(sessionId).uploadFiles(selector, files);
+  }
+
+  async setNetwork(sessionId, options) {
+    return this.getSession(sessionId).setNetwork(options);
   }
 
   async type(sessionId, selector, text, options) {

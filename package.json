@@ -55,6 +55,7 @@
     "src/tool-results.mjs",
     "src/tool-schemas.mjs",
     "src/upload-files.mjs",
+    "src/network-control.mjs",
     "src/tools/action-tools.mjs",
     "src/tools/browser-tools.mjs",
     "src/tools/inspection-tools.mjs",

@@ -227,6 +227,57 @@ export function stateTools(server) {
       },
     ],
     [
+      "set_network",
+      {
+        definition: {
+          name: "set_network",
+          description:
+            "Block or mock requests by URL glob (* any run, ? one character), add request headers, or emulate offline and slow networks (throttling Chromium only). A call replaces the fields it gives; reset clears all. Returns the rules with their hits.",
+          inputSchema: sessionSchema(
+            {
+              rules: {
+                type: "array",
+                maxItems: 50,
+                items: {
+                  type: "object",
+                  properties: {
+                    url: { type: "string", description: "e.g. *://*/api/ads*" },
+                    action: { type: "string", enum: ["block", "mock"] },
+                    status: { type: "integer", minimum: 100, maximum: 599 },
+                    contentType: { type: "string" },
+                    body: { type: "string" },
+                    headers: {
+                      type: "object",
+                      additionalProperties: { type: "string" },
+                    },
+                  },
+                  required: ["url", "action"],
+                  additionalProperties: false,
+                },
+                description:
+                  "First match wins; [] clears. Mock status defaults to 200.",
+              },
+              headers: {
+                type: "object",
+                additionalProperties: { type: "string" },
+                description: "Extra request headers; {} clears.",
+              },
+              offline: { type: "boolean" },
+              latencyMs: { type: "integer", minimum: 0 },
+              downloadKbps: { type: "number", exclusiveMinimum: 0 },
+              uploadKbps: { type: "number", exclusiveMinimum: 0 },
+              reset: { type: "boolean" },
+            },
+            [],
+          ),
+        },
+        handler: async (args) => {
+          const { sessionId, ...options } = args;
+          return server.browserAdapter.setNetwork(sessionId, options);
+        },
+      },
+    ],
+    [
       "get_storage",
       {
         definition: {

@@ -1175,3 +1175,115 @@ test("CdpSession takes the file chooser a button opens", async () => {
     [true, false],
   );
 });
+
+test("CdpSession pauses only matching requests and blocks or mocks them", async () => {
+  const { session, sentCommands } = createInputSession({});
+
+  await session.setNetwork({
+    rules: [
+      { url: "*/ads/*", action: "block" },
+      { url: "*/api/*", action: "mock", status: 201, body: "ok" },
+    ],
+    headers: { "X-Test": "1" },
+    latencyMs: 200,
+    downloadKbps: 800,
+  });
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    [
+      "Fetch.enable",
+      "Network.setExtraHTTPHeaders",
+      "Network.emulateNetworkConditions",
+    ],
+  );
+  assert.deepEqual(sentCommands[0].params.patterns, [
+    { urlPattern: "*/ads/*", requestStage: "Request" },
+    { urlPattern: "*/api/*", requestStage: "Request" },
+  ]);
+  assert.deepEqual(sentCommands[2].params, {
+    offline: false,
+    latency: 200,
+    downloadThroughput: 102_400,
+    uploadThroughput: -1,
+  });
+
+  sentCommands.length = 0;
+  await session.handleRequestPaused({
+    requestId: "r1",
+    request: { url: "https://a/ads/x.js" },
+  });
+  await session.handleRequestPaused({
+    requestId: "r2",
+    request: { url: "https://a/api/data" },
+  });
+  assert.deepEqual(sentCommands[0], {
+    method: "Fetch.failRequest",
+    params: { requestId: "r1", errorReason: "BlockedByClient" },
+  });
+  assert.equal(sentCommands[1].method, "Fetch.fulfillRequest");
+  assert.equal(sentCommands[1].params.responseCode, 201);
+  assert.equal(
+    Buffer.from(sentCommands[1].params.body, "base64").toString(),
+    "ok",
+  );
+
+  sentCommands.length = 0;
+  const cleared = await session.setNetwork({ rules: [] });
+  assert.deepEqual(cleared.rules, []);
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    ["Fetch.disable"],
+  );
+});
+
+test("CdpSession releases a paused request it could not answer", async () => {
+  const { session, sentCommands } = createInputSession({});
+  await session.setNetwork({ rules: [{ url: "*", action: "mock" }] });
+  const send = session.send;
+  session.send = async (method, params) => {
+    if (method === "Fetch.fulfillRequest") {
+      throw new Error("Invalid header");
+    }
+    return send(method, params);
+  };
+  sentCommands.length = 0;
+
+  await session.handleRequestPaused({
+    requestId: "r1",
+    request: { url: "https://a" },
+  });
+  assert.deepEqual(sentCommands, [
+    { method: "Fetch.continueRequest", params: { requestId: "r1" } },
+  ]);
+});
+
+test("CdpSession applies overlapping set_network calls in order", async () => {
+  const { session, sentCommands } = createInputSession({});
+  let release;
+  const send = session.send;
+  session.send = async (method, params) => {
+    if (method === "Fetch.enable") {
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+    return send(method, params);
+  };
+
+  const first = session.setNetwork({
+    rules: [{ url: "*", action: "block" }],
+    offline: true,
+  });
+  const reset = session.setNetwork({ reset: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  await first;
+  const state = await reset;
+
+  assert.equal(state.offline, false);
+  assert.deepEqual(state.rules, []);
+  const conditions = sentCommands.filter(
+    ({ method }) => method === "Network.emulateNetworkConditions",
+  );
+  assert.equal(conditions.at(-1).params.offline, false);
+});

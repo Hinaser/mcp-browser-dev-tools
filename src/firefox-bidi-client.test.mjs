@@ -755,3 +755,193 @@ test("FirefoxBidiSessionManager evaluate runs top-level await in an async functi
   );
   assert.equal(sent[1], "document.title");
 });
+
+test("FirefoxBidiSessionManager intercepts the tab's requests and answers each by its rules", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  const send = manager.send;
+  manager.send = async (method, params) => {
+    await send(method, params);
+    return method === "network.addIntercept" ? { intercept: "i-1" } : {};
+  };
+
+  await manager.setNetwork("session-1", {
+    rules: [
+      { url: "*/ads/*", action: "block" },
+      {
+        url: "*/api/*",
+        action: "mock",
+        body: "{}",
+        contentType: "application/json",
+      },
+    ],
+    headers: { "X-Test": "1" },
+  });
+  assert.deepEqual(sentCommands[0], {
+    method: "network.addIntercept",
+    params: { phases: ["beforeRequestSent"], contexts: ["ctx-1"] },
+  });
+  await assert.rejects(
+    manager.setNetwork("session-1", { latencyMs: 100 }),
+    /Chromium only/,
+  );
+
+  const session = manager.sessions.get("session-1");
+  const blocked = (id, url) => ({
+    isBlocked: true,
+    intercepts: ["i-1"],
+    request: {
+      request: id,
+      url,
+      headers: [{ name: "Accept", value: { type: "string", value: "*/*" } }],
+    },
+  });
+  sentCommands.length = 0;
+  await manager.handleBlockedRequest(session, blocked("r1", "https://a/ads/x"));
+  await manager.handleBlockedRequest(session, blocked("r2", "https://a/api/d"));
+  await manager.handleBlockedRequest(session, blocked("r3", "https://a/page"));
+  assert.deepEqual(
+    sentCommands.map(({ method }) => method),
+    [
+      "network.failRequest",
+      "network.provideResponse",
+      "network.continueRequest",
+    ],
+  );
+  assert.equal(sentCommands[1].params.statusCode, 200);
+  assert.deepEqual(sentCommands[1].params.body, {
+    type: "string",
+    value: "{}",
+  });
+  assert.deepEqual(sentCommands[2].params.headers, [
+    { name: "Accept", value: { type: "string", value: "*/*" } },
+    { name: "X-Test", value: { type: "string", value: "1" } },
+  ]);
+
+  sentCommands.length = 0;
+  await manager.setNetwork("session-1", { reset: true });
+  assert.equal(sentCommands.at(-1).method, "network.removeIntercept");
+});
+
+test("FirefoxBidiSessionManager routes paused requests by intercept, waits for one being added, and releases strays", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  manager.sessions.get("session-1").bufferEvent = () => {};
+  let finishAdding;
+  const send = manager.send;
+  manager.send = async (method, params) => {
+    await send(method, params);
+    if (method === "network.addIntercept") {
+      await new Promise((resolve) => {
+        finishAdding = resolve;
+      });
+      return { intercept: "i-1" };
+    }
+    return {};
+  };
+  const paused = (id, context, intercepts = ["i-1"]) => ({
+    type: "event",
+    method: "network.beforeRequestSent",
+    params: {
+      context,
+      isBlocked: true,
+      intercepts,
+      request: { request: id, url: "https://a/ads/x", headers: [] },
+    },
+  });
+
+  const setting = manager.setNetwork("session-1", {
+    rules: [{ url: "*/ads/*", action: "block" }],
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  // Paused before addIntercept answered, from an iframe of the tab.
+  await manager.handleMessage(JSON.stringify(paused("r1", "frame-9")));
+  assert.equal(
+    sentCommands.some(({ method }) => method === "network.failRequest"),
+    false,
+  );
+  finishAdding();
+  await setting;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    sentCommands.find(({ method }) => method === "network.failRequest").params,
+    { request: "r1" },
+  );
+
+  // An intercept nobody owns any more: the request is let go.
+  await manager.handleMessage(JSON.stringify(paused("r2", "ctx-1", ["gone"])));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sentCommands.at(-1), {
+    method: "network.continueRequest",
+    params: { request: "r2" },
+  });
+});
+
+test("FirefoxBidiSessionManager adds one intercept for overlapping calls and clears offline on detach", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  let count = 0;
+  const send = manager.send;
+  manager.send = async (method, params) => {
+    await send(method, params);
+    return method === "network.addIntercept"
+      ? { intercept: `i-${++count}` }
+      : {};
+  };
+  const rules = [{ url: "*/ads/*", action: "block" }];
+
+  await Promise.all([
+    manager.setNetwork("session-1", { rules }),
+    manager.setNetwork("session-1", { rules, offline: true }),
+  ]);
+  assert.equal(
+    sentCommands.filter(({ method }) => method === "network.addIntercept")
+      .length,
+    1,
+  );
+  await assert.rejects(
+    manager.setNetwork("session-1", {
+      rules: [{ url: "*", action: "mock", headers: { "Bad Header": "x" } }],
+    }),
+    /invalid header name/,
+  );
+
+  sentCommands.length = 0;
+  await manager.detachSession("session-1").catch(() => {});
+  assert.deepEqual(sentCommands.map(({ method }) => method).slice(0, 2), [
+    "network.removeIntercept",
+    "emulation.setNetworkConditions",
+  ]);
+});
+
+test("FirefoxBidiSessionManager removes an intercept that arrives after detach", async () => {
+  const { manager, sentCommands } = createBidiInputManager({});
+  let finishAdding;
+  const send = manager.send;
+  manager.send = async (method, params) => {
+    await send(method, params);
+    if (method === "network.addIntercept") {
+      await new Promise((resolve) => {
+        finishAdding = resolve;
+      });
+      return { intercept: "late" };
+    }
+    return {};
+  };
+
+  const setting = manager.setNetwork("session-1", {
+    rules: [{ url: "*", action: "block" }],
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const detaching = manager.detachSession("session-1").catch(() => {});
+  finishAdding();
+  await setting.catch(() => {});
+  await detaching;
+
+  assert.deepEqual(
+    sentCommands.find(({ method }) => method === "network.removeIntercept")
+      .params,
+    { intercept: "late" },
+  );
+  await assert.rejects(
+    manager.setNetwork("session-1", { reset: true }),
+    /Unknown|detached|session/i,
+  );
+});
