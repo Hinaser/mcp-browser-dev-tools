@@ -1633,3 +1633,172 @@ test("html5_drag gives a link its URL and finds the drop target after dragstart"
     ["drop", "https://example.com/doc", "link"],
   ]);
 });
+
+test("a tracked action counts the short timers it sets, but not timer loops", () => {
+  const { context } = snapshotFixture();
+  installFakeMutationObserver(context);
+  const queue = new Map();
+  let nextId = 1;
+  const nativeSet = (callback) => {
+    const id = nextId++;
+    queue.set(id, callback);
+    return id;
+  };
+  const nativeClear = (id) => queue.delete(id);
+  context.window.setTimeout = nativeSet;
+  context.window.clearTimeout = nativeClear;
+  context.window.clearInterval = nativeClear;
+  const fire = (id) => {
+    const callback = queue.get(id);
+    queue.delete(id);
+    callback();
+  };
+
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "t1",
+  });
+  const ids = { changeId: "t1", documentId };
+  const status = () => runAction(context, { action: "change_status", ...ids });
+  assert.notEqual(context.window.setTimeout, nativeSet);
+
+  // The page's own code, after the baseline.
+  const redirect = context.window.setTimeout(() => {
+    // A loop: a timer set from a timer's callback is not counted.
+    context.window.setTimeout(() => {}, 300);
+  }, 300);
+  context.window.setTimeout(() => {}, 0);
+  context.window.setTimeout(() => {}, 5000);
+  const debounce = context.window.setTimeout(() => {}, 300);
+  assert.equal(status().timers, 2);
+
+  context.window.clearTimeout(debounce);
+  assert.equal(status().timers, 1);
+  fire(redirect);
+  assert.equal(status().timers, 0);
+
+  // clearInterval cancels a timeout too.
+  context.window.clearInterval(context.window.setTimeout(() => {}, 300));
+  assert.equal(status().timers, 0);
+
+  // A loop whose handler already ran is not counted again, however it is
+  // scheduled (here from an await, outside the timer callback).
+  const poll = () => {};
+  fire(context.window.setTimeout(poll, 300));
+  context.window.setTimeout(poll, 300);
+  assert.equal(status().timers, 0);
+
+  // A delay object's valueOf is never called.
+  let conversions = 0;
+  context.window.setTimeout(() => {}, {
+    valueOf() {
+      conversions += 1;
+      return 300;
+    },
+  });
+  assert.equal(conversions, 0);
+  assert.equal(status().timers, 0);
+
+  runAction(context, { action: "change_report", ...ids });
+  assert.equal(context.window.setTimeout, nativeSet);
+  assert.equal(context.window.clearTimeout, nativeClear);
+  assert.equal(context.window.clearInterval, nativeClear);
+
+  // A page that replaces setTimeout between actions still has the next
+  // action's timers counted, and keeps its own function afterwards.
+  const pageSet = (callback, delay) => nativeSet(callback, delay);
+  context.window.setTimeout = pageSet;
+  const next = runAction(context, {
+    action: "change_baseline",
+    changeId: "t3",
+  });
+  context.window.setTimeout(() => {}, 300);
+  assert.equal(
+    runAction(context, {
+      action: "change_status",
+      changeId: "t3",
+      documentId: next.documentId,
+    }).timers,
+    1,
+  );
+  runAction(context, {
+    action: "change_report",
+    changeId: "t3",
+    documentId: next.documentId,
+  });
+  assert.equal(context.window.setTimeout, pageSet);
+
+  // A page that kept our wrapper from an earlier action and calls it from
+  // its own does not loop when the next action wraps again.
+  const saved = (() => {
+    runAction(context, {
+      action: "change_baseline",
+      changeId: "t4",
+      documentId: next.documentId,
+    });
+    const ours = context.window.setTimeout;
+    runAction(context, { action: "change_stop", changeId: "t4" });
+    return ours;
+  })();
+  context.window.setTimeout = (callback, delay) => saved(callback, delay);
+  const again = runAction(context, {
+    action: "change_baseline",
+    changeId: "t5",
+  });
+  const id = context.window.setTimeout(() => {}, 300);
+  assert.equal(typeof id, "number");
+  assert.equal(
+    runAction(context, {
+      action: "change_status",
+      changeId: "t5",
+      documentId: again.documentId,
+    }).timers,
+    1,
+  );
+  // The wrapper the page kept does not count what the new one did not:
+  // a handler that already ran stays uncounted through the whole chain.
+  const loop = () => {};
+  fire(context.window.setTimeout(loop, 300));
+  context.window.setTimeout(loop, 300);
+  assert.equal(
+    runAction(context, {
+      action: "change_status",
+      changeId: "t5",
+      documentId: again.documentId,
+    }).timers,
+    1,
+  );
+  runAction(context, { action: "change_stop", changeId: "t5" });
+});
+
+test("change_report leaves out text that only repeats the controls inside it", () => {
+  const { context } = snapshotFixture();
+  const mutate = installFakeMutationObserver(context);
+  const { documentId } = runAction(context, {
+    action: "change_baseline",
+    changeId: "t2",
+  });
+
+  const link = new FakeHTMLElement({
+    tagName: "a",
+    attrs: { href: "#case" },
+    textContent: "headphones case",
+  });
+  const item = new FakeHTMLElement({
+    tagName: "li",
+    textContent: "headphones case",
+  });
+  item.nodeType = 1;
+  item.querySelectorAll = () => [link];
+  const note = new FakeHTMLElement({ tagName: "p", textContent: "2 results" });
+  note.nodeType = 1;
+  note.querySelectorAll = () => [];
+  mutate([{ type: "childList", addedNodes: [item, note] }]);
+
+  const report = runAction(context, {
+    action: "change_report",
+    changeId: "t2",
+    documentId,
+  });
+  assert.deepEqual(report.text, { items: ["2 results"], more: 0 });
+});

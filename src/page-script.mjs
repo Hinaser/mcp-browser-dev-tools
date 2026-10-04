@@ -762,7 +762,149 @@ export function pageScript(payload) {
     }
   }
 
+  // Changes often come a moment after the action, from a timer: a redirect
+  // 300 ms after "Signed in", a search debounced until typing pauses. While
+  // an action is tracked, setTimeout is wrapped to count the timers set with
+  // delays from TIMER_MIN_MS to TIMER_MAX_MS, so the server waits for them
+  // as it does for requests. Loops (polling, animation) would keep a page
+  // from settling, so a timer is not counted when it is set from inside
+  // another timer's callback, or when its handler already ran while the
+  // action was tracked. The wrappers are put over whatever the page has at
+  // the time and put back when no action is tracked, unless the page has
+  // since wrapped them in turn; they then stay, passing calls through.
+  const TIMER_KEY = "__mcpBrowserDevToolsTimers";
+  const TIMER_MIN_MS = 50;
+  const TIMER_MAX_MS = 1000;
+
+  // A delay as the browser would read it, without calling a page object's
+  // valueOf, which could differ between calls.
+  function timerDelay(delay) {
+    if (delay === undefined) {
+      return 0;
+    }
+    if (typeof delay === "number" || typeof delay === "string") {
+      return Number(delay);
+    }
+    return Number.NaN;
+  }
+
+  function timerWatch() {
+    return (
+      window[TIMER_KEY] ??
+      defineHidden(TIMER_KEY, {
+        timers: new Map(),
+        ran: new WeakSet(),
+        callbacks: new WeakSet(),
+        users: 0,
+        inTimer: false,
+        installed: {},
+      })
+    );
+  }
+
+  // Fresh wrappers for each period of tracking, each calling the function
+  // it was put over. One a page saved earlier may still be in its chain;
+  // a new one cannot be, so calls never loop back into it.
+  function timerWrappers(watch, natives) {
+    const call = (name, args) => natives[name].apply(window, args);
+    const wrappers = {
+      setTimeout(handler, delay, ...args) {
+        // A callback of ours, passed on by a newer wrapper through a page's
+        // chain, was counted (or not) there already.
+        if (typeof handler !== "function" || watch.callbacks.has(handler)) {
+          return call("setTimeout", [handler, delay, ...args]);
+        }
+        const ms = timerDelay(delay);
+        const counted =
+          watch.users > 0 &&
+          !watch.inTimer &&
+          !watch.ran.has(handler) &&
+          ms >= TIMER_MIN_MS &&
+          ms <= TIMER_MAX_MS;
+        let id;
+        const callback = function (...callbackArgs) {
+          watch.timers.delete(id);
+          if (watch.users > 0) {
+            watch.ran.add(handler);
+          }
+          const outer = watch.inTimer;
+          watch.inTimer = true;
+          try {
+            return handler.apply(this, callbackArgs);
+          } finally {
+            watch.inTimer = outer;
+          }
+        };
+        watch.callbacks.add(callback);
+        id = call("setTimeout", [callback, delay, ...args]);
+        if (counted) {
+          watch.timers.set(id, Date.now());
+        }
+        return id;
+      },
+    };
+    // Timeouts and intervals share ids, so either can cancel a timeout.
+    for (const name of ["clearTimeout", "clearInterval"]) {
+      wrappers[name] = function (id) {
+        watch.timers.delete(id);
+        return call(name, [id]);
+      };
+    }
+    return wrappers;
+  }
+
+  function watchTimers() {
+    const watch = timerWatch();
+    watch.users += 1;
+    if (watch.users > 1) {
+      return;
+    }
+    const names = ["setTimeout", "clearTimeout", "clearInterval"];
+    const natives = Object.fromEntries(
+      names.map((name) => [name, window[name]]),
+    );
+    const wrappers = timerWrappers(watch, natives);
+    for (const name of names) {
+      window[name] = wrappers[name];
+      watch.installed[name] = {
+        native: natives[name],
+        wrapper: wrappers[name],
+      };
+    }
+  }
+
+  function unwatchTimers() {
+    const watch = window[TIMER_KEY];
+    if (!watch || watch.users === 0) {
+      return;
+    }
+    watch.users -= 1;
+    if (watch.users > 0) {
+      return;
+    }
+    watch.timers.clear();
+    watch.ran = new WeakSet();
+    for (const [name, { native, wrapper }] of Object.entries(watch.installed)) {
+      if (window[name] === wrapper) {
+        window[name] = native;
+      }
+    }
+    watch.installed = {};
+  }
+
+  // Timers counted since the state's baseline that have not fired.
+  function pendingTimers(state) {
+    let pending = 0;
+    for (const createdAt of window[TIMER_KEY]?.timers.values() ?? []) {
+      if (createdAt >= state.createdAt) {
+        pending += 1;
+      }
+    }
+    return pending;
+  }
+
   function startChangeTracking(state) {
+    watchTimers();
     if (typeof MutationObserver === "function") {
       state.observer = new MutationObserver((records) =>
         recordMutations(state, records),
@@ -782,6 +924,7 @@ export function pageScript(payload) {
     const states = window[CHANGE_KEY];
     if (states?.get(state.id) === state) {
       states.delete(state.id);
+      unwatchTimers();
     }
   }
 
@@ -884,13 +1027,18 @@ export function pageScript(payload) {
         document: "new",
         readyState: document.readyState,
         quietMs: Date.now() - watcher.lastMutationAt,
+        timers: pendingTimers(watcher),
       };
     }
     const state = states.get(payload.changeId);
     if (!state) {
       return { document: "same", lost: true };
     }
-    return { document: "same", quietMs: Date.now() - state.lastMutationAt };
+    return {
+      document: "same",
+      quietMs: Date.now() - state.lastMutationAt,
+      timers: pendingTimers(state),
+    };
   }
 
   function changeStop() {
@@ -899,6 +1047,23 @@ export function pageScript(payload) {
       stopChangeTracking(state);
     }
     return { stopped: Boolean(state) };
+  }
+
+  // A list item wrapping a link says nothing the link's line does not.
+  function onlyControlText(element) {
+    if (typeof element.querySelectorAll !== "function") {
+      return false;
+    }
+    const controls = Array.from(element.querySelectorAll("*")).filter((node) =>
+      CONTROL_ROLES.includes(inferRole(node)),
+    );
+    if (controls.length === 0) {
+      return false;
+    }
+    const controlText = controls
+      .map((control) => normalizeText(getVisibleText(control)))
+      .join(" ");
+    return normalizeText(controlText) === shownText(element);
   }
 
   function insideControl(element) {
@@ -937,7 +1102,7 @@ export function pageScript(payload) {
     const items = [];
     let more = 0;
     for (const element of outermost) {
-      if (insideControl(element)) {
+      if (insideControl(element) || onlyControlText(element)) {
         continue;
       }
       const text = clipText(shownText(element), CHANGE_TEXT_CHARS);

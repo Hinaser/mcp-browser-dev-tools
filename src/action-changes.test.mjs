@@ -391,6 +391,24 @@ test("ChangeTracker waits for a new document's own fetches", async () => {
   assert.equal(changes.navigated, true);
 });
 
+test("ChangeTracker waits for the short timers the action set", async () => {
+  let timers = 1;
+  setTimeout(() => {
+    timers = 0;
+  }, 60);
+  const adapter = fakeAdapter({
+    statuses: [() => ({ document: "same", quietMs: 100, timers })],
+    report: sameReport,
+  });
+  const tracker = new ChangeTracker(adapter, quickTimings);
+  const baseline = await tracker.begin("s1");
+
+  const startedAt = Date.now();
+  const changes = await tracker.settle(baseline);
+  assert.ok(Date.now() - startedAt >= 55);
+  assert.deepEqual(changes, { updated: ['e2 checkbox "Digest" checked'] });
+});
+
 test("ChangeTracker reports unavailable when the page lost the baseline", async () => {
   const adapter = fakeAdapter({
     statuses: [{ document: "same", lost: true }],
