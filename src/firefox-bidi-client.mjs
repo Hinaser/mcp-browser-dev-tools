@@ -15,7 +15,19 @@ import {
 } from "./page-context.mjs";
 import { buildBidiKeyActions, buildBidiTextActions } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
-import { takeNextRef } from "./page-context.mjs";
+import {
+  describePointer,
+  dragEnd,
+  dragPath,
+  pointerFields,
+  takeNextRef,
+  wheelScroll,
+} from "./page-context.mjs";
+
+const MOUSE_BUTTON_NUMBERS = { left: 0, middle: 1, right: 2 };
+// Each step of a drag takes this long, so the page sees the moves as a
+// gesture rather than one jump.
+const DRAG_MOVE_MS = 16;
 
 const POINTER_SOURCE = {
   type: "pointer",
@@ -1111,9 +1123,24 @@ export class FirefoxBidiSessionManager {
       action: "pointer_target",
       selector,
       ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
+      ...(options.scrollIntoView === false ? { scrollIntoView: false } : {}),
     });
     assertPointerTarget(target);
     return target;
+  }
+
+  // A locator, scrolled into view unless scrollIntoView is false, or
+  // viewport coordinates, which never scroll.
+  async resolvePointer(session, target, options = {}) {
+    if (typeof target === "string") {
+      return this.resolvePointerTarget(session, target, options);
+    }
+    return this.runSnapshotAction(session.id, {
+      action: "point_target",
+      x: target.x,
+      y: target.y,
+      ...(options.inputProbe ? { inputProbe: options.inputProbe } : {}),
+    });
   }
 
   async readInputProbe(session, token, disarm) {
@@ -1129,62 +1156,157 @@ export class FirefoxBidiSessionManager {
     }
   }
 
-  async click(sessionId, selector) {
+  async click(sessionId, target, options = {}) {
     const session = this.getSession(sessionId);
     const token = crypto.randomUUID();
-    const target = await this.resolvePointerTarget(session, selector, {
+    const resolved = await this.resolvePointer(session, target, {
       inputProbe: token,
     });
-    if (!target.found) {
-      return target;
+    if (!resolved.found) {
+      return resolved;
     }
-    assertEnabled(target);
+    if (typeof target === "string") {
+      assertEnabled(resolved);
+    }
 
+    const button = MOUSE_BUTTON_NUMBERS[options.button ?? "left"];
+    const presses = [];
+    for (let count = 0; count < (options.clickCount ?? 1); count += 1) {
+      presses.push(
+        { type: "pointerDown", button },
+        { type: "pointerUp", button },
+      );
+    }
     const delivery = await sendCheckedInput({
       send: () =>
         this.performActions(session, [
           {
             ...POINTER_SOURCE,
-            actions: [
-              pointerMove(target.point),
-              { type: "pointerDown", button: 0 },
-              { type: "pointerUp", button: 0 },
-            ],
+            actions: [pointerMove(resolved.point), ...presses],
           },
         ]),
       readProbe: (disarm) => this.readInputProbe(session, token, disarm),
-      describe: `The click on "${selector}"`,
+      describe: `The click on ${describePointer(target)}`,
     });
 
     return {
       browserFamily: "firefox",
-      selector,
       found: true,
       clicked: true,
       ...(delivery.resent ? { resent: true } : {}),
-      point: target.point,
-      node: delivery.node ?? target.node,
+      ...pointerFields(target, resolved, delivery.node ?? resolved.node),
     };
   }
 
-  async hover(sessionId, selector) {
+  async hover(sessionId, target) {
     const session = this.getSession(sessionId);
-    const target = await this.resolvePointerTarget(session, selector);
-    if (!target.found) {
-      return target;
+    const resolved = await this.resolvePointer(session, target);
+    if (!resolved.found) {
+      return resolved;
     }
 
     await this.performActions(session, [
-      { ...POINTER_SOURCE, actions: [pointerMove(target.point)] },
+      { ...POINTER_SOURCE, actions: [pointerMove(resolved.point)] },
     ]);
 
     return {
       browserFamily: "firefox",
-      selector,
       found: true,
       hovered: true,
-      point: target.point,
-      node: target.node,
+      ...pointerFields(target, resolved),
+    };
+  }
+
+  // Presses at from, moves through dragPath, and releases at to. The press
+  // is checked for delivery on its own; the pointer stays down between the
+  // two performActions calls, since the session keeps its input state.
+  async drag(sessionId, from, to, options = {}) {
+    const session = this.getSession(sessionId);
+    const token = crypto.randomUUID();
+    const source = await this.resolvePointer(session, from, {
+      inputProbe: token,
+    });
+    if (!source.found) {
+      await this.readInputProbe(session, token, true);
+      return source;
+    }
+    // The drop point is read without scrolling, so the source stays put.
+    const target = await this.resolvePointer(session, to, {
+      scrollIntoView: false,
+    });
+    if (!target.found) {
+      await this.readInputProbe(session, token, true);
+      return target;
+    }
+
+    const html5 = { from: source.point, to: target.point };
+    const { html5: draggable } = await this.runPageAction(session, {
+      action: "html5_drag",
+      ...html5,
+      check: true,
+    });
+    if (draggable) {
+      await this.readInputProbe(session, token, true);
+      const { dropped } = await this.runPageAction(session, {
+        action: "html5_drag",
+        ...html5,
+      });
+      return {
+        browserFamily: "firefox",
+        found: true,
+        dragged: true,
+        html5: true,
+        synthetic: true,
+        dropped,
+        from: dragEnd(from, source),
+        to: dragEnd(to, target),
+      };
+    }
+
+    let delivery;
+    try {
+      delivery = await sendCheckedInput({
+        send: () =>
+          this.performActions(session, [
+            {
+              ...POINTER_SOURCE,
+              actions: [
+                pointerMove(source.point),
+                { type: "pointerDown", button: 0 },
+              ],
+            },
+          ]),
+        readProbe: (disarm) => this.readInputProbe(session, token, disarm),
+        describe: `The press to drag ${describePointer(from)}`,
+      });
+      await this.performActions(session, [
+        {
+          ...POINTER_SOURCE,
+          actions: [
+            ...dragPath(source.point, target.point, options.steps).map(
+              (point) => ({ ...pointerMove(point), duration: DRAG_MOVE_MS }),
+            ),
+            { type: "pointerUp", button: 0 },
+          ],
+        },
+      ]);
+    } catch (error) {
+      // A drag that failed partway must not leave the button down for the
+      // next action.
+      await this.send("input.releaseActions", {
+        context: session.target.targetId,
+      }).catch(() => {});
+      throw error;
+    }
+
+    return {
+      browserFamily: "firefox",
+      found: true,
+      dragged: true,
+      html5: false,
+      ...(delivery.resent ? { resent: true } : {}),
+      from: dragEnd(from, source),
+      to: dragEnd(to, target),
     };
   }
 
@@ -1285,9 +1407,46 @@ export class FirefoxBidiSessionManager {
     };
   }
 
+  // A selector alone scrolls its element into view and deltas alone scroll
+  // the page. Coordinates, or a selector with deltas, send a real mouse
+  // wheel there, which scrolls whatever is under the pointer.
   async scroll(sessionId, options = {}) {
+    const session = this.getSession(sessionId);
+    if (wheelScroll(options)) {
+      const target = options.selector ?? { x: options.x, y: options.y };
+      const resolved = await this.resolvePointer(session, target);
+      if (!resolved.found) {
+        return resolved;
+      }
+      const wheel = {
+        deltaX: options.deltaX ?? 0,
+        deltaY: options.deltaY ?? 0,
+      };
+      await this.performActions(session, [
+        {
+          type: "wheel",
+          id: "mcp-wheel",
+          actions: [
+            {
+              type: "scroll",
+              x: Math.round(resolved.point.x),
+              y: Math.round(resolved.point.y),
+              ...wheel,
+              origin: "viewport",
+            },
+          ],
+        },
+      ]);
+      return {
+        browserFamily: "firefox",
+        found: true,
+        scrolled: true,
+        wheel,
+        ...pointerFields(target, resolved),
+      };
+    }
     return this.runPageAction(
-      this.getSession(sessionId),
+      session,
       {
         action: "scroll",
         selector: options.selector,

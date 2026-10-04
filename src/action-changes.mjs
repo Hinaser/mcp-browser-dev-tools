@@ -18,6 +18,7 @@ const MESSAGE_LIMIT = 5;
 const MESSAGE_CHARS = 200;
 export const CHANGE_REPORTING_TOOLS = new Set([
   "click",
+  "drag",
   "hover",
   "type",
   "select",

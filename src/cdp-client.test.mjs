@@ -949,3 +949,159 @@ test("closing a tab while navigate waits does not leave an unhandled rejection",
   process.off("unhandledRejection", onUnhandled);
   assert.deepEqual(unhandled, []);
 });
+
+const pointTarget = (payload) => ({
+  found: true,
+  point: { x: payload.x, y: payload.y },
+  target: { ref: "e4", tagName: "CANVAS" },
+});
+
+const delivered = () => ({ armed: true, delivered: true, conclusive: true });
+
+function mouseEvents(sentCommands) {
+  return sentCommands
+    .filter(({ method }) => method === "Input.dispatchMouseEvent")
+    .map(({ params }) =>
+      [
+        params.type,
+        params.button,
+        params.clickCount,
+        params.buttons,
+        params.x,
+        params.y,
+      ].filter((value) => value !== undefined),
+    );
+}
+
+test("CdpSession clicks a point with any button and click count", async () => {
+  const { session, sentCommands } = createInputSession({
+    point_target: pointTarget,
+    input_probe: delivered,
+  });
+
+  const result = await session.click(
+    { x: 12, y: 34 },
+    { button: "right", clickCount: 2 },
+  );
+
+  assert.deepEqual(result.point, { x: 12, y: 34 });
+  assert.deepEqual(result.target, { ref: "e4", tagName: "CANVAS" });
+  assert.equal(result.selector, undefined);
+  assert.deepEqual(mouseEvents(sentCommands), [
+    ["mouseMoved", 12, 34],
+    ["mousePressed", "right", 1, 2, 12, 34],
+    ["mouseReleased", "right", 1, 0, 12, 34],
+    ["mousePressed", "right", 2, 2, 12, 34],
+    ["mouseReleased", "right", 2, 0, 12, 34],
+  ]);
+});
+
+test("CdpSession scrolls with a real mouse wheel at a point", async () => {
+  const { session, sentCommands } = createInputSession({
+    point_target: pointTarget,
+  });
+
+  const result = await session.scroll({ x: 50, y: 60, deltaY: 120 });
+
+  assert.equal(result.scrolled, true);
+  assert.deepEqual(sentCommands, [
+    {
+      method: "Input.dispatchMouseEvent",
+      params: { type: "mouseWheel", x: 50, y: 60, deltaX: 0, deltaY: 120 },
+    },
+  ]);
+});
+
+test("CdpSession drags with mouse moves when the page starts no HTML5 drag", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    point_target: pointTarget,
+    input_probe: delivered,
+  });
+
+  const result = await session.drag("#thumb", { x: 170, y: 40 }, { steps: 2 });
+
+  assert.equal(result.dragged, true);
+  assert.equal(result.html5, false);
+  assert.deepEqual(result.from, {
+    selector: "#thumb",
+    point: { x: 70, y: 40 },
+  });
+  assert.deepEqual(mouseEvents(sentCommands), [
+    ["mouseMoved", 70, 40],
+    ["mousePressed", "left", 1, 1, 70, 40],
+    ["mouseMoved", "left", 1, 120, 40],
+    ["mouseMoved", "left", 1, 170, 40],
+    ["mouseReleased", "left", 1, 0, 170, 40],
+  ]);
+  assert.deepEqual(
+    sentCommands
+      .filter(({ method }) => method === "Input.setInterceptDrags")
+      .map(({ params }) => params.enabled),
+    [true, false],
+  );
+});
+
+test("CdpSession finishes an HTML5 drag with drag events once Chrome intercepts it", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: delivered,
+  });
+  const data = { items: [{ mimeType: "text/plain", data: "item-1" }] };
+  const send = session.send;
+  session.send = async (method, params) => {
+    const result = await send(method, params);
+    if (params?.type === "mouseMoved" && params.buttons === 1) {
+      session.bufferEvent("Input.dragIntercepted", { data });
+    }
+    return result;
+  };
+
+  const result = await session.drag("#item", "#zone", { steps: 3 });
+
+  assert.equal(result.html5, true);
+  const drags = sentCommands
+    .filter(({ method }) => method === "Input.dispatchDragEvent")
+    .map(({ params }) => [params.type, params.data]);
+  assert.deepEqual(
+    drags.map(([type]) => type),
+    ["dragEnter", "dragOver", "dragOver", "drop"],
+  );
+  assert.ok(drags.every(([, sent]) => sent === data));
+  assert.deepEqual(mouseEvents(sentCommands).at(-1), [
+    "mouseReleased",
+    "left",
+    1,
+    0,
+    70,
+    40,
+  ]);
+});
+
+test("CdpSession releases the button when a drag fails after the press", async () => {
+  const { session, sentCommands } = createInputSession({
+    pointer_target: pointerTarget,
+    input_probe: delivered,
+  });
+  const send = session.send;
+  session.send = async (method, params) => {
+    if (params?.type === "mouseMoved" && params.buttons === 1) {
+      throw new Error("Target closed");
+    }
+    return send(method, params);
+  };
+
+  await assert.rejects(session.drag("#a", "#b"), /Target closed/);
+  assert.deepEqual(mouseEvents(sentCommands).at(-1), [
+    "mouseReleased",
+    "left",
+    1,
+    0,
+    70,
+    40,
+  ]);
+  assert.deepEqual(sentCommands.at(-1), {
+    method: "Input.setInterceptDrags",
+    params: { enabled: false },
+  });
+});

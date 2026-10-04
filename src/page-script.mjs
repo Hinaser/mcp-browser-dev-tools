@@ -1335,6 +1335,120 @@ export function pageScript(payload) {
     });
   }
 
+  // The element under a point, short: a ref to act on it again, and its
+  // role and name when it has a role (a plain element's name would be all
+  // of its text).
+  function describePointTarget(element) {
+    const target = { ref: refFor(element), ...summarizeTarget(element) };
+    const role = inferRole(element);
+    if (role) {
+      target.role = role;
+      const name = normalizeText(getAccessibleName(element));
+      if (name) {
+        target.name = clipText(name, SNAPSHOT_TEXT_LIMIT);
+      }
+    }
+    if (isDisabled(element)) {
+      target.disabled = true;
+    }
+    return target;
+  }
+
+  // Firefox starts a native HTML5 drag from WebDriver input but does not
+  // finish it, so there an HTML5 drag runs as drag events dispatched here,
+  // sharing one DataTransfer as a real drag would. The events are untrusted.
+  // check only says whether the element under from is HTML5-draggable.
+  function allowedOperations(allowed) {
+    if (allowed === "all" || allowed === "uninitialized") {
+      return ["copy", "link", "move"];
+    }
+    return ["copy", "link", "move"].filter((operation) =>
+      allowed.toLowerCase().includes(operation),
+    );
+  }
+
+  // The operation the browser proposes on dragenter and dragover for the
+  // operations the source allows, per the HTML drag-and-drop model.
+  function defaultDropEffect(allowed, isLink) {
+    if (allowed === "none") {
+      return "none";
+    }
+    if (allowed === "link" || allowed === "linkMove") {
+      return "link";
+    }
+    if (allowed === "move") {
+      return "move";
+    }
+    if (allowed === "uninitialized" && isLink) {
+      return "link";
+    }
+    return "copy";
+  }
+
+  function html5Drag() {
+    const draggable = hitTest(payload.from)?.closest?.(
+      '[draggable="true"], a[href]:not([draggable="false"]), img:not([draggable="false"])',
+    );
+    if (!draggable || payload.check) {
+      return { html5: Boolean(draggable) };
+    }
+    const dataTransfer = new DataTransfer();
+    // As in a real drag, dragstart handlers may say which operations they
+    // allow, and the browser fills in a link's or image's URL first.
+    dataTransfer.effectAllowed = "uninitialized";
+    const url =
+      draggable.tagName === "A"
+        ? draggable.href
+        : draggable.tagName === "IMG"
+          ? draggable.src
+          : null;
+    if (url) {
+      dataTransfer.setData("text/uri-list", url);
+      dataTransfer.setData("text/plain", url);
+    }
+    const fire = (element, type, point) =>
+      element.dispatchEvent(
+        new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: point.x,
+          clientY: point.y,
+          dataTransfer,
+        }),
+      );
+    if (!fire(draggable, "dragstart", payload.from)) {
+      return { html5: true, dropped: false, canceled: true };
+    }
+    fire(draggable, "drag", payload.from);
+    // Read after dragstart, whose handlers may have changed what is there.
+    const target = hitTest(payload.to) ?? document.body;
+    const effect = defaultDropEffect(
+      dataTransfer.effectAllowed,
+      draggable.tagName === "A",
+    );
+    dataTransfer.dropEffect = effect;
+    fire(target, "dragenter", payload.to);
+    dataTransfer.dropEffect = effect;
+    // A target accepts by canceling dragover with an operation the source
+    // allows, and takes the drop by canceling drop; otherwise the source
+    // sees dropEffect none, as after a real drop nobody took.
+    const accepted =
+      !fire(target, "dragover", payload.to) &&
+      allowedOperations(dataTransfer.effectAllowed).includes(
+        dataTransfer.dropEffect,
+      );
+    const dropped = accepted && !fire(target, "drop", payload.to);
+    if (!accepted) {
+      fire(target, "dragleave", payload.to);
+    }
+    if (!dropped) {
+      dataTransfer.dropEffect = "none";
+    }
+    fire(draggable, "dragend", payload.to);
+    return { html5: true, dropped };
+  }
+
   function summarizeTarget(element) {
     return element
       ? {
@@ -1683,6 +1797,55 @@ export function pageScript(payload) {
           node: describeElement(resolved.element, resolved),
         };
       }
+      case "point_target": {
+        // Coordinates are CSS pixels from the viewport's top-left corner, as
+        // the browser's input takes them.
+        const point = { x: Number(payload.x), y: Number(payload.y) };
+        const result = {
+          browserFamily: payload.browserFamily,
+          point,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+        };
+        if (
+          !(point.x >= 0 && point.x < window.innerWidth) ||
+          !(point.y >= 0 && point.y < window.innerHeight)
+        ) {
+          return {
+            ...result,
+            found: false,
+            error:
+              "Point (" +
+              point.x +
+              ", " +
+              point.y +
+              ") is outside the viewport (" +
+              window.innerWidth +
+              "x" +
+              window.innerHeight +
+              "); scroll first, or use a selector",
+          };
+        }
+        const hit = hitTest(point);
+        if (
+          hit &&
+          typeof payload.inputProbe === "string" &&
+          !hostsDocument(hit) &&
+          !isDisabled(hit)
+        ) {
+          armInputProbe(payload.inputProbe, "pointer", {
+            element: hit,
+            pointerAt: hit,
+          });
+        }
+        return {
+          ...result,
+          found: true,
+          target: hit ? describePointTarget(hit) : null,
+          nextRef: refRegistry().next,
+        };
+      }
+      case "html5_drag":
+        return html5Drag();
       case "input_probe":
         return readInputProbe(payload.token, payload.disarm === true);
       case "prepare_type": {
