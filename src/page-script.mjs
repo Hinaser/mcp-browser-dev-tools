@@ -528,13 +528,15 @@ export function pageScript(payload) {
     return null;
   }
 
-  function describeControl(element, role) {
+  // Finding a locator resolves candidates against the whole page, so the
+  // line-based snapshots, which do not print it, skip it.
+  function describeControl(element, role, options = {}) {
     const name = normalizeText(getAccessibleName(element));
-    const control = {
-      ref: refFor(element),
-      locator: suggestLocator(element, role, name),
-      role,
-    };
+    const control = { ref: refFor(element) };
+    if (options.locators !== false) {
+      control.locator = suggestLocator(element, role, name);
+    }
+    control.role = role;
     if (name) {
       control.name = clipText(name, SNAPSHOT_TEXT_LIMIT);
     }
@@ -551,6 +553,11 @@ export function pageScript(payload) {
       if (name && name === normalizeText(element.value)) {
         delete control.name;
       }
+    }
+    // A password's value stays out, but whether it is filled is shown, so
+    // typing one is visible in the snapshot and in an action's changes.
+    if (isPassword(element) && typeof element.value === "string") {
+      control.filled = element.value.length > 0;
     }
     if (role === "checkbox" || role === "radio" || role === "switch") {
       control.checked =
@@ -609,12 +616,13 @@ export function pageScript(payload) {
       }
       if (controls.length >= limit) {
         more += 1;
+        options.beyond?.add(element);
         continue;
       }
       controls.push(
         heading
           ? describeHeading(element)
-          : describeControl(element, role ?? "textbox"),
+          : describeControl(element, role ?? "textbox", options),
       );
     }
     return { controls, moreControls: more, nextRef: refRegistry().next };
@@ -633,6 +641,9 @@ export function pageScript(payload) {
     }
     if (node.value !== undefined) {
       parts.push("value=" + JSON.stringify(node.value));
+    }
+    if (node.filled) {
+      parts.push("filled");
     }
     if (node.checked !== undefined) {
       parts.push(node.checked ? "checked" : "unchecked");
@@ -661,6 +672,7 @@ export function pageScript(payload) {
       root,
       limit: payload.limit,
       headings: payload.headings !== false,
+      locators: false,
     });
     return {
       ...result,
@@ -668,6 +680,349 @@ export function pageScript(payload) {
       nodes: controls.map(formatSnapshotLine),
       more: moreControls,
       nextRef,
+    };
+  }
+
+  // Actions report what they changed. change_baseline records the visible
+  // headings and controls, and the text of live regions, before the action
+  // and watches the DOM; change_status tells the server how long the DOM has
+  // been quiet; change_report diffs against the baseline and lists the text
+  // the action added or revealed. Each action keeps its own state, keyed by
+  // its change id, so overlapping actions do not disturb each other; each
+  // baseline drops the states its server no longer tracks.
+  // A navigation brings a new window with a new document id; on it,
+  // change_status watches the new document for quiet and change_report
+  // returns its snapshot.
+  const CHANGE_KEY = "__mcpBrowserDevToolsChanges";
+  const DOCUMENT_KEY = "__mcpBrowserDevToolsDocument";
+  const CHANGE_CONTROL_LIMIT = 500;
+  const CHANGE_LINE_LIMIT = 15;
+  const CHANGE_TEXT_LIMIT = 5;
+  const CHANGE_TEXT_CHARS = 160;
+  const CHANGE_WATCH_LIMIT = 200;
+  const CHANGE_MESSAGE_LIMIT = 200;
+  // States of another server (another MCP client on the tab) are dropped
+  // when this old, in case that server went away mid-action.
+  const CHANGE_STALE_MS = 3_600_000;
+  const MESSAGE_SELECTOR =
+    '[role="alert"], [role="status"], [role="alertdialog"], [aria-live], output';
+  // Attributes whose change can reveal an element without adding nodes.
+  const REVEAL_ATTRIBUTES = ["hidden", "aria-hidden", "open"];
+
+  function defineHidden(key, value) {
+    Object.defineProperty(window, key, {
+      value,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+    return value;
+  }
+
+  function documentId() {
+    return (
+      window[DOCUMENT_KEY] ??
+      defineHidden(
+        DOCUMENT_KEY,
+        Math.random().toString(36).slice(2) + Date.now().toString(36),
+      )
+    );
+  }
+
+  function changeStates() {
+    return window[CHANGE_KEY] ?? defineHidden(CHANGE_KEY, new Map());
+  }
+
+  // Keeps the distinct elements that gained nodes or text, and apart from
+  // them those whose hiding attribute changed, to read their text later.
+  // Each set is capped, so a page that rebuilds itself stays cheap.
+  function remember(set, element) {
+    if (element && set.size < CHANGE_WATCH_LIMIT) {
+      set.add(element);
+    }
+  }
+
+  function recordMutations(state, records) {
+    state.lastMutationAt = Date.now();
+    for (const record of records) {
+      if (record.type === "attributes") {
+        if (REVEAL_ATTRIBUTES.includes(record.attributeName)) {
+          remember(state.revealed, record.target);
+        }
+      } else if (record.type === "characterData") {
+        remember(state.touched, record.target.parentElement);
+      } else if (record.type === "childList") {
+        for (const node of record.addedNodes) {
+          remember(
+            state.touched,
+            node.nodeType === 1 ? node : node.parentElement,
+          );
+        }
+      }
+    }
+  }
+
+  function startChangeTracking(state) {
+    if (typeof MutationObserver === "function") {
+      state.observer = new MutationObserver((records) =>
+        recordMutations(state, records),
+      );
+      state.observer.observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      });
+    }
+    changeStates().set(state.id, state);
+  }
+
+  function stopChangeTracking(state) {
+    state.observer?.disconnect();
+    const states = window[CHANGE_KEY];
+    if (states?.get(state.id) === state) {
+      states.delete(state.id);
+    }
+  }
+
+  // Lines for the first CHANGE_CONTROL_LIMIT visible headings and controls,
+  // and the set of visible ones past it, so the diff does not mistake an
+  // element crossing the limit for one that appeared or disappeared.
+  function changeSnapshot() {
+    const beyond = new Set();
+    const { controls } = snapshotControls({
+      headings: true,
+      limit: CHANGE_CONTROL_LIMIT,
+      locators: false,
+      beyond,
+    });
+    return {
+      lines: new Map(
+        controls.map((control) => [control.ref, formatSnapshotLine(control)]),
+      ),
+      beyond,
+    };
+  }
+
+  // The 1px, clipped live regions that announce to screen readers, which
+  // extensions such as password managers add as the page is used.
+  function isScreenReaderOnly(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width < 2 || rect.height < 2;
+  }
+
+  // isShown, unlike isVisible, keeps text under pointer-events: none, such
+  // as a toast.
+  function shownText(element) {
+    return isShown(element) && !isScreenReaderOnly(element)
+      ? normalizeText(getVisibleText(element))
+      : "";
+  }
+
+  // A live region or alert can be revealed by a class or style change alone,
+  // which adds no nodes, so its text is compared with the baseline.
+  function messageTexts() {
+    const texts = new Map();
+    const elements = Array.from(document.querySelectorAll(MESSAGE_SELECTOR));
+    for (const element of elements.slice(0, CHANGE_MESSAGE_LIMIT)) {
+      texts.set(element, shownText(element));
+    }
+    return texts;
+  }
+
+  function dropAbandonedStates() {
+    const active = Array.isArray(payload.active) ? payload.active : [];
+    for (const state of Array.from(changeStates().values())) {
+      const abandoned =
+        state.owner === payload.owner
+          ? !active.includes(state.id)
+          : Date.now() - state.createdAt > CHANGE_STALE_MS;
+      if (abandoned) {
+        stopChangeTracking(state);
+      }
+    }
+  }
+
+  function changeBaseline() {
+    dropAbandonedStates();
+    pruneRefs(refRegistry());
+    const { lines, beyond } = changeSnapshot();
+    startChangeTracking({
+      id: payload.changeId,
+      owner: payload.owner,
+      createdAt: Date.now(),
+      url: location.href,
+      title: document.title,
+      lines,
+      beyond,
+      messages: messageTexts(),
+      touched: new Set(),
+      revealed: new Set(),
+      lastMutationAt: Date.now(),
+      observer: null,
+    });
+    return { documentId: documentId(), nextRef: refRegistry().next };
+  }
+
+  function changeStatus() {
+    const states = changeStates();
+    if (documentId() !== payload.documentId) {
+      let watcher = states.get(payload.changeId);
+      if (!watcher) {
+        watcher = {
+          id: payload.changeId,
+          owner: payload.owner,
+          createdAt: Date.now(),
+          touched: new Set(),
+          revealed: new Set(),
+          lastMutationAt: Date.now(),
+          observer: null,
+        };
+        startChangeTracking(watcher);
+      }
+      return {
+        document: "new",
+        readyState: document.readyState,
+        quietMs: Date.now() - watcher.lastMutationAt,
+      };
+    }
+    const state = states.get(payload.changeId);
+    if (!state) {
+      return { document: "same", lost: true };
+    }
+    return { document: "same", quietMs: Date.now() - state.lastMutationAt };
+  }
+
+  function changeStop() {
+    const state = changeStates().get(payload.changeId);
+    if (state) {
+      stopChangeTracking(state);
+    }
+    return { stopped: Boolean(state) };
+  }
+
+  function insideControl(element) {
+    for (let node = element; node; node = node.parentElement) {
+      if (CONTROL_ROLES.includes(inferRole(node))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // The visible text of the outermost elements the action added, changed
+  // the text of, or revealed, skipping controls, which the diff lists.
+  function addedText(state) {
+    const candidates = new Set(
+      [...state.touched, ...state.revealed].filter(
+        (element) => element.isConnected,
+      ),
+    );
+    for (const [element, before] of state.messages) {
+      const now = element.isConnected ? shownText(element) : "";
+      if (now && now !== before) {
+        candidates.add(element);
+      }
+    }
+    const elements = Array.from(candidates);
+    const outermost = elements.filter(
+      (element) =>
+        !elements.some(
+          (other) =>
+            other !== element &&
+            typeof other.contains === "function" &&
+            other.contains(element),
+        ),
+    );
+    const items = [];
+    let more = 0;
+    for (const element of outermost) {
+      if (insideControl(element)) {
+        continue;
+      }
+      const text = clipText(shownText(element), CHANGE_TEXT_CHARS);
+      if (!text || items.includes(text)) {
+        continue;
+      }
+      if (items.length >= CHANGE_TEXT_LIMIT) {
+        more += 1;
+        continue;
+      }
+      items.push(text);
+    }
+    return { items, more };
+  }
+
+  function capLines(lines) {
+    return {
+      lines: lines.slice(0, CHANGE_LINE_LIMIT),
+      more: Math.max(0, lines.length - CHANGE_LINE_LIMIT),
+    };
+  }
+
+  function changeReport() {
+    const page = { url: location.href, title: document.title };
+    const state = changeStates().get(payload.changeId);
+    if (documentId() !== payload.documentId) {
+      if (state) {
+        stopChangeTracking(state);
+      }
+      const { controls, moreControls, nextRef } = snapshotControls({
+        headings: true,
+        limit: payload.limit,
+        locators: false,
+      });
+      return {
+        newDocument: true,
+        ...page,
+        nodes: controls.map(formatSnapshotLine),
+        more: moreControls,
+        nextRef,
+      };
+    }
+    if (!state) {
+      return { lost: true, ...page };
+    }
+
+    if (state.observer) {
+      const records = state.observer.takeRecords();
+      if (records.length > 0) {
+        recordMutations(state, records);
+      }
+    }
+    stopChangeTracking(state);
+    const registry = refRegistry();
+    pruneRefs(registry);
+    const after = changeSnapshot();
+    const added = [];
+    const updated = [];
+    const removed = [];
+    for (const [ref, line] of after.lines) {
+      const before = state.lines.get(ref);
+      if (before === undefined) {
+        if (!state.beyond.has(registry.byRef.get(ref))) {
+          added.push(line);
+        }
+      } else if (before !== line) {
+        updated.push(line);
+      }
+    }
+    for (const [ref, line] of state.lines) {
+      const element = registry.byRef.get(ref);
+      if (!after.lines.has(ref) && !(element && after.beyond.has(element))) {
+        removed.push(line);
+      }
+    }
+    return {
+      newDocument: false,
+      ...page,
+      urlChanged: page.url !== state.url,
+      titleChanged: page.title !== state.title,
+      added: capLines(added),
+      removed: capLines(removed),
+      updated: capLines(updated),
+      text: addedText(state),
+      nextRef: registry.next,
     };
   }
 
@@ -1250,6 +1605,14 @@ export function pageScript(payload) {
         return readText();
       case "snapshot":
         return snapshotPage();
+      case "change_baseline":
+        return changeBaseline();
+      case "change_status":
+        return changeStatus();
+      case "change_report":
+        return changeReport();
+      case "change_stop":
+        return changeStop();
       case "controls_snapshot":
         return {
           browserFamily: payload.browserFamily,

@@ -6,6 +6,7 @@ import { loadConfig } from "./config.mjs";
 import { McpBrowserDevToolsServer } from "./mcp-server.mjs";
 import {
   callRunSteps,
+  callTool,
   createBranchingManager,
   createFakeManager,
   createPaymentManager,
@@ -841,4 +842,99 @@ test("run_steps if and repeat accept expression conditions", async () => {
   ]);
   assert.equal(value.steps[1].result.matched, true);
   assert.equal(value.steps[1].result.passes, 1);
+});
+
+// A manager whose page reports one updated checkbox for every action.
+function createChangeReportingManager() {
+  const manager = createFakeManager();
+  manager.trackCalls = [];
+  manager.trackChanges = async (sessionId, phase) => {
+    manager.trackCalls.push(phase);
+    if (phase === "status") {
+      return { document: "same", quietMs: 1000 };
+    }
+    if (phase === "report") {
+      return {
+        newDocument: false,
+        url: "https://example.com/settings",
+        title: "Settings",
+        added: { lines: [], more: 0 },
+        removed: { lines: [], more: 0 },
+        updated: { lines: ['e2 checkbox "Digest" checked'], more: 0 },
+        text: { items: ["Saved"], more: 0 },
+      };
+    }
+    return { tracking: true };
+  };
+  manager.getEvents = async () => [];
+  return manager;
+}
+
+test("an action reports what it changed on the page", async () => {
+  const manager = createChangeReportingManager();
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+
+  const response = await callTool(server, "click", {
+    sessionId: "session-1",
+    selector: "text=Save",
+  });
+
+  assert.deepEqual(response.result.structuredContent.changes, {
+    updated: ['e2 checkbox "Digest" checked'],
+    text: ["Saved"],
+  });
+  assert.equal(manager.trackCalls[0], "baseline");
+  assert.equal(manager.trackCalls.at(-1), "report");
+});
+
+test("run_steps reports the batch's changes once, not per step", async () => {
+  const manager = createChangeReportingManager();
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+
+  const value = (
+    await callRunSteps(server, {
+      sessionId: "session-1",
+      steps: [
+        { tool: "click", arguments: { selector: "text=Digest" } },
+        { tool: "click", arguments: { selector: "text=Save" } },
+      ],
+    })
+  ).result.structuredContent;
+
+  assert.equal(value.ok, true);
+  assert.equal(value.steps[0].result.changes, undefined);
+  assert.equal(value.steps[1].result.changes, undefined);
+  assert.deepEqual(value.changes, {
+    updated: ['e2 checkbox "Digest" checked'],
+    text: ["Saved"],
+  });
+  assert.equal(
+    manager.trackCalls.filter((phase) => phase === "baseline").length,
+    1,
+  );
+});
+
+test("run_steps without an action takes no baseline", async () => {
+  const manager = createChangeReportingManager();
+  const server = new McpBrowserDevToolsServer({
+    config: loadConfig({}),
+    browserAdapter: manager,
+  });
+
+  const value = (
+    await callRunSteps(server, {
+      sessionId: "session-1",
+      steps: [{ tool: "get_page_state" }],
+    })
+  ).result.structuredContent;
+
+  assert.equal(value.ok, true);
+  assert.equal(value.changes, undefined);
+  assert.deepEqual(manager.trackCalls, []);
 });

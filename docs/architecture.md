@@ -39,6 +39,8 @@ Each adapter owns target discovery, session attachment, event buffering, screens
 
 Both adapters also share a page-context helper that implements locator parsing and DOM-side actions such as inspect, select, scroll, and page-state reads. For click, hover, type, and key presses the helper only resolves, scrolls, focuses, and hit-tests the target; the adapter then sends trusted input through the browser protocol (CDP `Input.*` or BiDi `input.performActions`), with key definitions shared in `keyboard.mjs`.
 
+The page-context helper also records the change baseline that actions report against. `action-changes.mjs`, above the adapters, takes the baseline before an action, waits for the page to settle using the DOM-quiet time the page reports and the request events the adapter buffered, and turns the page's diff and the new console errors and dialogs into the action's `changes`.
+
 In `auto` mode the broker namespaces external ids as `chromium:<id>` and `firefox:<id>` so one MCP connection can address both backends without ambiguity. Edge also uses the CDP-backed `chromium:` namespace in `auto` mode because it shares the same adapter family.
 
 ### Launch And Bootstrap Helpers

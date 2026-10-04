@@ -1,3 +1,4 @@
+import { ChangeTracker } from "./action-changes.mjs";
 import { actionTools } from "./tools/action-tools.mjs";
 import { browserTools } from "./tools/browser-tools.mjs";
 import { inspectionTools } from "./tools/inspection-tools.mjs";
@@ -219,6 +220,7 @@ export class McpBrowserDevToolsServer {
   }
 
   createTools() {
+    this.changeTracker = new ChangeTracker(this.browserAdapter);
     const tools = [
       ...browserTools(this),
       ...stateTools(this),
@@ -234,6 +236,7 @@ export class McpBrowserDevToolsServer {
     this.stepRunner = new StepRunner({
       getTools: () => this.tools,
       browserAdapter: this.browserAdapter,
+      changeTracker: this.changeTracker,
       stepSchema: stepSchema(stepTools),
       conditionOptions: { expression: this.config.enableEvaluate },
     });
@@ -332,7 +335,7 @@ export class McpBrowserDevToolsServer {
               version: SERVER_VERSION,
             },
             instructions:
-              'Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To see what a page offers, call get_snapshot first: it lists the visible headings and controls, one line each with a ref such as e12, and ref=e12 works as the selector of any tool; it is far cheaper than get_document or a screenshot. To act on a page and check the result, prefer run_steps: send the actions you already know (such as every field of a form), a wait_for, and the check (take_screenshot with output image, or inspect_element) in one call instead of several round trips, for example {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"#search","text":"headphones"}},{"tool":"press_key","arguments":{"key":"Enter"}},{"tool":"wait_for","arguments":{"selector":"#results"}},{"tool":"take_screenshot","arguments":{"output":"image"}}]}. Add an if step when the page can be in more than one state. To read several pages, open them together with run_tabs and read each with read_text. Locators: ref=e12 takes the element get_snapshot listed, until the page navigates; plain CSS (or css=) takes the first match; text=Foo takes the first visible element whose text equals Foo, else contains it, in document order, so it can match a wrapper; role=button[name="Save"] matches ARIA role and accessible name (equal or containing) without a visibility check; name=Foo takes the first visible element whose accessible name equals or contains Foo, and a matched <label> resolves to its control when that control is visible. Comparisons are case-sensitive; iframes and shadow roots are not searched.',
+              'Use the browser tools to inspect tabs, console output, network activity, DOM structure, element state, screenshots, and page interactions across Chromium CDP or Firefox BiDi. To see what a page offers, call get_snapshot first: it lists the visible headings and controls, one line each with a ref such as e12, and ref=e12 works as the selector of any tool; it is far cheaper than get_document or a screenshot. To act on a page, prefer run_steps: send the actions you already know (such as every field of a form) in one call instead of several round trips, for example {"sessionId":"<id>","steps":[{"tool":"type","arguments":{"selector":"ref=e3","text":"headphones"}},{"tool":"press_key","arguments":{"key":"Enter"}}]}. Actions and batches with actions return changes once the page settles: headings and controls added, removed, or updated (snapshot lines with refs), new text such as an error or a toast, the URL and title, console errors and dialogs, and after a navigation a snapshot of the new page. That is usually the check, so a screenshot or another get_snapshot is rarely needed; add wait_for for something that arrives later. Add an if step when the page can be in more than one state. To read several pages, open them together with run_tabs and read each with read_text. Locators: ref=e12 takes the element get_snapshot listed, until the page navigates; plain CSS (or css=) takes the first match; text=Foo takes the first visible element whose text equals Foo, else contains it, in document order, so it can match a wrapper; role=button[name="Save"] matches ARIA role and accessible name (equal or containing) without a visibility check; name=Foo takes the first visible element whose accessible name equals or contains Foo, and a matched <label> resolves to its control when that control is visible. Comparisons are case-sensitive; iframes and shadow roots are not searched.',
           });
         case "notifications/initialized":
           return null;

@@ -1,3 +1,4 @@
+import { CHANGE_REPORTING_TOOLS } from "./action-changes.mjs";
 import { validateValue } from "./json-schema.mjs";
 import { checkPageCondition, normalizeWaitForOptions } from "./wait-for.mjs";
 import { asImageToolResult, moveScreenshotImage } from "./tool-results.mjs";
@@ -181,11 +182,33 @@ export function extractStepImages(tool, result, images) {
   return result;
 }
 
+// Whether a prepared batch runs an action that reports its changes,
+// including inside if branches and repeat bodies.
+function containsChangeReportingStep(steps) {
+  return steps.some(
+    (step) =>
+      CHANGE_REPORTING_TOOLS.has(step.tool) ||
+      (step.steps && containsChangeReportingStep(step.steps)) ||
+      (step.branches &&
+        step.branches.some((branch) =>
+          containsChangeReportingStep(branch.steps),
+        )) ||
+      (step.else && containsChangeReportingStep(step.else)),
+  );
+}
+
 // Validates and runs run_steps batches against the server's tools.
 export class StepRunner {
-  constructor({ getTools, browserAdapter, stepSchema, conditionOptions }) {
+  constructor({
+    getTools,
+    browserAdapter,
+    changeTracker = null,
+    stepSchema,
+    conditionOptions,
+  }) {
     this.getTools = getTools;
     this.browserAdapter = browserAdapter;
+    this.changeTracker = changeTracker;
     this.stepSchema = stepSchema;
     this.conditionOptions = conditionOptions;
   }
@@ -396,9 +419,13 @@ export class StepRunner {
     } else {
       // run_tabs prepares steps before it opens their tab, so the session
       // comes from the context rather than the prepared arguments.
+      // The batch reports its changes once, at the end.
       result = await this.getTools()
         .get(step.tool)
-        .handler({ ...step.args, sessionId: context.sessionId });
+        .handler(
+          { ...step.args, sessionId: context.sessionId },
+          { reportChanges: false },
+        );
     }
 
     const entry = {
@@ -475,9 +502,16 @@ export class StepRunner {
     // Validate every step, including both branches of each if, first, so a
     // typo in a late step does not leave the page half-changed.
     const steps = this.prepareSteps(args.steps, context, "arguments.steps", 0);
+    const baseline =
+      this.changeTracker && containsChangeReportingStep(steps)
+        ? await this.changeTracker.begin(args.sessionId)
+        : null;
     const results = await this.executeSteps(steps, context);
     const ok =
       results.length === steps.length && results.every((result) => result.ok);
+    const changes = baseline
+      ? { changes: await this.changeTracker.settle(baseline) }
+      : {};
 
     return {
       value: {
@@ -486,6 +520,7 @@ export class StepRunner {
         ranSteps: results.length,
         skippedSteps: steps.length - results.length,
         steps: results,
+        ...changes,
         ...(ok ? {} : await this.describePageAfterFailure(args.sessionId)),
       },
       images: context.images,
@@ -500,7 +535,7 @@ export function runStepsTool(runner, stepTools) {
       definition: {
         name: "run_steps",
         description:
-          'Run tools on one attached session in order, in a single call, to act and check the result together: [{"tool":"click","arguments":{"selector":"text=Save"}},{"tool":"wait_for","arguments":{"selector":"#status","textIncludes":"Saved"}},{"tool":"take_screenshot"}]. Each step names a tool that takes sessionId (or sleep) with that tool\'s arguments minus sessionId. if branches once, without waiting, on conditions with the wait_for fields: {"tool":"if","arguments":{"condition":{"selector":"text=Accept cookies"},"then":[...],"elseIf":[{"condition":{...},"then":[...]}],"else":[...]}}; the result reports the branch taken and what each condition observed. repeat retries or polls: {"tool":"repeat","arguments":{"steps":[...],"until":{"selector":"#list","textIncludes":"Order #1042"},"max":5}} runs its steps, then checks until once, at most max passes (default 5, at most 10); it fails if until never holds, and a failing step ends the loop. All steps are validated before any runs. A step fails when its tool throws or reports found: false (except inspect_element); the batch stops there unless continueOnError, and the result then includes page, the visible controls with a locator for each. Screenshots come back as image content; each step result keeps image, its 1-based position. Prefer wait_for over sleep.',
+          'Run tools on one attached session in order, in a single call, to act and check the result together: [{"tool":"type","arguments":{"selector":"ref=e3","text":"Ada"}},{"tool":"click","arguments":{"selector":"text=Save"}}]. Each step names a tool that takes sessionId (or sleep) with that tool\'s arguments minus sessionId. if branches once, without waiting, on conditions with the wait_for fields: {"tool":"if","arguments":{"condition":{"selector":"text=Accept cookies"},"then":[...],"elseIf":[{"condition":{...},"then":[...]}],"else":[...]}}; the result reports the branch taken and what each condition observed. repeat retries or polls: {"tool":"repeat","arguments":{"steps":[...],"until":{"selector":"#list","textIncludes":"Order #1042"},"max":5}} runs its steps, then checks until once, at most max passes (default 5, at most 10); it fails if until never holds, and a failing step ends the loop. All steps are validated before any runs. A batch with click, hover, type, select, or press_key returns changes for the whole batch, as those tools do alone, and its steps report none. A step fails when its tool throws or reports found: false (except inspect_element); the batch stops there unless continueOnError, and the result then includes page, the visible controls with a locator for each. Screenshots come back as image content; each step result keeps image, its 1-based position. Prefer wait_for over sleep.',
         inputSchema: runStepsInputSchema(stepTools),
       },
       handler: async (args) => runner.runSteps(args),

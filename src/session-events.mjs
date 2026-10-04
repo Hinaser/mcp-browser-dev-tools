@@ -6,6 +6,63 @@ function normalizeLimit(limit, fallback = 50) {
   return Number.isInteger(limit) && limit > 0 ? limit : fallback;
 }
 
+const IN_FLIGHT_LIMIT = 500;
+// The requests a page's result depends on. Images, scripts, and styles are
+// left out, and so are long-lived connections (WebSocket, EventSource) and
+// beacons. A request of unknown type (from a Firefox that does not report
+// it) is kept.
+const IN_FLIGHT_TYPES = new Set(["document", "fetch", "xhr"]);
+
+function dependsOn(event) {
+  const type = String(event.resourceType ?? "").toLowerCase();
+  return (
+    /^https?:/i.test(event.url ?? "") &&
+    (!type || IN_FLIGHT_TYPES.has(type) || Boolean(event.navigation))
+  );
+}
+
+// The http(s) document, fetch, and XHR requests that started and have not
+// finished, kept apart from the bounded event buffer so a slow request is
+// not forgotten when its start event is evicted. Only these are kept, so a
+// burst of images cannot push them out. A redirect hop restarts a request
+// under the same id, after BiDi has completed the previous hop. The oldest
+// entries are dropped past the limit, since a request whose end is never
+// reported would otherwise stay.
+export class InFlightRequests {
+  constructor(limit = IN_FLIGHT_LIMIT) {
+    this.limit = limit;
+    this.requests = new Map();
+  }
+
+  observe(event) {
+    if (event?.kind !== "network" || !event.requestId) {
+      return;
+    }
+    if (event.phase === "request") {
+      if (!dependsOn(event)) {
+        return;
+      }
+      const previous = this.requests.get(event.requestId);
+      this.requests.delete(event.requestId);
+      this.requests.set(event.requestId, {
+        url: event.url ?? null,
+        resourceType: event.resourceType ?? null,
+        navigation: event.navigation ?? null,
+        startedAt: previous?.startedAt ?? event.capturedAt ?? null,
+      });
+      if (this.requests.size > this.limit) {
+        this.requests.delete(this.requests.keys().next().value);
+      }
+    } else if (event.completed) {
+      this.requests.delete(event.requestId);
+    }
+  }
+
+  list() {
+    return Array.from(this.requests.values());
+  }
+}
+
 export function filterConsoleMessages(events = [], limit = 50) {
   const safeLimit = normalizeLimit(limit);
   return events

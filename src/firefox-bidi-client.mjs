@@ -1,6 +1,7 @@
 import {
   exportHarLikeSummary,
   filterConsoleMessages,
+  InFlightRequests,
   summarizeNetworkRequests,
 } from "./session-events.mjs";
 import { DEFAULT_FIREFOX_BIDI_WS_URL } from "./config.mjs";
@@ -182,6 +183,26 @@ function normalizeWaitUntil(value) {
   return "complete";
 }
 
+// Names a request's type as CDP does where BiDi says enough: a document,
+// fetch, or XHR. Older Firefox releases report neither field, so the type
+// stays unknown.
+export function bidiResourceType(request = {}) {
+  const { destination, initiatorType } = request;
+  if (destination === undefined && initiatorType === undefined) {
+    return null;
+  }
+  if (destination === "document" || destination === "iframe") {
+    return "Document";
+  }
+  if (initiatorType === "fetch") {
+    return "Fetch";
+  }
+  if (initiatorType === "xmlhttprequest") {
+    return "XHR";
+  }
+  return destination || initiatorType || "Other";
+}
+
 function normalizeFirefoxEvent(method, params = {}) {
   if (method === "log.entryAdded") {
     return {
@@ -206,6 +227,22 @@ function normalizeFirefoxEvent(method, params = {}) {
       requestId: params.request?.request,
       method: params.request?.method,
       url: params.request?.url,
+      resourceType: bidiResourceType(params.request),
+      navigation: params.navigation ?? null,
+      source: "protocol",
+    };
+  }
+
+  if (method === "network.fetchError") {
+    return {
+      kind: "network",
+      phase: "failed",
+      completed: true,
+      failed: true,
+      timestamp: params.timestamp,
+      requestId: params.request?.request,
+      url: params.request?.url,
+      errorText: params.errorText ?? null,
       source: "protocol",
     };
   }
@@ -345,6 +382,7 @@ class FirefoxBidiTabSession {
     this.eventBufferSize = options.eventBufferSize ?? 200;
     this.connectedAt = new Date().toISOString();
     this.bufferedEvents = [];
+    this.inFlight = new InFlightRequests();
     this.subscription = null;
     this.closed = false;
     this.lastNavigationAt = null;
@@ -367,6 +405,7 @@ class FirefoxBidiTabSession {
   }
 
   pushEvent(event) {
+    this.inFlight.observe(event);
     this.bufferedEvents.push(event);
     if (this.bufferedEvents.length > this.eventBufferSize) {
       this.bufferedEvents.shift();
@@ -376,6 +415,10 @@ class FirefoxBidiTabSession {
   getEvents(limit = 50) {
     const safeLimit = Math.max(1, limit);
     return this.bufferedEvents.slice(-safeLimit);
+  }
+
+  pendingRequests() {
+    return this.inFlight.list();
   }
 
   getConsoleMessages(limit = 50) {
@@ -819,6 +862,7 @@ export class FirefoxBidiSessionManager {
         "log.entryAdded",
         "network.beforeRequestSent",
         "network.responseCompleted",
+        "network.fetchError",
         "browsingContext.load",
         "browsingContext.contextDestroyed",
         "browsingContext.userPromptOpened",
@@ -1434,6 +1478,13 @@ export class FirefoxBidiSessionManager {
     return this.runSnapshotAction(sessionId, { action: "controls_snapshot" });
   }
 
+  async trackChanges(sessionId, phase, options = {}) {
+    return this.runSnapshotAction(sessionId, {
+      action: `change_${phase}`,
+      ...options,
+    });
+  }
+
   async snapshotPage(sessionId, options = {}) {
     return this.runSnapshotAction(sessionId, {
       action: "snapshot",
@@ -1499,6 +1550,10 @@ export class FirefoxBidiSessionManager {
     } catch {
       // Ignore snapshot failures so attach still succeeds.
     }
+  }
+
+  pendingRequests(sessionId) {
+    return this.getSession(sessionId).pendingRequests();
   }
 
   getEvents(sessionId, limit) {

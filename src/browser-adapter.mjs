@@ -312,6 +312,10 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "snapshotPage", [options]);
   }
 
+  trackChanges(sessionId, phase, options) {
+    return this.delegateSession(sessionId, "trackChanges", [phase, options]);
+  }
+
   inspectElement(sessionId, selector, options) {
     return this.delegateSession(sessionId, "inspectElement", [
       selector,
@@ -325,6 +329,10 @@ export class MultiBrowserAdapter {
 
   getEvents(sessionId, limit) {
     return this.delegateSession(sessionId, "getEvents", [limit]);
+  }
+
+  pendingRequests(sessionId) {
+    return this.delegateSession(sessionId, "pendingRequests");
   }
 
   async closeAll() {
