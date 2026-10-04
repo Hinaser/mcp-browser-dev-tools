@@ -11,13 +11,16 @@ export function buildInputRecorderExpression(early) {
 }
 
 // Builds an expression that runs pageScript in the page with this payload.
-// With serialize, the expression evaluates to the result as a JSON string.
+// With serialize, the expression evaluates to the result as a JSON string,
+// or, for an action that returns a promise, to a promise of one.
 export function buildPageContextExpression(
   payload,
   { serialize = false } = {},
 ) {
   const body = `(${PAGE_SCRIPT_SOURCE})(${JSON.stringify(payload)})`;
-  return serialize ? `JSON.stringify(${body})` : body;
+  return serialize
+    ? `((result) => result && typeof result.then === "function" ? result.then(JSON.stringify) : JSON.stringify(result))(${body})`
+    : body;
 }
 
 // Refs (e12) are numbered per page from refStart. The server remembers the

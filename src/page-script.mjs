@@ -1542,6 +1542,232 @@ export function pageScript(payload) {
     );
   }
 
+  // Load timing, the Web Vitals the browser exposes, long tasks, and the
+  // heaviest resources. LCP, layout shifts, interactions, and long tasks
+  // are only readable through buffered observers, which deliver after a
+  // task, hence the short wait. Ratings follow the Web Vitals thresholds.
+  const VITAL_THRESHOLDS = {
+    ttfb: [800, 1800],
+    fcp: [1800, 3000],
+    lcp: [2500, 4000],
+    cls: [0.1, 0.25],
+    inp: [200, 500],
+  };
+
+  function rated(name, value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const [good, poor] = VITAL_THRESHOLDS[name];
+    const rating =
+      value <= good ? "good" : value <= poor ? "needs-improvement" : "poor";
+    return {
+      value:
+        name === "cls" ? Math.round(value * 1000) / 1000 : Math.round(value),
+      rating,
+    };
+  }
+
+  function observeBuffered(type) {
+    return new Promise((resolve) => {
+      if (
+        typeof PerformanceObserver !== "function" ||
+        !PerformanceObserver.supportedEntryTypes?.includes(type)
+      ) {
+        resolve(null);
+        return;
+      }
+      const entries = [];
+      let observer;
+      try {
+        observer = new PerformanceObserver((list) =>
+          entries.push(...list.getEntries()),
+        );
+        observer.observe({
+          type,
+          buffered: true,
+          ...(type === "event" ? { durationThreshold: 16 } : {}),
+        });
+      } catch {
+        resolve(null);
+        return;
+      }
+      setTimeout(() => {
+        entries.push(...observer.takeRecords());
+        observer.disconnect();
+        resolve(entries);
+      }, 50);
+    });
+  }
+
+  // The largest sum of layout shifts in a session window, as the Web
+  // Vitals library computes it: a shift joins the window when it is less
+  // than 1 s after the previous one and less than 5 s after the first;
+  // shifts right after input do not count.
+  function cumulativeLayoutShift(shifts) {
+    let worst = 0;
+    let windowValue = 0;
+    let first = null;
+    let previous = null;
+    for (const shift of shifts) {
+      if (shift.hadRecentInput) {
+        continue;
+      }
+      if (
+        windowValue &&
+        shift.startTime - previous.startTime < 1000 &&
+        shift.startTime - first.startTime < 5000
+      ) {
+        windowValue += shift.value;
+      } else {
+        windowValue = shift.value;
+        first = shift;
+      }
+      previous = shift;
+      worst = Math.max(worst, windowValue);
+    }
+    return worst;
+  }
+
+  function describeEntryElement(element) {
+    if (!element) {
+      return null;
+    }
+    const id = element.id ? "#" + element.id : "";
+    const text = clipText(normalizeText(getVisibleText(element)), 60);
+    return element.tagName.toLowerCase() + id + (text ? ' "' + text + '"' : "");
+  }
+
+  async function performanceReport() {
+    const round = (value) =>
+      value === null || value === undefined ? null : Math.round(value);
+    const nav = performance.getEntriesByType("navigation")[0] ?? null;
+    const fcp = performance.getEntriesByName("first-contentful-paint")[0];
+    // After a back/forward-cache restore, only what came after it counts,
+    // and the load metrics of the earlier visit do not apply.
+    const recorder = window[Symbol.for("mcp-browser-dev-tools.inputRecorder")];
+    const restoredAt = recorder?.restoredAt ?? null;
+    const since = (entries) =>
+      entries && restoredAt !== null
+        ? entries.filter((entry) => (entry.startTime ?? 0) >= restoredAt)
+        : entries;
+    const [lcps, shifts, events, longTasks] = (
+      await Promise.all(
+        ["largest-contentful-paint", "layout-shift", "event", "longtask"].map(
+          observeBuffered,
+        ),
+      )
+    ).map(since);
+    // A prerendered page's times count from when it was shown.
+    const activation = nav?.activationStart || 0;
+    const fromActivation = (time) =>
+      time === undefined || time === null || restoredAt !== null
+        ? null
+        : Math.max(0, time - activation);
+    const lcp = lcps?.at(-1) ?? null;
+
+    // INP as the Web Vitals library estimates it: each interaction (a click,
+    // tap, or key press) by its longest event, then the one at the 98th
+    // percentile of the page's interactions, which drops one outlier per 50.
+    // Browsers buffer only events of 104 ms or more from before the
+    // observer, so faster interactions are not seen.
+    const interactions = new Map();
+    for (const event of events ?? []) {
+      if (event.interactionId) {
+        interactions.set(
+          event.interactionId,
+          Math.max(interactions.get(event.interactionId) ?? 0, event.duration),
+        );
+      }
+    }
+    const durations = Array.from(interactions.values()).sort((x, y) => y - x);
+    // Counted from the restore, after one.
+    const interactionCount = Math.max(
+      (performance.interactionCount ?? 0) -
+        (restoredAt !== null ? (recorder.interactionsBeforeRestore ?? 0) : 0),
+      durations.length,
+    );
+    const inp = durations.length
+      ? durations[
+          Math.min(durations.length - 1, Math.floor(interactionCount / 50))
+        ]
+      : null;
+
+    const resources = performance.getEntriesByType("resource");
+    const byType = {};
+    for (const entry of resources) {
+      const type = entry.initiatorType || "other";
+      byType[type] ??= { count: 0, transferBytes: 0 };
+      byType[type].count += 1;
+      byType[type].transferBytes += entry.transferSize || 0;
+    }
+
+    return {
+      browserFamily: payload.browserFamily,
+      url: location.href,
+      navigation: nav
+        ? {
+            type: nav.type,
+            protocol: nav.nextHopProtocol || null,
+            redirects: nav.redirectCount,
+            domContentLoadedMs: round(nav.domContentLoadedEventEnd),
+            loadMs: round(nav.loadEventEnd) || null,
+            transferBytes: nav.transferSize ?? null,
+          }
+        : null,
+      vitals: {
+        ttfb: rated("ttfb", fromActivation(nav?.responseStart)),
+        fcp: rated("fcp", fromActivation(fcp?.startTime)),
+        lcp: lcp
+          ? {
+              ...rated("lcp", Math.max(0, lcp.startTime - activation)),
+              element: describeEntryElement(lcp.element),
+              url: lcp.url ? clipText(lcp.url, 120) : null,
+            }
+          : null,
+        cls: shifts ? rated("cls", cumulativeLayoutShift(shifts)) : null,
+        inp:
+          inp === null
+            ? null
+            : {
+                ...rated("inp", inp),
+                slowestMs: Math.round(durations[0]),
+                interactions: interactionCount,
+              },
+      },
+      ...(restoredAt !== null ? { restoredFromCache: true } : {}),
+      longTasks: longTasks
+        ? {
+            count: longTasks.length,
+            totalMs: round(
+              longTasks.reduce((sum, task) => sum + task.duration, 0),
+            ),
+            longestMs: round(
+              Math.max(0, ...longTasks.map((task) => task.duration)),
+            ),
+          }
+        : null,
+      resources: {
+        count: resources.length,
+        transferBytes: resources.reduce(
+          (sum, entry) => sum + (entry.transferSize || 0),
+          0,
+        ),
+        byType,
+        slowest: resources
+          .slice()
+          .sort((a, b) => b.duration - a.duration)
+          .slice(0, 5)
+          .map((entry) => ({
+            url: clipText(entry.name, 120),
+            type: entry.initiatorType || "other",
+            durationMs: round(entry.duration),
+            transferBytes: entry.transferSize ?? null,
+          })),
+      },
+    };
+  }
+
   // upload_file takes the file input itself, a <label> for one, or an
   // element with one inside (a styled upload area). The input is left on
   // the window under the upload's token for the server to take a handle
@@ -2070,6 +2296,8 @@ export function pageScript(payload) {
         return html5Drag();
       case "file_input":
         return fileInput();
+      case "performance":
+        return performanceReport();
       case "input_probe":
         return readInputProbe(payload.token, payload.disarm === true);
       case "prepare_type": {
@@ -2430,5 +2658,18 @@ export function inputRecorder(early) {
       );
     }
   }
+  // A page restored from the back/forward cache keeps its window, and its
+  // performance entries, from the earlier visit; the report measures from
+  // the restore.
+  window.addEventListener(
+    "pageshow",
+    (event) => {
+      if (event.persisted) {
+        counts.restoredAt = performance.now();
+        counts.interactionsBeforeRestore = performance.interactionCount ?? 0;
+      }
+    },
+    true,
+  );
   Object.defineProperty(window, key, { value: counts });
 }

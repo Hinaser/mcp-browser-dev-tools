@@ -276,6 +276,18 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "setNetwork", [options]);
   }
 
+  getPerformance(sessionId) {
+    return this.delegateSession(sessionId, "getPerformance");
+  }
+
+  startTrace(sessionId, options) {
+    return this.delegateSession(sessionId, "startTrace", [options]);
+  }
+
+  stopTrace(sessionId) {
+    return this.delegateSession(sessionId, "stopTrace");
+  }
+
   type(sessionId, selector, text, options) {
     return this.delegateSession(sessionId, "type", [selector, text, options]);
   }

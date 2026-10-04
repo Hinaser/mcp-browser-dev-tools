@@ -1,6 +1,6 @@
 # Tools
 
-The server has 42 tools and offers the 24 of the core set by default; `MCP_BROWSER_TOOLS` adds the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server has 44 tools and offers the 24 of the core set by default; `MCP_BROWSER_TOOLS` adds the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
 
 ## Tool Sets
 
@@ -14,6 +14,7 @@ Every model turn sends the definitions of every tool the server offers, so it of
 | `state`          | `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `capture_debug_report`, `get_page_state`, `get_document`                                                                                                                                                                                             |
 | `compare`        | `compare_page_state`, `compare_selector`                                                                                                                                                                                                                                                                                                   |
 | `browser`        | `browser_status`, `launch_browser`, `list_sessions`, `detach_tab`                                                                                                                                                                                                                                                                          |
+| `performance`    | `get_performance`, `record_trace`                                                                                                                                                                                                                                                                                                          |
 
 ## Tool List
 
@@ -43,6 +44,8 @@ Every model turn sends the definitions of every tool the server offers, so it of
 |                     | `evaluate_js`                                                | Runs JavaScript in the page (on by default; `MCP_BROWSER_ENABLE_EVAL=0` removes it).                                                  |
 | Console and network | `get_console_messages`, `get_network_requests`, `get_events` | Buffered console messages, network requests (including ones the page made before it was attached), and events.                        |
 |                     | `set_network`                                                | Blocks or mocks requests by URL pattern, adds request headers, or emulates offline and slow networks.                                 |
+| Performance         | `get_performance`                                            | Load timing, rated Web Vitals, long tasks, slowest resources, and Chromium's counters.                                                |
+|                     | `record_trace`                                               | Records a Chromium trace to a file DevTools' Performance panel opens.                                                                 |
 |                     | `get_har`                                                    | Buffered network activity as HAR-like JSON.                                                                                           |
 | Session state       | `get_cookies`, `get_storage`                                 | Page-visible cookies and web storage.                                                                                                 |
 |                     | `capture_session_snapshot`, `restore_session_snapshot`       | Save cookies and storage, and restore them later on the same origin.                                                                  |
@@ -290,6 +293,20 @@ Tabs in the background of a visible browser can run timers late and pause render
 - A call replaces the fields it gives and keeps the others; `rules: []` and `headers: {}` clear those, and `reset: true` clears everything. The settings last until the session detaches.
 
 On Chromium only requests that match a rule are paused, so others are not slowed. On Firefox, whose BiDi URL patterns cannot express globs, every request of the tab is intercepted while rules or headers are set and matched by the server, which adds a local round trip to each.
+
+## Performance
+
+Both tools are in the `performance` group, which `MCP_BROWSER_TOOLS=performance` adds.
+
+`get_performance` reports on the current page:
+
+- `navigation`: the navigation type, protocol, redirects, `domContentLoadedMs`, `loadMs`, and transfer size.
+- `vitals`, each with a `value` and a `rating` of `good`, `needs-improvement`, or `poor` by the Web Vitals thresholds: `ttfb`, `fcp`, `lcp` (with its element or image URL), `cls` (the worst session window of layout shifts not caused by input), and `inp`, estimated as the Web Vitals library does (the interaction at the 98th percentile, dropping one outlier per 50 interactions), with `slowestMs` and the number of `interactions`. Browsers keep only interactions of 104 ms or more from before the call, so `inp` covers those. TTFB, FCP, and LCP of a prerendered page count from when it was shown. After a restore from the back/forward cache, `restoredFromCache` is true, the load metrics are `null`, and the others cover only the time since the restore. Values the browser does not expose are `null`; Firefox has no layout shifts or long tasks.
+- `longTasks`: count, total, and longest.
+- `resources`: count and transfer size, by initiator type, and the five slowest.
+- `metrics` (Chromium): JS heap, DOM nodes, event listeners, layouts and style recalculations with their time, and script and task time, counted since the session attached.
+
+`record_trace` records a Chromium trace with the categories DevTools' Performance panel uses: `action: "start"` (with `screenshots: true` for a filmstrip), then act, then `action: "stop"`, which writes the trace as JSON to `path` (absolute, ending in `.json`) or a new private temp file, and returns `path`, `bytes`, and `durationMs`. Open the file in the Performance panel. Files are written readable only by the current user, and an existing file is replaced only with `overwrite: true`; the path is checked before the trace stops, and a trace that still cannot be written there goes to a temp file, with `error` saying why. Firefox has no tracing over WebDriver BiDi.
 
 ## Session State And Network
 

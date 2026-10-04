@@ -1853,3 +1853,220 @@ test("file_input finds the input behind a label and clears it with events", () =
   assert.equal(input.value, "");
   assert.deepEqual(input.dispatchEvents, ["input", "change"]);
 });
+
+test("the performance report rates vitals and finds the worst layout-shift window", async () => {
+  const { context } = snapshotFixture();
+  const buffered = {
+    "largest-contentful-paint": [
+      { startTime: 1200, element: null, url: "" },
+      { startTime: 2900, element: null, url: "https://example.com/hero.jpg" },
+    ],
+    "layout-shift": [
+      { startTime: 100, value: 0.05, hadRecentInput: false },
+      { startTime: 600, value: 0.04, hadRecentInput: false },
+      // More than a second later: a new window.
+      { startTime: 2000, value: 0.2, hadRecentInput: false },
+      { startTime: 2100, value: 0.5, hadRecentInput: true },
+    ],
+    event: [
+      { interactionId: 7, duration: 120 },
+      { interactionId: 7, duration: 260 },
+      { interactionId: 0, duration: 900 },
+    ],
+    longtask: [{ duration: 80 }, { duration: 300 }],
+  };
+  context.PerformanceObserver = class {
+    static supportedEntryTypes = Object.keys(buffered);
+    constructor(callback) {
+      this.callback = callback;
+    }
+    observe({ type }) {
+      this.type = type;
+    }
+    takeRecords() {
+      return buffered[this.type];
+    }
+    disconnect() {}
+  };
+  context.setTimeout = (callback) => callback();
+  context.performance = {
+    getEntriesByType: (type) =>
+      type === "navigation"
+        ? [
+            {
+              type: "navigate",
+              nextHopProtocol: "h2",
+              redirectCount: 0,
+              responseStart: 950,
+              domContentLoadedEventEnd: 1500,
+              loadEventEnd: 2600,
+              transferSize: 5000,
+            },
+          ]
+        : type === "resource"
+          ? [
+              {
+                name: "https://example.com/app.js",
+                initiatorType: "script",
+                duration: 400,
+                transferSize: 90_000,
+              },
+            ]
+          : [],
+    getEntriesByName: () => [{ startTime: 1100 }],
+  };
+
+  const report = JSON.parse(
+    await vm.runInContext(
+      buildPageContextExpression(
+        { browserFamily: "chromium", action: "performance" },
+        { serialize: true },
+      ),
+      context,
+    ),
+  );
+
+  assert.deepEqual(report.vitals.ttfb, {
+    value: 950,
+    rating: "needs-improvement",
+  });
+  assert.deepEqual(report.vitals.fcp, { value: 1100, rating: "good" });
+  assert.equal(report.vitals.lcp.value, 2900);
+  assert.equal(report.vitals.lcp.rating, "needs-improvement");
+  assert.equal(report.vitals.lcp.url, "https://example.com/hero.jpg");
+  assert.deepEqual(report.vitals.cls, {
+    value: 0.2,
+    rating: "needs-improvement",
+  });
+  assert.deepEqual(report.vitals.inp, {
+    value: 260,
+    rating: "needs-improvement",
+    slowestMs: 260,
+    interactions: 1,
+  });
+  assert.deepEqual(report.longTasks, {
+    count: 2,
+    totalMs: 380,
+    longestMs: 300,
+  });
+  assert.deepEqual(report.resources.byType, {
+    script: { count: 1, transferBytes: 90_000 },
+  });
+});
+
+async function performanceReportFor(buffered, navigation = {}) {
+  const { context } = snapshotFixture();
+  context.PerformanceObserver = class {
+    static supportedEntryTypes = Object.keys(buffered);
+    observe({ type }) {
+      this.type = type;
+    }
+    takeRecords() {
+      return buffered[this.type];
+    }
+    disconnect() {}
+  };
+  context.setTimeout = (callback) => callback();
+  context.performance = {
+    getEntriesByType: (type) =>
+      type === "navigation" ? [{ responseStart: 100, ...navigation }] : [],
+    getEntriesByName: () => [],
+    interactionCount: navigation.interactionCount,
+  };
+  return JSON.parse(
+    await vm.runInContext(
+      buildPageContextExpression(
+        { browserFamily: "chromium", action: "performance" },
+        { serialize: true },
+      ),
+      context,
+    ),
+  );
+}
+
+test("CLS session windows follow the Web Vitals rules", async () => {
+  const shifts = (list) =>
+    list.map(([startTime, value]) => ({
+      startTime,
+      value,
+      hadRecentInput: false,
+    }));
+  // Seven shifts 800 ms apart from 900 ms: one window under 5 s of 0.12,
+  // then the window restarts; the first eligible shift starts it.
+  const spaced = await performanceReportFor({
+    "layout-shift": shifts(
+      [900, 1700, 2500, 3300, 4100, 4900, 5700].map((time) => [time, 0.02]),
+    ),
+  });
+  assert.equal(spaced.vitals.cls.value, 0.14);
+  // Exactly 1 s apart is a new window.
+  const apart = await performanceReportFor({
+    "layout-shift": shifts([
+      [0, 0.15],
+      [1000, 0.15],
+    ]),
+  });
+  assert.equal(apart.vitals.cls.value, 0.15);
+});
+
+test("INP drops one outlier per 50 interactions, and prerendered times count from activation", async () => {
+  const events = [
+    { interactionId: 1, duration: 800 },
+    { interactionId: 2, duration: 150 },
+    { interactionId: 3, duration: 120 },
+  ];
+  const report = await performanceReportFor(
+    { event: events, "largest-contentful-paint": [{ startTime: 5200 }] },
+    { interactionCount: 100, activationStart: 5000, responseStart: 4000 },
+  );
+  assert.deepEqual(report.vitals.inp, {
+    value: 120,
+    rating: "good",
+    slowestMs: 800,
+    interactions: 100,
+  });
+  assert.deepEqual(report.vitals.lcp.value, 200);
+  assert.deepEqual(report.vitals.ttfb, { value: 0, rating: "good" });
+});
+
+test("after a back/forward-cache restore, INP counts only the restored visit's interactions", async () => {
+  const { context } = snapshotFixture();
+  context.PerformanceObserver = class {
+    static supportedEntryTypes = ["event"];
+    observe() {}
+    takeRecords() {
+      return [
+        { interactionId: 5, duration: 300, startTime: 100 },
+        { interactionId: 9, duration: 800, startTime: 5100 },
+        { interactionId: 10, duration: 120, startTime: 5200 },
+      ];
+    }
+    disconnect() {}
+  };
+  context.setTimeout = (callback) => callback();
+  context.performance = {
+    getEntriesByType: () => [{ responseStart: 100 }],
+    getEntriesByName: () => [],
+    interactionCount: 102,
+  };
+  context.window[Symbol.for("mcp-browser-dev-tools.inputRecorder")] = {
+    restoredAt: 5000,
+    interactionsBeforeRestore: 100,
+  };
+  const report = JSON.parse(
+    await vm.runInContext(
+      buildPageContextExpression(
+        { browserFamily: "chromium", action: "performance" },
+        { serialize: true },
+      ),
+      context,
+    ),
+  );
+  assert.equal(report.restoredFromCache, true);
+  assert.deepEqual(report.vitals.inp, {
+    value: 800,
+    rating: "poor",
+    slowestMs: 800,
+    interactions: 2,
+  });
+});
