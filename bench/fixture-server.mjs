@@ -43,7 +43,7 @@ ${results}
 <footer>5 results</footer></body></html>`;
 }
 
-function researchArticlePage(index, codename) {
+function researchArticlePage(run, index, codename) {
   const topic = RESEARCH_TOPICS[index];
   const filler = Array.from(
     { length: 6 },
@@ -51,7 +51,7 @@ function researchArticlePage(index, codename) {
       `<p>Section ${n + 1}: the ${topic} component handles part ${n + 1} of the pipeline. It was reviewed in the quarterly design meeting and has no open issues.</p>`,
   ).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${topic} component overview</title></head>
-<body><nav><a href="/">Docs home</a> <a href="/research">Back to results</a></nav>
+<body><nav><a href="/">Docs home</a> <a href="/research?run=${encodeURIComponent(run)}">Back to results</a></nav>
 <main><h1>${topic} component overview</h1>
 ${filler}
 <p>Release history: the ${topic} component shipped in three releases. Its current release codename is <strong>${escapeHtml(codename)}</strong>.</p>
@@ -122,7 +122,9 @@ export async function startFixtureServer({ fixturesDir }) {
         }
         await sleep(RESEARCH_ARTICLE_DELAY_MS);
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(researchArticlePage(index, research.codenames[index]));
+        response.end(
+          researchArticlePage(run, index, research.codenames[index]),
+        );
         return;
       }
 
