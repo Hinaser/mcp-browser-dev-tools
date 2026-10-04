@@ -1,10 +1,16 @@
 # Tools
 
-The server has 44 tools and offers the 24 of the core set by default; `MCP_BROWSER_TOOLS` adds the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server has 44 tools and lists the 24 of the core set by default, plus `more_tools`, which lists, describes, and calls the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
 
 ## Tool Sets
 
-Every model turn sends the definitions of every tool the server offers, so it offers only the core set unless told otherwise. Set `MCP_BROWSER_TOOLS` to `all`, or to a comma-separated list of groups and tool names to add to the core set, for example `MCP_BROWSER_TOOLS=network,drag`. An unknown name stops the server at startup. `run_steps` and `run_tabs` steps can use only the tools that are offered.
+Every model turn sends the definitions of every tool the server lists, so it lists only the core set unless told otherwise. The other tools are still there, without their definitions costing every turn:
+
+- `more_tools` without arguments lists them, one line each with its group and first sentence; with `name`, it returns that tool's description and arguments; with `name` and `arguments`, it calls the tool, checking the arguments as a direct call would, and returns its result and `changes`.
+- `run_steps` and `run_tabs` steps can use every tool that takes `sessionId`, listed or not, for example `{"tool":"set_network","arguments":{"offline":true}}`.
+- Calling an unlisted tool directly fails with an error that says how to reach it.
+
+Set `MCP_BROWSER_TOOLS` to `all`, or to a comma-separated list of groups and tool names to add to the list, for example `MCP_BROWSER_TOOLS=network,drag`, for tools an agent uses often enough to be worth their definitions; with every tool listed, `more_tools` is left out. An unknown name stops the server at startup. The setting chooses what is listed, not what can run: `MCP_BROWSER_ENABLE_EVAL=0` still removes `evaluate_js` everywhere.
 
 | Group            | Tools                                                                                                                                                                                                                                                                                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

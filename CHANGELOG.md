@@ -28,7 +28,7 @@ This release changes the default tool list: see Changed.
 
 ### Changed
 
-- **Breaking:** the server offers the 24 tools of the core set by default instead of all of them, since every model turn pays for the definitions of every tool offered (16.5k characters instead of 24.0k). `MCP_BROWSER_TOOLS=all` restores the full list; a comma-separated list of groups (`input`, `network`, `state`, `compare`, `browser`, `performance`) or tool names adds to the core set. `run_steps` and `run_tabs` steps can use only offered tools, and the server instructions say how to enable more
+- **Breaking:** the server lists the 24 tools of the core set by default instead of all of them, since every model turn pays for the definitions of every tool offered (16.5k characters instead of 24.0k). `MCP_BROWSER_TOOLS=all` restores the full list; a comma-separated list of groups (`input`, `network`, `state`, `compare`, `browser`, `performance`) or tool names adds to the core set. The others stay reachable without their definitions costing every turn: the new `more_tools` lists them, describes one, or calls one, and `run_steps` and `run_tabs` steps can use every session tool
 - The tool definitions are trimmed from 36.0k to 22.1k characters and the server instructions from 1.9k to 1.4k, which every model turn pays for. Descriptions say once what they repeated (locators, sessionId, timeouts, coordinates now live in the server instructions or a short line), `run_steps` and `run_tabs` keep one compact example each and no longer list every step tool, and the advertised schemas leave out `additionalProperties: false`; calls are still validated against the full schemas. A test holds the definitions to 22.5k characters
 
 ### Fixed
