@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="362" viewBox="0 0 880 362" role="img" aria-labelledby="title desc">
   <title id="title">Wall time per scenario</title>
-  <desc id="desc">signup: Sonnet 5.5 single 15.9, Sonnet 5.5 batch 9.7, Opus 5.5 batch 12.8. payment-retry: Sonnet 5.5 single 16.3, Sonnet 5.5 batch 27.0, Opus 5.5 batch 21.6. settings-login: Sonnet 5.5 single 20.5, Sonnet 5.5 batch 12.7, Opus 5.5 batch 17.0. research: Sonnet 5.5 single 28.1, Sonnet 5.5 batch 9.0, Opus 5.5 batch 11.4</desc>
+  <desc id="desc">signup: Sonnet 5.5 single 15.0, Sonnet 5.5 batch 10.2, Opus 5.5 batch 11.5. payment-retry: Sonnet 5.5 single 20.6, Sonnet 5.5 batch 19.1, Opus 5.5 batch 18.9. settings-login: Sonnet 5.5 single 16.2, Sonnet 5.5 batch 17.5, Opus 5.5 batch 18.2. research: Sonnet 5.5 single 27.7, Sonnet 5.5 batch 8.5, Opus 5.5 batch 11.8</desc>
   <style>
     .bg { fill: #f6f8fa; stroke: #d1d9e0; }
     .rule { stroke: #d1d9e0; }
@@ -47,32 +47,32 @@
   <text class="muted sans" x="48" y="130" font-size="11" text-anchor="end">30</text>
   <line class="rule" x1="56" x2="856" y1="66" y2="66" />
   <text class="muted sans" x="48" y="70" font-size="11" text-anchor="end">40</text>
-  <rect class="s0" x="98" y="210.618" width="36" height="95.382" rx="3" />
-  <text class="text sans" x="116" y="205.618" font-size="11" text-anchor="middle">15.9</text>
-  <rect class="s1" x="138" y="247.752" width="36" height="58.24799999999999" rx="3" />
-  <text class="text sans" x="156" y="242.752" font-size="11" text-anchor="middle">9.7</text>
-  <rect class="s2" x="178" y="229.30200000000002" width="36" height="76.69799999999998" rx="3" />
-  <text class="text sans" x="196" y="224.30200000000002" font-size="11" text-anchor="middle">12.8</text>
+  <rect class="s0" x="98" y="216.036" width="36" height="89.964" rx="3" />
+  <text class="text sans" x="116" y="211.036" font-size="11" text-anchor="middle">15.0</text>
+  <rect class="s1" x="138" y="244.70999999999998" width="36" height="61.29000000000002" rx="3" />
+  <text class="text sans" x="156" y="239.70999999999998" font-size="11" text-anchor="middle">10.2</text>
+  <rect class="s2" x="178" y="236.778" width="36" height="69.22200000000001" rx="3" />
+  <text class="text sans" x="196" y="231.778" font-size="11" text-anchor="middle">11.5</text>
   <text class="text mono" x="156" y="328" font-size="12" text-anchor="middle">signup</text>
-  <rect class="s0" x="298" y="208.27800000000002" width="36" height="97.72199999999998" rx="3" />
-  <text class="text sans" x="316" y="203.27800000000002" font-size="11" text-anchor="middle">16.3</text>
-  <rect class="s1" x="338" y="143.712" width="36" height="162.288" rx="3" />
-  <text class="text sans" x="356" y="138.712" font-size="11" text-anchor="middle">27.0</text>
-  <rect class="s2" x="378" y="176.47199999999998" width="36" height="129.52800000000002" rx="3" />
-  <text class="text sans" x="396" y="171.47199999999998" font-size="11" text-anchor="middle">21.6</text>
+  <rect class="s0" x="298" y="182.214" width="36" height="123.786" rx="3" />
+  <text class="text sans" x="316" y="177.214" font-size="11" text-anchor="middle">20.6</text>
+  <rect class="s1" x="338" y="191.19" width="36" height="114.81" rx="3" />
+  <text class="text sans" x="356" y="186.19" font-size="11" text-anchor="middle">19.1</text>
+  <rect class="s2" x="378" y="192.84" width="36" height="113.16" rx="3" />
+  <text class="text sans" x="396" y="187.84" font-size="11" text-anchor="middle">18.9</text>
   <text class="text mono" x="356" y="328" font-size="12" text-anchor="middle">payment-retry</text>
-  <rect class="s0" x="498" y="182.766" width="36" height="123.23400000000001" rx="3" />
-  <text class="text sans" x="516" y="177.766" font-size="11" text-anchor="middle">20.5</text>
-  <rect class="s1" x="538" y="229.968" width="36" height="76.03200000000001" rx="3" />
-  <text class="text sans" x="556" y="224.968" font-size="11" text-anchor="middle">12.7</text>
-  <rect class="s2" x="578" y="203.736" width="36" height="102.26400000000001" rx="3" />
-  <text class="text sans" x="596" y="198.736" font-size="11" text-anchor="middle">17.0</text>
+  <rect class="s0" x="498" y="209.06400000000002" width="36" height="96.93599999999998" rx="3" />
+  <text class="text sans" x="516" y="204.06400000000002" font-size="11" text-anchor="middle">16.2</text>
+  <rect class="s1" x="538" y="201.09" width="36" height="104.91" rx="3" />
+  <text class="text sans" x="556" y="196.09" font-size="11" text-anchor="middle">17.5</text>
+  <rect class="s2" x="578" y="196.85399999999998" width="36" height="109.14600000000002" rx="3" />
+  <text class="text sans" x="596" y="191.85399999999998" font-size="11" text-anchor="middle">18.2</text>
   <text class="text mono" x="556" y="328" font-size="12" text-anchor="middle">settings-login</text>
-  <rect class="s0" x="698" y="137.172" width="36" height="168.828" rx="3" />
-  <text class="text sans" x="716" y="132.172" font-size="11" text-anchor="middle">28.1</text>
-  <rect class="s1" x="738" y="252.168" width="36" height="53.831999999999994" rx="3" />
-  <text class="text sans" x="756" y="247.168" font-size="11" text-anchor="middle">9.0</text>
-  <rect class="s2" x="778" y="237.762" width="36" height="68.238" rx="3" />
-  <text class="text sans" x="796" y="232.762" font-size="11" text-anchor="middle">11.4</text>
+  <rect class="s0" x="698" y="140.088" width="36" height="165.912" rx="3" />
+  <text class="text sans" x="716" y="135.088" font-size="11" text-anchor="middle">27.7</text>
+  <rect class="s1" x="738" y="254.808" width="36" height="51.19200000000001" rx="3" />
+  <text class="text sans" x="756" y="249.808" font-size="11" text-anchor="middle">8.5</text>
+  <rect class="s2" x="778" y="235.296" width="36" height="70.70400000000001" rx="3" />
+  <text class="text sans" x="796" y="230.296" font-size="11" text-anchor="middle">11.8</text>
   <text class="text mono" x="756" y="328" font-size="12" text-anchor="middle">research</text>
 </svg>

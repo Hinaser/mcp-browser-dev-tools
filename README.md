@@ -42,7 +42,7 @@ Your agent gets 44 browser tools over MCP: open or attach to tabs, click, type, 
 
 - **Fewer round trips.** Every model turn costs thinking time and tokens, so the agent does more with each call. In our benchmark, batching halved the turns Sonnet 5.5 needed to sign up through a form.
 - **Actions say what they did.** A click, a typed value, or a whole batch comes back with what changed on the page once it settles: controls that appeared, disappeared, or changed, new text such as an error or a toast, console errors, and after a navigation the new page's controls. The agent can confirm the result without another look at the page.
-- **Many pages at once.** Research over several pages happens side by side: `run_tabs` opens them together and `read_text` brings back what they say. In our benchmark, reading five slow pages took Sonnet 5.5 8.4 s and 4 turns instead of 28 s and 14.
+- **Many pages at once.** Research over several pages happens side by side: `run_tabs` opens them together and `read_text` brings back what they say. In our benchmark, reading five slow pages took Sonnet 5.5 8.5 s and 4 turns instead of 28 s and 6.
 - **Calm on real pages.** Waits end on whichever outcome shows up, actions wait out a covering banner or a button that isn't enabled yet, and if a step fails the reply lists the page's controls, so the next try is an informed one.
 - **Right where you work.** It attaches to the browser you already use, with its logins, tabs, and extensions, and speaks to Chrome, Edge, and Firefox with the same tools.
 - **A debugger at hand.** Console messages with stack traces, network requests and HAR export, cookies and storage, and a one-call debug report.
@@ -134,12 +134,12 @@ Median of 3 runs on the current build, from the benchmark in [PERFORMANCE.md](PE
 
 | Task                                | Sonnet 5.5, one action per call | Sonnet 5.5 with batching | Opus 5.5 with batching |
 | ----------------------------------- | ------------------------------- | ------------------------ | ---------------------- |
-| Sign up through a form              | 15.9 s · 11 turns               | 9.7 s · 5 turns          | 12.8 s · 6 turns       |
-| Pay, retrying declined attempts     | 16.3 s · 13 turns               | 27.0 s · 12 turns        | 21.6 s · 8 turns       |
-| Sign in, then change settings       | 20.5 s · 14 turns               | 12.7 s · 7 turns         | 17.0 s · 8 turns       |
-| Read five pages from a results list | 28.1 s · 7 turns                | 9.0 s · 4 turns          | 11.4 s · 4 turns       |
+| Sign up through a form              | 15.0 s · 9 turns                | 10.2 s · 4 turns         | 11.5 s · 4 turns       |
+| Pay, retrying declined attempts     | 20.6 s · 8 turns                | 19.1 s · 8 turns         | 18.9 s · 9 turns       |
+| Sign in, then change settings       | 16.2 s · 11 turns               | 17.5 s · 7 turns         | 18.2 s · 8 turns       |
+| Read five pages from a results list | 27.7 s · 6 turns                | 8.5 s · 4 turns          | 11.8 s · 5 turns       |
 
-Every form run started with `get_snapshot` and acted by ref, without being told to. Opus retried the payment inside a single `repeat` step; Sonnet's batched payment median includes one run that waited 20 s on a timeout. The last row uses `run_tabs`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) ran the same four tasks: 95 of 96 runs passed, and PERFORMANCE.md has the time, cost, and turns for each, the charts, and how the runs were set up.
+Every form run started with `get_snapshot` and acted by ref, without being told to. Each payment click waits for the page to settle and reports the decline or the receipt, so the agents could retry from each reply. The last row uses `run_tabs`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) ran the same four tasks with the default tool set: all 96 runs passed, and PERFORMANCE.md has the time, cost, and turns for each, the charts, and how the runs were set up.
 
 ## Tools
 

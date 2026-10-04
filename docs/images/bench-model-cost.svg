@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="340" viewBox="0 0 880 340" role="img" aria-labelledby="title desc">
   <title id="title">Cost per task by model</title>
-  <desc id="desc">Fable 5.1 batch 27.3, Opus 5.5 batch 10.4, Sonnet 5.5 batch 6.3, Haiku 4.5 batch 7.4, GPT-6-Astra batch 43.3, GPT-6.1 Sol batch 7.7, GPT-6-Luna batch 0.6</desc>
+  <desc id="desc">Fable 5.1 batch 24.1, Opus 5.5 batch 8.6, Sonnet 5.5 batch 4.7, Haiku 4.5 batch 4.7, GPT-6-Astra batch 38.5, GPT-6.1 Sol batch 6.8, GPT-6-Luna batch 0.4</desc>
   <style>
     .bg { fill: #f6f8fa; stroke: #d1d9e0; }
     .rule { stroke: #d1d9e0; }
@@ -34,32 +34,32 @@
   <line class="rule" x1="56" x2="856" y1="284" y2="284" />
   <text class="muted sans" x="48" y="288" font-size="11" text-anchor="end">0</text>
   <line class="rule" x1="56" x2="856" y1="224" y2="224" />
-  <text class="muted sans" x="48" y="228" font-size="11" text-anchor="end">12.5</text>
+  <text class="muted sans" x="48" y="228" font-size="11" text-anchor="end">10</text>
   <line class="rule" x1="56" x2="856" y1="164" y2="164" />
-  <text class="muted sans" x="48" y="168" font-size="11" text-anchor="end">25</text>
+  <text class="muted sans" x="48" y="168" font-size="11" text-anchor="end">20</text>
   <line class="rule" x1="56" x2="856" y1="104" y2="104" />
-  <text class="muted sans" x="48" y="108" font-size="11" text-anchor="end">37.5</text>
+  <text class="muted sans" x="48" y="108" font-size="11" text-anchor="end">30</text>
   <line class="rule" x1="56" x2="856" y1="44" y2="44" />
-  <text class="muted sans" x="48" y="48" font-size="11" text-anchor="end">50</text>
-  <rect class="s0" x="81.14285714285714" y="153.19643" width="64" height="130.80357" rx="3" />
-  <text class="text sans" x="113.14285714285714" y="148.19643" font-size="11" text-anchor="middle">27.3</text>
+  <text class="muted sans" x="48" y="48" font-size="11" text-anchor="end">40</text>
+  <rect class="s0" x="81.14285714285714" y="139.48227500000002" width="64" height="144.51772499999998" rx="3" />
+  <text class="text sans" x="113.14285714285714" y="134.48227500000002" font-size="11" text-anchor="middle">24.1</text>
   <text class="text sans" x="113.14285714285714" y="306" font-size="12" text-anchor="middle">Fable 5.1 batch</text>
-  <rect class="s1" x="195.42857142857142" y="234.223424" width="64" height="49.776576000000006" rx="3" />
-  <text class="text sans" x="227.42857142857142" y="229.223424" font-size="11" text-anchor="middle">10.4</text>
+  <rect class="s1" x="195.42857142857142" y="232.28507" width="64" height="51.71493000000001" rx="3" />
+  <text class="text sans" x="227.42857142857142" y="227.28507" font-size="11" text-anchor="middle">8.6</text>
   <text class="text sans" x="227.42857142857142" y="306" font-size="12" text-anchor="middle">Opus 5.5 batch</text>
-  <rect class="s2" x="309.7142857142857" y="253.582664" width="64" height="30.417336000000006" rx="3" />
-  <text class="text sans" x="341.7142857142857" y="248.582664" font-size="11" text-anchor="middle">6.3</text>
+  <rect class="s2" x="309.7142857142857" y="255.60095" width="64" height="28.39904999999999" rx="3" />
+  <text class="text sans" x="341.7142857142857" y="250.60095" font-size="11" text-anchor="middle">4.7</text>
   <text class="text sans" x="341.7142857142857" y="306" font-size="12" text-anchor="middle">Sonnet 5.5 batch</text>
-  <rect class="s3" x="424.00000000000006" y="248.44736" width="64" height="35.55264" rx="3" />
-  <text class="text sans" x="456.00000000000006" y="243.44736" font-size="11" text-anchor="middle">7.4</text>
+  <rect class="s3" x="424.00000000000006" y="255.51947" width="64" height="28.480529999999987" rx="3" />
+  <text class="text sans" x="456.00000000000006" y="250.51947" font-size="11" text-anchor="middle">4.7</text>
   <text class="text sans" x="456.00000000000006" y="306" font-size="12" text-anchor="middle">Haiku 4.5 batch</text>
-  <rect class="s4" x="538.2857142857142" y="76.16624000000002" width="64" height="207.83375999999998" rx="3" />
-  <text class="text sans" x="570.2857142857142" y="71.16624000000002" font-size="11" text-anchor="middle">43.3</text>
+  <rect class="s4" x="538.2857142857142" y="53.10200000000003" width="64" height="230.89799999999997" rx="3" />
+  <text class="text sans" x="570.2857142857142" y="48.10200000000003" font-size="11" text-anchor="middle">38.5</text>
   <text class="text sans" x="570.2857142857142" y="306" font-size="12" text-anchor="middle">GPT-6-Astra batch</text>
-  <rect class="s5" x="652.5714285714286" y="246.801776" width="64" height="37.19822400000001" rx="3" />
-  <text class="text sans" x="684.5714285714286" y="241.801776" font-size="11" text-anchor="middle">7.7</text>
+  <rect class="s5" x="652.5714285714286" y="243.08942000000002" width="64" height="40.91057999999998" rx="3" />
+  <text class="text sans" x="684.5714285714286" y="238.08942000000002" font-size="11" text-anchor="middle">6.8</text>
   <text class="text sans" x="684.5714285714286" y="306" font-size="12" text-anchor="middle">GPT-6.1 Sol batch</text>
-  <rect class="s6" x="766.8571428571429" y="281.2456352" width="64" height="2.754364800000019" rx="3" />
-  <text class="text sans" x="798.8571428571429" y="276.2456352" font-size="11" text-anchor="middle">0.6</text>
+  <rect class="s6" x="766.8571428571429" y="281.579399" width="64" height="2.4206009999999765" rx="3" />
+  <text class="text sans" x="798.8571428571429" y="276.579399" font-size="11" text-anchor="middle">0.4</text>
   <text class="text sans" x="798.8571428571429" y="306" font-size="12" text-anchor="middle">GPT-6-Luna batch</text>
 </svg>
