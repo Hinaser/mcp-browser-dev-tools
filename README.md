@@ -36,7 +36,7 @@ Then ask the agent for browser work, for example "open example.com and check the
 
 ![An AI agent sends one run_steps call with five steps to the browser and gets one reply with every result](docs/images/overview.svg)
 
-Your agent gets 42 browser tools over MCP: open or attach to tabs, click, type, drag, upload files, and navigate, read the console and network, block or mock requests, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once. `run_tabs` does the same in several tabs at the same time.
+Your agent gets 44 browser tools over MCP: open or attach to tabs, click, type, drag, upload files, and navigate, read the console and network, block or mock requests, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once. `run_tabs` does the same in several tabs at the same time.
 
 ## Why This One
 
@@ -143,13 +143,14 @@ Every form run started with `get_snapshot` and acted by ref, without being told 
 
 ## Tools
 
-42 tools, described in [docs/tools.md](docs/tools.md). The server offers the core set by default, since every model turn pays for each tool offered; `MCP_BROWSER_TOOLS=all`, or a list of groups such as `network,state`, adds the rest ([Tool Sets](docs/tools.md#tool-sets)).
+44 tools, described in [docs/tools.md](docs/tools.md). The server offers the core set by default, since every model turn pays for each tool offered; `MCP_BROWSER_TOOLS=all`, or a list of groups such as `network,state`, adds the rest ([Tool Sets](docs/tools.md#tool-sets)).
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `drag`, `type`, `select`, `press_key`, `upload_file`, `scroll`, `set_viewport`
 - **Wait and batch:** `wait_for`, `run_steps`, `run_tabs`
 - **Inspect:** `get_page_state`, `get_snapshot`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
 - **Console and network:** `get_console_messages`, `get_network_requests`, `get_events`, `get_har`, `set_network`
+- **Performance:** `get_performance`, `record_trace`
 - **Session state:** `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `compare_page_state`, `compare_selector`, `capture_debug_report`
 
 ## Configuration

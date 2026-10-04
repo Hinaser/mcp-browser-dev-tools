@@ -1609,6 +1609,24 @@ export class FirefoxBidiSessionManager {
     }
   }
 
+  // The page's report; Firefox has no counters like Chromium's over BiDi.
+  async getPerformance(sessionId) {
+    const report = await this.runPageAction(this.getSession(sessionId), {
+      action: "performance",
+    });
+    return { ...report, metrics: null };
+  }
+
+  async startTrace() {
+    throw new Error(
+      "record_trace is Chromium only; Firefox has no tracing over WebDriver BiDi",
+    );
+  }
+
+  async stopTrace() {
+    return this.startTrace();
+  }
+
   async uploadFiles(sessionId, selector, files) {
     const session = this.getSession(sessionId);
     const token = crypto.randomUUID();

@@ -2,6 +2,7 @@ import { ChangeTracker } from "./action-changes.mjs";
 import { actionTools } from "./tools/action-tools.mjs";
 import { browserTools } from "./tools/browser-tools.mjs";
 import { inspectionTools } from "./tools/inspection-tools.mjs";
+import { performanceTools } from "./tools/performance-tools.mjs";
 import { stateTools } from "./tools/state-tools.mjs";
 import { appendFile } from "node:fs/promises";
 import { launchBrowser as launchLocalBrowser } from "./browser-launch-service.mjs";
@@ -252,6 +253,7 @@ export class McpBrowserDevToolsServer {
       ...stateTools(this),
       ...actionTools(this),
       ...inspectionTools(this),
+      ...performanceTools(this),
     ].filter(([name]) => !enabled || enabled.has(name));
 
     const stepTools = tools

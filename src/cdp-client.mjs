@@ -44,6 +44,22 @@ import {
 // How long a drag waits after its first move for the page to start an HTML5
 // drag, and the longest a drag's interception stays open.
 const DRAG_START_MS = 100;
+// The categories DevTools' Performance panel records, so a trace opens there
+// with its timeline, call stacks, and CPU profile.
+const TRACE_CATEGORIES = [
+  "-*",
+  "devtools.timeline",
+  "disabled-by-default-devtools.timeline",
+  "disabled-by-default-devtools.timeline.frame",
+  "disabled-by-default-devtools.timeline.stack",
+  "v8.execute",
+  "disabled-by-default-v8.cpu_profiler",
+  "blink.console",
+  "blink.user_timing",
+  "latencyInfo",
+  "loading",
+];
+const TRACE_COMPLETE_MS = 60_000;
 // How long a click may take to open a file chooser.
 const FILE_CHOOSER_MS = 2000;
 const DRAG_SESSION_MS = 30_000;
@@ -514,6 +530,13 @@ export class CdpSession {
       this.send("Log.enable"),
       this.send("Network.enable"),
     ]);
+    // Chrome's performance counters count from here, so get_performance's
+    // layout, style, and script times cover the whole session.
+    await this.send("Performance.enable")
+      .then(() => {
+        this.performanceEnabled = true;
+      })
+      .catch(() => {});
     await this.autoAttachFrames(null);
 
     await this.installInputRecorder();
@@ -1754,6 +1777,101 @@ export class CdpSession {
     return uploadResult(family, selector, files, { chooser: true });
   }
 
+  // The page's report, with Chromium's own counters: heap, DOM nodes,
+  // listeners, layouts and style recalculations, and script and task time.
+  async getPerformance() {
+    const report = await this.runPageAction({ action: "performance" });
+    let metrics = null;
+    try {
+      if (!this.performanceEnabled) {
+        await this.send("Performance.enable");
+        this.performanceEnabled = true;
+      }
+      const values = Object.fromEntries(
+        (await this.send("Performance.getMetrics")).metrics.map(
+          ({ name, value }) => [name, value],
+        ),
+      );
+      const ms = (seconds) =>
+        seconds === undefined ? null : Math.round(seconds * 1000);
+      metrics = {
+        jsHeapUsedBytes: Math.round(values.JSHeapUsedSize ?? 0),
+        jsHeapTotalBytes: Math.round(values.JSHeapTotalSize ?? 0),
+        domNodes: values.Nodes ?? null,
+        eventListeners: values.JSEventListeners ?? null,
+        layouts: values.LayoutCount ?? null,
+        styleRecalcs: values.RecalcStyleCount ?? null,
+        layoutMs: ms(values.LayoutDuration),
+        styleRecalcMs: ms(values.RecalcStyleDuration),
+        scriptMs: ms(values.ScriptDuration),
+        taskMs: ms(values.TaskDuration),
+      };
+    } catch {
+      // The counters are extra; the page's report stands without them.
+    }
+    return { ...report, metrics };
+  }
+
+  async startTrace(options = {}) {
+    if (this.tracing) {
+      throw new Error("A trace is already recording; stop it first");
+    }
+    await this.send("Tracing.start", {
+      transferMode: "ReturnAsStream",
+      traceConfig: {
+        recordMode: "recordUntilFull",
+        includedCategories: [
+          ...TRACE_CATEGORIES,
+          ...(options.screenshots
+            ? ["disabled-by-default-devtools.screenshot"]
+            : []),
+        ],
+      },
+    });
+    this.tracing = { startedAt: Date.now() };
+    return { browserFamily: cdpBrowserFamily(this.config), recording: true };
+  }
+
+  // Ends the trace and reads it from the stream Chrome hands back.
+  async stopTrace() {
+    if (!this.tracing) {
+      throw new Error("No trace is recording; start one first");
+    }
+    const { startedAt } = this.tracing;
+    const complete = this.createEventWaiter(
+      "Tracing.tracingComplete",
+      () => true,
+      TRACE_COMPLETE_MS,
+    );
+    try {
+      await this.send("Tracing.end");
+    } catch (error) {
+      // Chrome is still recording; a later stop can end it.
+      complete.cancel();
+      throw error;
+    }
+    this.tracing = null;
+    const { stream } = await complete.promise;
+    const chunks = [];
+    try {
+      while (true) {
+        const chunk = await this.send("IO.read", {
+          handle: stream,
+          size: 1 << 20,
+        });
+        chunks.push(
+          Buffer.from(chunk.data, chunk.base64Encoded ? "base64" : "utf8"),
+        );
+        if (chunk.eof) {
+          break;
+        }
+      }
+    } finally {
+      await this.send("IO.close", { handle: stream }).catch(() => {});
+    }
+    return { data: Buffer.concat(chunks), durationMs: Date.now() - startedAt };
+  }
+
   async select(selector, options = {}) {
     return this.runPageAction(
       {
@@ -2403,6 +2521,18 @@ export class CdpSessionManager {
 
   async setNetwork(sessionId, options) {
     return this.getSession(sessionId).setNetwork(options);
+  }
+
+  async getPerformance(sessionId) {
+    return this.getSession(sessionId).getPerformance();
+  }
+
+  async startTrace(sessionId, options) {
+    return this.getSession(sessionId).startTrace(options);
+  }
+
+  async stopTrace(sessionId) {
+    return this.getSession(sessionId).stopTrace();
   }
 
   async type(sessionId, selector, text, options) {

@@ -1338,3 +1338,52 @@ test("CdpSession runs a frame ref's action in that frame and moves its point", a
   assert.equal(evaluate.sessionId, "child-1");
   assert.match(evaluate.params.expression, /"selector":"ref=e2"/);
 });
+
+test("CdpSession records a trace and reads it back from its stream", async () => {
+  const { session, sentCommands } = createInputSession({});
+  const chunks = [
+    {
+      data: Buffer.from('{"traceEvents":[').toString("base64"),
+      base64Encoded: true,
+      eof: false,
+    },
+    { data: "]}", base64Encoded: false, eof: true },
+  ];
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    if (method === "Tracing.end") {
+      setImmediate(() =>
+        session.bufferEvent("Tracing.tracingComplete", { stream: "s-1" }),
+      );
+    }
+    return method === "IO.read" ? chunks.shift() : {};
+  };
+
+  await session.startTrace({ screenshots: true });
+  await assert.rejects(session.startTrace(), /already recording/);
+  const { data } = await session.stopTrace();
+
+  assert.equal(data.toString(), '{"traceEvents":[]}');
+  const start = sentCommands.find(({ method }) => method === "Tracing.start");
+  assert.equal(start.params.transferMode, "ReturnAsStream");
+  assert.ok(
+    start.params.traceConfig.includedCategories.includes(
+      "disabled-by-default-devtools.screenshot",
+    ),
+  );
+  assert.equal(sentCommands.at(-1).method, "IO.close");
+  await assert.rejects(session.stopTrace(), /No trace is recording/);
+});
+
+test("CdpSession keeps the trace running when stopping it fails", async () => {
+  const { session } = createInputSession({});
+  await session.startTrace();
+  session.send = async (method) => {
+    if (method === "Tracing.end") {
+      throw new Error("Tracing is not started");
+    }
+    return {};
+  };
+  await assert.rejects(session.stopTrace(), /Tracing is not started/);
+  assert.ok(session.tracing);
+});
