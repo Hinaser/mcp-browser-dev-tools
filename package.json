@@ -56,6 +56,7 @@
     "src/tool-schemas.mjs",
     "src/tool-sets.mjs",
     "src/upload-files.mjs",
+    "src/video-output.mjs",
     "src/network-control.mjs",
     "src/tools/action-tools.mjs",
     "src/tools/browser-tools.mjs",

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile, rm, stat } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 
 import { CdpSession, CdpSessionManager } from "./cdp-client.mjs";
@@ -1386,4 +1388,329 @@ test("CdpSession keeps the trace running when stopping it fails", async () => {
   };
   await assert.rejects(session.stopTrace(), /Tracing is not started/);
   assert.ok(session.tracing);
+});
+
+// A JPEG header with the given size, enough for imageSize to read.
+function jpegOf(width, height) {
+  return Buffer.from([
+    0xff,
+    0xd8,
+    0xff,
+    0xc0,
+    0x00,
+    0x11,
+    0x08,
+    height >> 8,
+    height & 0xff,
+    width >> 8,
+    width & 0xff,
+    0x03,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ]).toString("base64");
+}
+
+function createVideoSession() {
+  const { session, sentCommands } = createInputSession({});
+  session.send = async (method, params) => {
+    sentCommands.push({ method, params });
+    if (method === "Page.captureScreenshot") {
+      return { data: jpegOf(1280, 720) };
+    }
+    return {};
+  };
+  return { session, sentCommands };
+}
+
+async function removeVideoDir(result) {
+  await rm(result.dir, { recursive: true, force: true });
+}
+
+test("CdpSession startVideo takes a first frame, starts the screencast, and records one video at a time", async () => {
+  const { session, sentCommands } = createVideoSession();
+  const started = await session.startVideo({ quality: 60, maxWidth: 640 });
+  try {
+    assert.equal(started.recording, true);
+    assert.deepEqual(
+      [started.width, started.height, started.fps],
+      [640, 360, 30],
+    );
+    const [shot, start] = sentCommands.slice(-2);
+    assert.deepEqual(shot, {
+      method: "Page.captureScreenshot",
+      params: { format: "jpeg", quality: 60 },
+    });
+    assert.deepEqual(start, {
+      method: "Page.startScreencast",
+      params: {
+        format: "jpeg",
+        quality: 60,
+        maxWidth: 640,
+        maxHeight: 360,
+        everyNthFrame: 1,
+      },
+    });
+    await assert.rejects(session.startVideo(), /already recording/);
+    const stopping = session.stopVideo();
+    await assert.rejects(session.stopVideo(), /No video is recording/);
+    const capture = await stopping;
+    assert.equal(capture.frames.length, 1);
+    assert.equal(capture.frames[0].timestamp, capture.startedAt);
+    const first = path.join(capture.dir, capture.frames[0].file);
+    assert.equal((await stat(first)).mode & 0o777, 0o600);
+    assert.equal(sentCommands.at(-1).method, "Page.stopScreencast");
+    await assert.rejects(session.stopVideo(), /No video is recording/);
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSession writes and acknowledges screencast frames without buffering them", async () => {
+  const { session, sentCommands } = createVideoSession();
+  const started = await session.startVideo({});
+  try {
+    assert.deepEqual([started.width, started.height], [1280, 720]);
+    const frame = (timestamp, sessionId) =>
+      session.bufferEvent("Page.screencastFrame", {
+        data: Buffer.from(`frame ${timestamp}`).toString("base64"),
+        metadata: { timestamp },
+        sessionId,
+      });
+    frame(started.startedAt + 0.001, 7);
+    frame(started.startedAt + 0.002, 8);
+    await session.video.queue;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      sentCommands
+        .filter(({ method }) => method === "Page.screencastFrameAck")
+        .map(({ params }) => params.sessionId),
+      [7, 8],
+    );
+    assert.equal(session.getEvents(10).length, 0);
+
+    const capture = await session.stopVideo();
+    assert.deepEqual(
+      capture.frames.map((entry) => entry.file),
+      ["000000.jpg", "000001.jpg", "000002.jpg"],
+    );
+    assert.equal(
+      await readFile(path.join(capture.dir, "000002.jpg"), "utf8"),
+      `frame ${started.startedAt + 0.002}`,
+    );
+    assert.ok(capture.stoppedAt >= capture.startedAt);
+    assert.deepEqual(capture.warnings, []);
+
+    // Frames after the stop are still acknowledged, never written.
+    frame(started.startedAt + 2, 9);
+    assert.equal(sentCommands.at(-1).params.sessionId, 9);
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSession stops capturing at maxDurationMs and keeps the frames for stop", async () => {
+  const { session, sentCommands } = createVideoSession();
+  const started = await session.startVideo({ maxDurationMs: 30 });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(sentCommands.at(-1).method, "Page.stopScreencast");
+    const capturedUntil = session.video.stoppedAt;
+    session.bufferEvent("Page.screencastFrame", {
+      data: "ZnJhbWU=",
+      metadata: { timestamp: capturedUntil + 1 },
+      sessionId: 1,
+    });
+    const capture = await session.stopVideo();
+    assert.equal(capture.frames.length, 1);
+    assert.equal(capture.stoppedAt, capturedUntil);
+    assert.match(
+      capture.warnings[0],
+      /Capture stopped at maxDurationMs \(30 ms\)/,
+    );
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSession warns about a long stretch without frames", async () => {
+  const { session } = createVideoSession();
+  const started = await session.startVideo({});
+  try {
+    session.bufferEvent("Page.screencastFrame", {
+      data: "ZnJhbWU=",
+      metadata: { timestamp: started.startedAt + 12.3 },
+      sessionId: 1,
+    });
+    const capture = await session.stopVideo();
+    assert.equal(capture.warnings.length, 1);
+    assert.match(
+      capture.warnings[0],
+      /No frame arrived for 12\.3 s \(from 0 s to 12\.3 s into the recording\): the page did not repaint, or the tab was hidden or minimised/,
+    );
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSessionManager keeps a detached session's frames for stop to encode", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+  const { session, sentCommands } = createVideoSession();
+  // An open socket, so detaching stops the screencast before closing it.
+  session.websocket = {
+    readyState: WebSocket.OPEN,
+    close: () => session.markClosed(),
+  };
+  manager.sessions.set(session.id, session);
+  const started = await manager.startVideo(session.id, {});
+  try {
+    const detached = await manager.detachSession(session.id);
+    assert.deepEqual(detached.video, {
+      framesDir: started.dir,
+      note: "The recording's frames are kept; record_video stop with this sessionId encodes them (the frames of the 8 most recently ended recordings are kept)",
+    });
+    assert.equal(session.closed, true);
+    assert.equal(session.video.capturing, false);
+    assert.equal(sentCommands.at(-1).method, "Page.stopScreencast");
+    assert.ok((await stat(path.join(started.dir, "000000.jpg"))).isFile());
+
+    const capture = await manager.stopVideo(session.id);
+    assert.equal(capture.dir, started.dir);
+    assert.equal(capture.frames.length, 1);
+    await assert.rejects(manager.stopVideo(session.id), /No active session/);
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSessionManager closeTarget names the frames of a session that was recording", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+  manager.sendBrowserCommand = async () => ({ success: true });
+  const { session } = createVideoSession();
+  manager.sessions.set(session.id, session);
+  const started = await manager.startVideo(session.id, {});
+  try {
+    const closed = await manager.closeTarget("target-1");
+    assert.equal(closed.detachedSessions[0].video.framesDir, started.dir);
+    assert.equal(manager.orphanedVideos.get(session.id), session);
+    const capture = await manager.stopVideo(session.id);
+    assert.equal(capture.frames.length, 1);
+    assert.equal(manager.orphanedVideos.size, 0);
+  } finally {
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSession refuses a second start while the first is still starting", async () => {
+  const { session, sentCommands } = createVideoSession();
+  let finishShot;
+  const send = session.send;
+  session.send = (method, params) => {
+    if (method === "Page.captureScreenshot") {
+      return new Promise((resolve) => {
+        finishShot = () => resolve({ data: jpegOf(800, 600) });
+      });
+    }
+    return send(method, params);
+  };
+  const first = session.startVideo({});
+  await assert.rejects(session.startVideo({}), /already recording/);
+  await assert.rejects(session.stopVideo(), /still starting/);
+  finishShot();
+  const started = await first;
+  try {
+    assert.deepEqual([started.width, started.height], [800, 600]);
+    assert.equal(
+      sentCommands.filter(({ method }) => method === "Page.startScreencast")
+        .length,
+      1,
+    );
+  } finally {
+    await session.stopVideo();
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSession cleans up when the screencast cannot start", async () => {
+  const { session } = createVideoSession();
+  const send = session.send;
+  session.send = (method, params) => {
+    if (method === "Page.startScreencast") {
+      throw new Error("Screencast is not supported");
+    }
+    return send(method, params);
+  };
+  await assert.rejects(session.startVideo({}), /not supported/);
+  assert.equal(session.video, null);
+  const started = await (async () => {
+    session.send = send;
+    return session.startVideo({});
+  })();
+  await session.stopVideo();
+  await removeVideoDir(started);
+});
+
+test("CdpSession acknowledges a recorded frame once it is written", async () => {
+  const { session, sentCommands } = createVideoSession();
+  const started = await session.startVideo({});
+  try {
+    session.bufferEvent("Page.screencastFrame", {
+      data: "ZnJhbWU=",
+      metadata: { timestamp: started.startedAt + 0.001 },
+      sessionId: 5,
+    });
+    const acks = () =>
+      sentCommands.filter(({ method }) => method === "Page.screencastFrameAck");
+    assert.equal(acks().length, 0);
+    await session.video.queue;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(acks().length, 1);
+  } finally {
+    await session.stopVideo();
+    await removeVideoDir(started);
+  }
+});
+
+test("CdpSessionManager keeps the frames of the eight most recently ended recordings", async () => {
+  const manager = new CdpSessionManager({
+    browserFamily: "chromium",
+    cdpBaseUrl: "http://127.0.0.1:9222",
+    eventBufferSize: 200,
+  });
+  const dirs = [];
+  try {
+    for (let index = 0; index < 9; index += 1) {
+      const { session } = createVideoSession();
+      manager.sessions.set(session.id, session);
+      dirs.push({ id: session.id, ...(await manager.startVideo(session.id)) });
+      await manager.detachSession(session.id);
+    }
+    assert.equal(manager.orphanedVideos.size, 8);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(
+      await stat(dirs[0].dir).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      "the oldest orphan's frames are deleted",
+    );
+    await assert.rejects(manager.stopVideo(dirs[0].id), /No active session/);
+    assert.equal((await manager.stopVideo(dirs[1].id)).frames.length, 1);
+  } finally {
+    await Promise.all(dirs.map(removeVideoDir));
+  }
 });

@@ -36,7 +36,7 @@ Then ask the agent for browser work, for example "open example.com and check the
 
 ![An AI agent sends one run_steps call with five steps to the browser and gets one reply with every result](docs/images/overview.svg)
 
-Your agent gets 44 browser tools over MCP: open or attach to tabs, click, type, drag, upload files, and navigate, read the console and network, block or mock requests, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once. `run_tabs` does the same in several tabs at the same time.
+Your agent gets 45 browser tools over MCP: open or attach to tabs, click, type, drag, upload files, and navigate, read the console and network, block or mock requests, take screenshots, and save and restore sessions. At the center is `run_steps`: the agent sends a whole task, with branches and waits in it, and the server carries it out in the browser and replies once. `run_tabs` does the same in several tabs at the same time.
 
 ## Why This One
 
@@ -128,6 +128,19 @@ A research step usually means opening several pages and reading each one. `read_
 
 The result lists every tab in the order given, each with its steps' results: here, each page's main text, cut to `maxChars`. Each tab opens a new tab, loads its URL, and runs its steps at the same time as the others, so the call takes about as long as the slowest page; the tabs close afterwards. Steps are the same as in `run_steps`, including `if` and `repeat`, and a tab that fails or runs past its `timeoutMs` does not stop the others. `browserFamily` picks the browser for the new tabs when the server runs in its default `auto` mode. The details are in [Tools](docs/tools.md#several-tabs-at-once).
 
+## Record A Demo
+
+`record_video` records what a Chromium tab shows while the agent drives it, as an MP4. For a 1920x1080 recording, set the viewport first, then start, act, and stop:
+
+```json
+{ "name": "set_viewport", "arguments": { "sessionId": "s1", "width": 1920, "height": 1080 } }
+{ "name": "record_video", "arguments": { "sessionId": "s1", "action": "start" } }
+{ "name": "click", "arguments": { "sessionId": "s1", "selector": "text=Open dashboard" } }
+{ "name": "record_video", "arguments": { "sessionId": "s1", "action": "stop", "path": "/home/me/demo.mp4" } }
+```
+
+`stop` returns the file's `path`, `durationMs`, `frames`, `width`, and `height`. Chrome streams a frame on each repaint, and `stop` encodes them with ffmpeg (found on `PATH`, or named by `MCP_BROWSER_FFMPEG`) at a constant frame rate, each frame lasting as long as it was on screen. Without ffmpeg, `stop` keeps the frames and returns the command that encodes them. `record_video` is in the `performance` group, reached through `more_tools` or as a `run_steps` step. The details, including `fps`, `quality`, `maxWidth` and `maxHeight`, and `maxDurationMs`, are in [Tools](docs/tools.md#performance).
+
 ## Measured
 
 Median of 3 runs on the current build, from the benchmark in [PERFORMANCE.md](PERFORMANCE.md). "One action per call" disallows `run_steps` and `run_tabs`.
@@ -143,14 +156,14 @@ Every form run started with `get_snapshot` and acted by ref, without being told 
 
 ## Tools
 
-44 tools, described in [docs/tools.md](docs/tools.md). The server lists the core set by default, since every model turn pays for each tool listed, and `more_tools` lists, describes, and calls the rest; `MCP_BROWSER_TOOLS=all`, or a list of groups such as `network,state`, lists them too ([Tool Sets](docs/tools.md#tool-sets)).
+45 tools, described in [docs/tools.md](docs/tools.md). The server lists the core set by default, since every model turn pays for each tool listed, and `more_tools` lists, describes, and calls the rest; `MCP_BROWSER_TOOLS=all`, or a list of groups such as `network,state`, lists them too ([Tool Sets](docs/tools.md#tool-sets)).
 
 - **Browser and tabs:** `browser_status`, `ensure_browser`, `launch_browser`, `list_tabs`, `new_tab`, `close_tab`, `attach_tab`, `detach_tab`, `list_sessions`
 - **Act:** `navigate`, `reload`, `click`, `hover`, `drag`, `type`, `select`, `press_key`, `upload_file`, `scroll`, `set_viewport`
 - **Wait and batch:** `wait_for`, `run_steps`, `run_tabs`
 - **Inspect:** `get_page_state`, `get_snapshot`, `get_document`, `inspect_element`, `read_text`, `take_screenshot`, `evaluate_js`
 - **Console and network:** `get_console_messages`, `get_network_requests`, `get_events`, `get_har`, `set_network`
-- **Performance:** `get_performance`, `record_trace`
+- **Performance:** `get_performance`, `record_trace`, `record_video`
 - **Session state:** `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `compare_page_state`, `compare_selector`, `capture_debug_report`
 
 ## Configuration

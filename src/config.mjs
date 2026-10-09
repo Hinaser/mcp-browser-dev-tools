@@ -140,6 +140,7 @@ export function loadConfig(env = process.env) {
       .map((dir) => dir.trim())
       .filter(Boolean),
     timingLogFile: env.MCP_BROWSER_TIMING_LOG?.trim() || null,
+    ffmpegPath: env.MCP_BROWSER_FFMPEG?.trim() || null,
     protocolVersion:
       env.MCP_PROTOCOL_VERSION?.trim() || DEFAULT_PROTOCOL_VERSION,
   };

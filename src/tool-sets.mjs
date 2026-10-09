@@ -41,7 +41,7 @@ export const TOOL_GROUPS = {
   ],
   compare: ["compare_page_state", "compare_selector"],
   browser: ["browser_status", "launch_browser", "list_sessions", "detach_tab"],
-  performance: ["get_performance", "record_trace"],
+  performance: ["get_performance", "record_trace", "record_video"],
 };
 
 // The tool names MCP_BROWSER_TOOLS enables, or null for all. The core set

@@ -288,6 +288,14 @@ export class MultiBrowserAdapter {
     return this.delegateSession(sessionId, "stopTrace");
   }
 
+  startVideo(sessionId, options) {
+    return this.delegateSession(sessionId, "startVideo", [options]);
+  }
+
+  stopVideo(sessionId) {
+    return this.delegateSession(sessionId, "stopVideo");
+  }
+
   type(sessionId, selector, text, options) {
     return this.delegateSession(sessionId, "type", [selector, text, options]);
   }

@@ -987,3 +987,15 @@ test("FirefoxBidiSessionManager sends input for a frame element to the frame's c
     origin: "viewport",
   });
 });
+
+test("record_video is Chromium only on Firefox", async () => {
+  const manager = new FirefoxBidiSessionManager({
+    firefoxBidiWsUrl: "ws://127.0.0.1:9222/session/direct",
+    eventBufferSize: 10,
+  });
+  await assert.rejects(
+    manager.startVideo("session-1", {}),
+    /record_video is Chromium only; WebDriver BiDi has no screencast/,
+  );
+  await assert.rejects(manager.stopVideo("session-1"), /Chromium only/);
+});
