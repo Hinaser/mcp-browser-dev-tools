@@ -8,6 +8,10 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Added
+
+- `record_video` records what a Chromium tab shows to an MP4, for example a demo of a web UI while the agent drives it: `action: "start"`, act, then `action: "stop"`, which returns the file's `path`, `durationMs`, `frames`, `width`, and `height`. Chrome streams a JPEG of each repaint over `Page.startScreencast`; each frame is written to a private temp directory as it arrives with its time, and a screenshot taken at start is the first frame, so a page that never repaints still records. `stop` encodes with ffmpeg, found on `PATH` or named by the new `MCP_BROWSER_FFMPEG`, as H.264 at a constant frame rate (`fps`, default 30, at most 60), each frame lasting until the next and the last until the capture stopped. Without ffmpeg, or when it fails, `stop` keeps the frames and returns `framesDir`, the exact `ffmpegCommand` that encodes them, and `error`. `start` also takes `quality` (JPEG, default 80), `maxWidth` and `maxHeight` (default the viewport; for 1920x1080, call `set_viewport` first), and `maxDurationMs` (default 10 minutes, at most 30), after which capture stops by itself and the next `stop` encodes. Files are written like screenshots: readable only by the current user, never through a symlink, and over an existing file only with `overwrite: true`; the path is checked before the capture stops. `warnings` reports a stretch of more than 5 s with no frame, as a hidden or minimised tab sends none. A tab that closes or a session that is detached while recording keeps its frames, named in the detach or close result, and `stop` with the same `sessionId` still encodes them (the 8 most recently ended recordings are kept this way). `record_video` is in the `performance` group. Firefox returns an error: WebDriver BiDi has no screencast
+
 ## [0.3.0] - 2026-10-04
 
 This release changes the default tool list: see Changed. Actions now

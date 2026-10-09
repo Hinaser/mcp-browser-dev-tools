@@ -1,6 +1,6 @@
 # Tools
 
-The server has 44 tools and lists the 24 of the core set by default, plus `more_tools`, which lists, describes, and calls the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
+The server has 45 tools and lists the 24 of the core set by default, plus `more_tools`, which lists, describes, and calls the others (see [Tool Sets](#tool-sets)). Tools that take `sessionId` work on a tab attached with `attach_tab`; call it first and reuse the returned session.
 
 ## Tool Sets
 
@@ -20,7 +20,7 @@ Set `MCP_BROWSER_TOOLS` to `all`, or to a comma-separated list of groups and too
 | `state`          | `get_cookies`, `get_storage`, `capture_session_snapshot`, `restore_session_snapshot`, `capture_debug_report`, `get_page_state`, `get_document`                                                                                                                                                                                             |
 | `compare`        | `compare_page_state`, `compare_selector`                                                                                                                                                                                                                                                                                                   |
 | `browser`        | `browser_status`, `launch_browser`, `list_sessions`, `detach_tab`                                                                                                                                                                                                                                                                          |
-| `performance`    | `get_performance`, `record_trace`                                                                                                                                                                                                                                                                                                          |
+| `performance`    | `get_performance`, `record_trace`, `record_video`                                                                                                                                                                                                                                                                                          |
 
 ## Tool List
 
@@ -52,6 +52,7 @@ Set `MCP_BROWSER_TOOLS` to `all`, or to a comma-separated list of groups and too
 |                     | `set_network`                                                | Blocks or mocks requests by URL pattern, adds request headers, or emulates offline and slow networks.                                 |
 | Performance         | `get_performance`                                            | Load timing, rated Web Vitals, long tasks, slowest resources, and Chromium's counters.                                                |
 |                     | `record_trace`                                               | Records a Chromium trace to a file DevTools' Performance panel opens.                                                                 |
+|                     | `record_video`                                               | Records what a Chromium tab shows to an MP4, encoded with ffmpeg.                                                                     |
 |                     | `get_har`                                                    | Buffered network activity as HAR-like JSON.                                                                                           |
 | Session state       | `get_cookies`, `get_storage`                                 | Page-visible cookies and web storage.                                                                                                 |
 |                     | `capture_session_snapshot`, `restore_session_snapshot`       | Save cookies and storage, and restore them later on the same origin.                                                                  |
@@ -302,7 +303,7 @@ On Chromium only requests that match a rule are paused, so others are not slowed
 
 ## Performance
 
-Both tools are in the `performance` group, which `MCP_BROWSER_TOOLS=performance` adds.
+The three tools are in the `performance` group, which `MCP_BROWSER_TOOLS=performance` adds.
 
 `get_performance` reports on the current page:
 
@@ -313,6 +314,10 @@ Both tools are in the `performance` group, which `MCP_BROWSER_TOOLS=performance`
 - `metrics` (Chromium): JS heap, DOM nodes, event listeners, layouts and style recalculations with their time, and script and task time, counted since the session attached.
 
 `record_trace` records a Chromium trace with the categories DevTools' Performance panel uses: `action: "start"` (with `screenshots: true` for a filmstrip), then act, then `action: "stop"`, which writes the trace as JSON to `path` (absolute, ending in `.json`) or a new private temp file, and returns `path`, `bytes`, and `durationMs`. Open the file in the Performance panel. Files are written readable only by the current user, and an existing file is replaced only with `overwrite: true`; the path is checked before the trace stops, and a trace that still cannot be written there goes to a temp file, with `error` saying why. Firefox has no tracing over WebDriver BiDi.
+
+`record_video` records what a Chromium tab shows, for example a demo of a web UI while the agent drives it: `action: "start"`, then act, then `action: "stop"`, which encodes an MP4 and returns `path`, `durationMs`, `frames`, `width`, and `height`. Chrome streams a JPEG of each repaint (`Page.startScreencast`); each frame is written to a private temp directory as it arrives with its time, and the first frame is a screenshot, so a page that never repaints still records. `start` takes `fps` (the output frame rate, default 30, at most 60), `quality` (JPEG, 1 to 100, default 80), `maxWidth` and `maxHeight` (frames are scaled to fit them; default the viewport in device pixels), and `maxDurationMs` (default 10 minutes, at most 30), after which capture stops by itself, keeping the frames for `stop` to encode. One recording per session; `start` returns `{ recording: true, dir }`. The video plays at the page's real pace: each frame lasts until the next, and the last until the capture stopped. For a 1920x1080 video, call `set_viewport` with `width: 1920, height: 1080` first; `maxWidth` and `maxHeight` then only reduce it, for example to 1280x720.
+
+Encoding needs ffmpeg, found on `PATH` or named by `MCP_BROWSER_FFMPEG`: H.264 (`libx264`, `yuv420p`) at a constant frame rate with the index at the front, so browsers and players open it. Without ffmpeg, or when it fails, `stop` keeps the frames and returns `framesDir`, `ffmpegCommand` (the exact command that encodes them), and `error`. `stop` writes to `path` (absolute, ending in `.mp4`) or a new private temp file, readable only by the current user and never through a symlink; an existing file is replaced only with `overwrite: true`, the path is checked before the capture stops, and a video that still cannot be written there goes to a temp file with `error` saying why. The frame directory is deleted after a successful encode. `warnings` reports a stretch of more than 5 s with no frame: the page did not repaint, or the tab was hidden or minimised, which stops Chrome's frames, so the video holds one frame there. If the tab closes or the session is detached while recording, the capture stops and the frames are kept: the detach or close result names `framesDir`, and `record_video stop` with the same `sessionId` still encodes them; the frames of the 8 most recently ended recordings are kept this way, and older ones are deleted. Each frame is acknowledged to Chrome once it is on disk, so a slow disk lowers the frame rate instead of filling memory. Firefox has no screencast over WebDriver BiDi.
 
 ## Session State And Network
 

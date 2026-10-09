@@ -174,6 +174,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
 - `MCP_BROWSER_LOG_FILE` names a file that also receives every diagnostic line logged at that level
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
+- `MCP_BROWSER_FFMPEG` names the ffmpeg executable `record_video` encodes with; without it, the first `ffmpeg` on `PATH` is used, and without that, `record_video stop` keeps the frames and returns the command that encodes them
 - `MCP_BROWSER_TIMING_LOG` names a file that gets one JSON line per tool call with the tool name, duration, success, and response size (text characters and image count); the benchmark in [PERFORMANCE.md](../PERFORMANCE.md) uses it
 - `MCP_BROWSER_TOOLS` chooses the tools the server lists. By default it lists the core set, the 24 tools page work needs, since every model turn pays for the definitions of every tool listed; the others stay reachable through `more_tools` and as `run_steps` steps. Set it to `all`, or to a comma-separated list of groups (`input`, `network`, `state`, `compare`, `browser`, `performance`) and tool names to add to the core set, for example `network,drag`; the groups are listed in [Tools](tools.md#tool-sets). An unknown name stops the server at startup
 - `MCP_BROWSER_ENABLE_EVAL=0` (or `false`) disables `evaluate_js` and the `expression` field of `wait_for` and `run_steps` conditions, which are enabled by default

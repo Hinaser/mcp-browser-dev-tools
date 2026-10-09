@@ -7,6 +7,7 @@ import {
   writeScreenshotFile,
 } from "../screenshot-output.mjs";
 import { sessionSchema } from "../tool-schemas.mjs";
+import { checkVideoPath, encodeVideo } from "../video-output.mjs";
 
 // A trace can show signed-in pages, so it is written like a screenshot:
 // private to the user, never through a symlink, and not over an existing
@@ -109,6 +110,72 @@ export function performanceTools(server) {
             bytes: data.length,
             durationMs,
           };
+        },
+      },
+    ],
+    [
+      "record_video",
+      {
+        definition: {
+          name: "record_video",
+          description:
+            "Record what a Chromium tab shows to an MP4: start, act, then stop encodes the frames with ffmpeg (on PATH or MCP_BROWSER_FFMPEG; without it, stop returns the frames and the command). For 1920x1080, set_viewport first.",
+          inputSchema: sessionSchema(
+            {
+              action: { type: "string", enum: ["start", "stop"] },
+              fps: {
+                type: "integer",
+                minimum: 1,
+                maximum: 60,
+                description: "With start: output frame rate; default 30.",
+              },
+              quality: {
+                type: "integer",
+                minimum: 1,
+                maximum: 100,
+                description: "With start: JPEG quality; default 80.",
+              },
+              maxWidth: {
+                type: "integer",
+                minimum: 1,
+                description:
+                  "With start: frames are scaled to fit; default the viewport.",
+              },
+              maxHeight: { type: "integer", minimum: 1 },
+              maxDurationMs: {
+                type: "integer",
+                minimum: 1000,
+                maximum: 1_800_000,
+                description:
+                  "With start: capture stops by itself after this; default 600000.",
+              },
+              path: {
+                type: "string",
+                description:
+                  "With stop: absolute .mp4 path; default a temp file.",
+              },
+              overwrite: { type: "boolean" },
+            },
+            ["action"],
+          ),
+        },
+        handler: async (args) => {
+          if (args.action === "start") {
+            const { dir, recording } = await server.browserAdapter.startVideo(
+              args.sessionId,
+              {
+                fps: args.fps,
+                quality: args.quality,
+                maxWidth: args.maxWidth,
+                maxHeight: args.maxHeight,
+                maxDurationMs: args.maxDurationMs,
+              },
+            );
+            return { recording, dir };
+          }
+          await checkVideoPath(args);
+          const capture = await server.browserAdapter.stopVideo(args.sessionId);
+          return encodeVideo(capture, args, server.config);
         },
       },
     ],

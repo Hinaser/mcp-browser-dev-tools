@@ -104,6 +104,7 @@ Unsafe browser launch flags exist behind `MCP_BROWSER_ENABLE_UNSAFE_LAUNCH_ARGS=
 - The session enables `Page`, `Runtime`, `DOM`, `Log`, and `Network`
 - Navigation and viewport overrides map to `Page.navigate`, `Page.reload`, and `Emulation.setDeviceMetricsOverride`
 - Element screenshots use the normalized locator result plus `Page.captureScreenshot` clipping
+- Video recording streams `Page.screencastFrame` JPEGs from `Page.startScreencast` to a private temp directory, which `record_video stop` encodes with ffmpeg
 
 ### Firefox
 

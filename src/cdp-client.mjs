@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import {
   exportHarLikeSummary,
   filterConsoleMessages,
@@ -14,6 +18,7 @@ import {
 } from "./page-context.mjs";
 import { buildCdpKeyEvents } from "./keyboard.mjs";
 import { sendCheckedInput } from "./input-delivery.mjs";
+import { imageSize, SCREENSHOT_FILE_MODE } from "./screenshot-output.mjs";
 import {
   applyNetworkOptions,
   describeNetworkState,
@@ -60,6 +65,14 @@ const TRACE_CATEGORIES = [
   "loading",
 ];
 const TRACE_COMPLETE_MS = 60_000;
+// A video capture stops by itself after maxDurationMs, 10 minutes unless
+// asked, 30 at most, so a forgotten recording does not fill the disk. A
+// stretch with no frame longer than VIDEO_GAP_WARN_S is reported, since a
+// hidden or minimised tab sends none.
+export const VIDEO_DEFAULT_DURATION_MS = 10 * 60_000;
+export const VIDEO_MAX_DURATION_MS = 30 * 60_000;
+const VIDEO_GAP_WARN_S = 5;
+const ORPHANED_VIDEO_LIMIT = 8;
 // How long a click may take to open a file chooser.
 const FILE_CHOOSER_MS = 2000;
 const DRAG_SESSION_MS = 30_000;
@@ -433,6 +446,31 @@ function pageExceptionMessage(details) {
   return details.text || "Page action failed";
 }
 
+// A stretch with no frame plays as one still frame. Longer than a few
+// seconds, that is worth saying: the page did not repaint, or the tab was
+// hidden or minimised, which stops Chrome's frames.
+function videoGapWarnings(state) {
+  const seconds = (value) => Math.round((value - state.startedAt) * 10) / 10;
+  const gaps = [];
+  const times = state.frames.map((frame) => frame.timestamp);
+  times.push(state.stoppedAt ?? Date.now() / 1000);
+  for (let index = 1; index < times.length; index += 1) {
+    const gap = times[index] - times[index - 1];
+    if (gap > VIDEO_GAP_WARN_S) {
+      gaps.push({ gap, from: times[index - 1], to: times[index] });
+    }
+  }
+  if (gaps.length === 0) {
+    return [];
+  }
+  const longest = gaps.reduce((a, b) => (b.gap > a.gap ? b : a));
+  const others =
+    gaps.length > 1 ? ` and in ${gaps.length - 1} other stretch(es)` : "";
+  return [
+    `No frame arrived for ${Math.round(longest.gap * 10) / 10} s (from ${seconds(longest.from)} s to ${seconds(longest.to)} s into the recording)${others}: the page did not repaint, or the tab was hidden or minimised, so the video holds one frame there`,
+  ];
+}
+
 export class CdpSession {
   constructor(target, options = {}) {
     this.id = crypto.randomUUID();
@@ -451,6 +489,7 @@ export class CdpSession {
     this.lastNavigationAt = null;
     this.lastReloadAt = null;
     this.viewportOverride = null;
+    this.video = null;
     // Frames: child sessions of cross-site iframes (attached in flatten
     // mode, by session id), the default execution context of each frame,
     // keyed by session and frame id, and the frame keys refs use.
@@ -465,6 +504,7 @@ export class CdpSession {
     }
 
     this.closed = true;
+    void this.endVideoCapture(this.video, "closed");
     this.rejectPending(new Error("CDP session closed"));
     this.rejectEventWaiters(new Error("CDP session closed"));
     this.onClosed?.(this);
@@ -813,6 +853,13 @@ export class CdpSession {
   }
 
   bufferEvent(method, params) {
+    // Frames carry image data and arrive many times a second, so they are
+    // written to the recording, never buffered or logged.
+    if (method === "Page.screencastFrame") {
+      this.handleScreencastFrame(params);
+      return;
+    }
+
     const capturedAt = new Date().toISOString();
     if (
       method === "Page.frameNavigated" &&
@@ -1872,6 +1919,201 @@ export class CdpSession {
     return { data: Buffer.concat(chunks), durationMs: Date.now() - startedAt };
   }
 
+  // Records what the tab shows: Chrome streams a JPEG of each repaint, and
+  // each is written to a private temp directory as it arrives, with its
+  // time, for the stop action to encode. The first frame is a screenshot,
+  // so a page that never repaints still has one. Frames are scaled by Chrome
+  // to fit maxWidth and maxHeight, by default the viewport in device pixels.
+  async startVideo(options = {}) {
+    if (this.video) {
+      throw new Error("A video is already recording; stop it first");
+    }
+    const fps = options.fps ?? 30;
+    const quality = options.quality ?? 80;
+    const maxDurationMs = Math.min(
+      options.maxDurationMs ?? VIDEO_DEFAULT_DURATION_MS,
+      VIDEO_MAX_DURATION_MS,
+    );
+    // Reserved before the first await, so a second start meanwhile fails
+    // instead of making a second recording.
+    const state = {
+      starting: true,
+      dir: null,
+      fps,
+      width: null,
+      height: null,
+      maxDurationMs,
+      startedAt: Date.now() / 1000,
+      stoppedAt: null,
+      capturing: false,
+      written: 0,
+      frames: [],
+      warnings: [],
+      writeErrors: 0,
+      queue: Promise.resolve(),
+      timer: null,
+    };
+    this.video = state;
+    try {
+      const shot = await this.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality,
+      });
+      const first = Buffer.from(shot.data, "base64");
+      const viewport = imageSize(first);
+      if (!viewport) {
+        throw new Error("Could not read the size of the first frame");
+      }
+      const scale = Math.min(
+        1,
+        (options.maxWidth ?? Infinity) / viewport.width,
+        (options.maxHeight ?? Infinity) / viewport.height,
+      );
+      state.width = Math.max(1, Math.round(viewport.width * scale));
+      state.height = Math.max(1, Math.round(viewport.height * scale));
+      state.dir = await mkdtemp(
+        path.join(tmpdir(), "mcp-browser-dev-tools-video-"),
+      );
+      state.capturing = true;
+      this.writeVideoFrame(state, first, state.startedAt);
+      await this.send("Page.startScreencast", {
+        format: "jpeg",
+        quality,
+        maxWidth: state.width,
+        maxHeight: state.height,
+        everyNthFrame: 1,
+      });
+    } catch (error) {
+      state.capturing = false;
+      if (this.video === state) {
+        this.video = null;
+      }
+      await state.queue;
+      if (state.dir) {
+        await rm(state.dir, { recursive: true, force: true });
+      }
+      throw error;
+    }
+    state.starting = false;
+    state.timer = setTimeout(() => {
+      void this.endVideoCapture(state, "maxDurationMs");
+    }, maxDurationMs);
+    state.timer.unref?.();
+    return {
+      browserFamily: cdpBrowserFamily(this.config),
+      recording: true,
+      dir: state.dir,
+      startedAt: state.startedAt,
+      width: state.width,
+      height: state.height,
+      fps,
+    };
+  }
+
+  // Every frame is acknowledged, or Chrome stops sending them: a recorded
+  // frame once it is on disk, so a slow disk slows Chrome's frames rather
+  // than filling memory with queued ones; any other frame at once.
+  handleScreencastFrame(params) {
+    const ack = () => {
+      try {
+        this.send("Page.screencastFrameAck", {
+          sessionId: params.sessionId,
+        }).catch(() => {});
+      } catch {
+        // Not connected any more; there is nothing to acknowledge to.
+      }
+    };
+    const state = this.video;
+    if (!state?.capturing) {
+      ack();
+      return;
+    }
+    this.writeVideoFrame(
+      state,
+      Buffer.from(params.data, "base64"),
+      params.metadata?.timestamp ?? Date.now() / 1000,
+    ).then(ack, ack);
+  }
+
+  // Writes are chained so frames keep their order and stop can wait for
+  // the last one. A frame whose write fails is left out of the video.
+  writeVideoFrame(state, data, timestamp) {
+    const file = `${String(state.written).padStart(6, "0")}.jpg`;
+    state.written += 1;
+    state.queue = state.queue
+      .then(async () => {
+        await writeFile(path.join(state.dir, file), data, {
+          flag: "wx",
+          mode: SCREENSHOT_FILE_MODE,
+        });
+        state.frames.push({ file, timestamp });
+      })
+      .catch((error) => {
+        state.writeErrors += 1;
+        state.writeError = error.message;
+      });
+    return state.queue;
+  }
+
+  // Stops taking frames (on stop, at maxDurationMs, or when the session
+  // ends) but keeps them for stop to encode.
+  async endVideoCapture(state, reason) {
+    if (!state?.capturing) {
+      return;
+    }
+    state.capturing = false;
+    clearTimeout(state.timer);
+    state.stoppedAt = Date.now() / 1000;
+    if (reason === "maxDurationMs") {
+      state.warnings.push(
+        `Capture stopped at maxDurationMs (${state.maxDurationMs} ms); the frames up to then are kept, and stop encodes them`,
+      );
+    }
+    if (!this.closed) {
+      try {
+        await this.send("Page.stopScreencast");
+      } catch (error) {
+        state.warnings.push(`Page.stopScreencast failed: ${error.message}`);
+      }
+    }
+  }
+
+  // Ends the capture and hands over the frames, in order with their times,
+  // for encoding. A closed session (the tab closed or was detached) still
+  // hands over what it captured.
+  async stopVideo() {
+    const state = this.video;
+    if (!state) {
+      throw new Error("No video is recording; start one first");
+    }
+    if (state.starting) {
+      throw new Error(
+        "The video is still starting; stop it once start returns",
+      );
+    }
+    // Taken at once, so a second stop while this one finishes has nothing
+    // to stop and the frames are encoded once.
+    this.video = null;
+    await this.endVideoCapture(state, "stop");
+    await state.queue;
+    const warnings = [...state.warnings, ...videoGapWarnings(state)];
+    if (state.writeErrors > 0) {
+      warnings.push(
+        `${state.writeErrors} frame(s) could not be written (${state.writeError})`,
+      );
+    }
+    return {
+      dir: state.dir,
+      frames: state.frames,
+      startedAt: state.startedAt,
+      stoppedAt: state.stoppedAt,
+      fps: state.fps,
+      width: state.width,
+      height: state.height,
+      warnings,
+    };
+  }
+
   async select(selector, options = {}) {
     return this.runPageAction(
       {
@@ -2124,6 +2366,7 @@ export class CdpSession {
       return;
     }
 
+    await this.endVideoCapture(this.video, "detach");
     this.websocket.close();
   }
 }
@@ -2132,6 +2375,9 @@ export class CdpSessionManager {
   constructor(config) {
     this.config = config;
     this.sessions = new Map();
+    // Sessions that ended while recording a video, kept by id so that stop
+    // still encodes their frames, which are on disk.
+    this.orphanedVideos = new Map();
     this.resolvedBaseUrl = null;
     this.lastAttemptedBaseUrl = null;
     this.lastKnownBaseUrl = null;
@@ -2423,6 +2669,7 @@ export class CdpSessionManager {
       eventBufferSize: this.config.eventBufferSize,
       onClosed: (closedSession) => {
         this.sessions.delete(closedSession.id);
+        this.orphanVideo(closedSession);
       },
     });
     await session.connect();
@@ -2443,10 +2690,42 @@ export class CdpSessionManager {
     const session = this.getSession(sessionId);
     await session.close();
     this.sessions.delete(sessionId);
+    const video = this.orphanVideo(session);
     return {
       detached: true,
       sessionId,
+      ...(video ? { video } : {}),
     };
+  }
+
+  // A session that ends while recording keeps its frames: record_video
+  // stop with the same sessionId encodes them, and the result of the
+  // detach or close says where they are.
+  // Up to ORPHANED_VIDEO_LIMIT such recordings are kept; past that, the
+  // oldest one's frames are deleted, so ended sessions cannot fill the disk.
+  orphanVideo(session) {
+    if (!session.video?.dir) {
+      return null;
+    }
+    this.orphanedVideos.set(session.id, session);
+    for (const [id, oldest] of this.orphanedVideos) {
+      if (this.orphanedVideos.size <= ORPHANED_VIDEO_LIMIT) {
+        break;
+      }
+      this.orphanedVideos.delete(id);
+      void this.discardOrphanedVideo(oldest);
+    }
+    return {
+      framesDir: session.video.dir,
+      note: `The recording's frames are kept; record_video stop with this sessionId encodes them (the frames of the ${ORPHANED_VIDEO_LIMIT} most recently ended recordings are kept)`,
+    };
+  }
+
+  async discardOrphanedVideo(session) {
+    const state = session.video;
+    session.video = null;
+    await state.queue;
+    await rm(state.dir, { recursive: true, force: true });
   }
 
   async closeTarget(targetId) {
@@ -2462,7 +2741,8 @@ export class CdpSessionManager {
       .map((session) => {
         session.markClosed?.();
         this.sessions.delete(session.id);
-        return { sessionId: session.id };
+        const video = this.orphanVideo(session);
+        return { sessionId: session.id, ...(video ? { video } : {}) };
       });
 
     return {
@@ -2533,6 +2813,21 @@ export class CdpSessionManager {
 
   async stopTrace(sessionId) {
     return this.getSession(sessionId).stopTrace();
+  }
+
+  async startVideo(sessionId, options) {
+    return this.getSession(sessionId).startVideo(options);
+  }
+
+  async stopVideo(sessionId) {
+    const session =
+      this.sessions.get(sessionId) ?? this.orphanedVideos.get(sessionId);
+    if (!session) {
+      throw new Error(`No active session found for ${sessionId}`);
+    }
+    const capture = await session.stopVideo();
+    this.orphanedVideos.delete(sessionId);
+    return capture;
   }
 
   async type(sessionId, selector, text, options) {

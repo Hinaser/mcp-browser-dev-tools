@@ -91,6 +91,7 @@ test("loadConfig applies defaults", () => {
     userDataDir: null,
     uploadDirs: [],
     timingLogFile: null,
+    ffmpegPath: null,
     protocolVersion: "2024-11-05",
   });
 });

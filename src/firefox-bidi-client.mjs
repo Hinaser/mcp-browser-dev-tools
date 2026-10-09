@@ -1627,6 +1627,16 @@ export class FirefoxBidiSessionManager {
     return this.startTrace();
   }
 
+  async startVideo() {
+    throw new Error(
+      "record_video is Chromium only; WebDriver BiDi has no screencast",
+    );
+  }
+
+  async stopVideo() {
+    return this.startVideo();
+  }
+
   async uploadFiles(sessionId, selector, files) {
     const session = this.getSession(sessionId);
     const token = crypto.randomUUID();
