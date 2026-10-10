@@ -1,8 +1,8 @@
 # Performance
 
-How fast an AI agent finishes browser tasks through this MCP server, and what it costs. Every number here is for the current server, build `f00bf00`, measured on 2026-10-04 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Earlier builds' numbers are in this file's history; the previous run, on build `38d4ed2`, is the "before" in the comparisons below.
+How fast an AI agent finishes browser tasks through this MCP server, and what it costs. Every number here is for the current server, build `f00bf00`, measured on 2026-10-04 with Chrome 154 headless, Node.js 24.20, and macOS 26.6 on Apple Silicon. Earlier builds' numbers are in this file's history; the previous run, on build `38d4ed2`, is the "before" in the comparisons below. Haiku 5.5, released after that run, was measured on 2026-10-11 on build `c4bbf40` (version 0.4.0) with Chrome 155; that build lists the same default tools as `f00bf00`, so its numbers compare with the others.
 
-Seven models at medium effort ran the four [scenarios](#scenarios) 3 times each with the default tool set (`batch` mode), and Sonnet 5.5 ran them again with one action per call (`single` mode): 96 runs, all passed, $11.72 in total. Haiku 4.5's `research` runs were repeated after a fixture fix (see [Method](#method)). Each chart bar is the median of 3 runs, or for a model's bar, the average over the scenarios of each scenario's median.
+Seven models at medium effort ran the four [scenarios](#scenarios) 3 times each with the default tool set (`batch` mode), and Sonnet 5.5 ran them again with one action per call (`single` mode): 96 runs, all passed, $11.72 in total. Haiku 5.5 then ran the four scenarios 3 times in `batch` mode: 12 runs, 11 passed, $0.04. Haiku 4.5's `research` runs were repeated after a fixture fix (see [Method](#method)). Each chart bar is the median of 3 runs, or for a model's bar, the average over the scenarios of each scenario's median.
 
 ## Model comparison
 
@@ -20,6 +20,7 @@ Per task: the average over the four scenarios of each scenario's median wall tim
 | Opus 5.5    | Claude Code | 12/12 | 15.1 s    | 6.5   | $0.086   | 11.5 s · 4 · $0.075   | 18.9 s · 9 · $0.084   | 18.2 s · 8 · $0.105    | 11.8 s · 5 · $0.080   |
 | Sonnet 5.5  | Claude Code | 12/12 | 13.8 s    | 5.8   | $0.047   | 10.2 s · 4 · $0.040   | 19.1 s · 8 · $0.046   | 17.5 s · 7 · $0.061    | 8.5 s · 4 · $0.042    |
 | Haiku 4.5   | Claude Code | 12/12 | 26.5 s    | 10.5  | $0.047   | 20.8 s · 7 · $0.041   | 21.2 s · 10 · $0.039  | 20.0 s · 7 · $0.037    | 44.0 s · 18 · $0.073  |
+| Haiku 5.5   | Claude Code | 11/12 | 14.8 s    | 8.3   | $0.003   | 10.5 s · 9 · $0.003   | 30.2 s · 13 · $0.004  | 10.1 s · 7 · $0.003    | 8.3 s · 4 · $0.002    |
 | GPT-6-Astra | Codex CLI   | 12/12 | 33.8 s    | 5.0   | $0.385\* | 27.6 s · 4 · $0.358\* | 48.4 s · 7 · $0.409\* | 29.9 s · 5 · $0.393\*  | 29.5 s · 4 · $0.380\* |
 | GPT-6.1 Sol | Codex CLI   | 12/12 | 33.1 s    | 5.3   | $0.068\* | 26.2 s · 4 · $0.065\* | 39.5 s · 7 · $0.068\* | 35.2 s · 5 · $0.070\*  | 31.4 s · 5 · $0.070\* |
 | GPT-6-Luna  | Codex CLI   | 12/12 | 27.2 s    | 6.5   | $0.004\* | 19.4 s · 4 · $0.003\* | 27.6 s · 7 · $0.004\* | 38.2 s · 10 · $0.006\* | 23.8 s · 5 · $0.004\* |
@@ -27,14 +28,15 @@ Per task: the average over the four scenarios of each scenario's median wall tim
 \* Estimated from OpenAI's standard list prices, because Codex under a ChatGPT login reports tokens but no cost.
 
 1. **Every model costs less per task than on the previous build, and six of seven need fewer turns.** The default tool list is now 25 tools in 17.0k characters, against 39 tools in 33.0k, and it is sent on every turn. Sonnet 5.5 went from $0.063 to $0.047 and from 7.0 to 5.8 turns; Haiku 4.5 from 13.5 to 10.5 turns; GPT-6-Astra from 7.2 to 5.0; GPT-6-Luna from 9.0 to 6.5. Opus 5.5 stayed at 6.5 turns, at $0.086 instead of $0.104.
-2. **Sonnet 5.5 is the fastest and, with Haiku 4.5, the cheapest Claude model**: 13.8 s and $0.047 per task. Opus 5.5 takes 15.1 s at 1.8 times the cost.
+2. **Sonnet 5.5 is the fastest Claude model**, 13.8 s per task at $0.047, the same cost as Haiku 4.5. Opus 5.5 takes 15.1 s at 1.8 times the cost.
 3. **Clicks now wait for the outcome, so `payment-retry` needs no waits.** Each click on Pay returns after about 1.4 s, once the page has settled, with what changed: the decline message or the receipt. Most runs clicked three times and read the result from each reply; no GPT run of it used `wait_for`. Sonnet's `batch` median fell from 27.0 s to 19.1 s. Fable 5.1 retried inside one `repeat` step in every run, and Opus 5.5 in one of three.
 4. **Fable 5.1 takes few turns (5.3) but is the slowest Claude model, 30.6 s per task at 2.8 times Opus's cost.** Its turns average 6.1 s, against 2.4–2.6 s for the other Claude models, and it gained nothing over Opus on these tasks.
 5. **Haiku 4.5 passes everything but is slow on `research`**: no run used `run_tabs`, and each clicked through the five articles one at a time, in 17–19 turns and 38–46 s.
 6. **The GPT models are slower per turn**, 6.2–6.5 s for GPT-6-Astra and GPT-6.1 Sol and 4.1 s for GPT-6-Luna, so they take 27–34 s per task even on 5.0–6.5 turns. The Codex CLI's own startup accounts for 4–9 s of each run (see [Method](#method)).
 7. **The dropped-input case came back, only in GPT runs.** In all three GPT-6-Luna `settings-login` runs and one GPT-6.1 Sol run, the first click on the settings page after the login redirect failed with "the browser delivered no input events", even after the automatic resend. The agents finished the form with `evaluate_js`, which is why Luna's `settings-login` takes 10 turns and why Luna used `evaluate_js` 12 times. None of the 15 Claude `settings-login` runs hit it.
-8. **GPT-6-Astra is the most expensive**, an estimated $0.385 per task. GPT-6.1 Sol falls between Sonnet and Opus ($0.068), and GPT-6-Luna costs about a twelfth of Haiku ($0.004).
+8. **GPT-6-Astra is the most expensive**, an estimated $0.385 per task. GPT-6.1 Sol falls between Sonnet and Opus ($0.068), and GPT-6-Luna costs about a twelfth of Haiku 4.5 ($0.004).
 9. **No run needed a tool outside the default set**, and none called `more_tools`.
+10. **Haiku 5.5 is the cheapest Claude model by far, $0.003 per task**, a fifteenth of Haiku 4.5 and about GPT-6-Luna's price, and at 14.8 s it sits between Sonnet and Opus. Unlike Haiku 4.5, it used `run_tabs` in every `research` run: 8.3 s and 4 turns instead of 44.0 s and 18. It takes more turns on forms than Sonnet (7–10 on `signup` against 4), filling the form in several calls and checking with `get_snapshot` between them. Its `payment-retry` takes 30.2 s on 13 turns, the most turns of any model on that scenario: in every run it adds `wait_for` calls after clicks although the click's reply already reported the decline or the receipt, and in two runs the last wait was for the Pay button to be enabled again after the receipt had replaced it, which timed out after 30 s and 15 s. Its one failure was in the reply, not on the page: it wrote the first codename with a character missing, corrected it after listing the others, and the check reads the first occurrence of each codename in order.
 
 ## Batching
 
@@ -100,6 +102,17 @@ Median of 3 runs, with the range in parentheses when runs differ. The column mea
 | `payment-retry`  | 3/3 | 21.2 s (17.4 s–40.1 s) | 10 (8–14)  | 9 (7–13)   | 4.3 s (4.3 s–16.3 s) | 6.7k (6.0k–6.9k)    | 149.3k (116.6k–213.2k) | 1.4k (1.2k–2.0k) | $0.039 ($0.034–$0.049) |
 | `settings-login` | 3/3 | 20.0 s (18.8 s–20.3 s) | 7 (7–8)    | 6 (6–7)    | 2.0 s (1.9 s–2.6 s)  | 15.6k (14.3k–16.1k) | 108.1k (107.8k–126.6k) | 1.4k (1.4k–1.5k) | $0.037 ($0.036–$0.040) |
 | `research`       | 3/3 | 44.0 s (38.4 s–46.3 s) | 18 (17–19) | 17 (16–18) | 9.4 s (9.4 s–11.4 s) | 24.0k (23.7k–24.7k) | 318.7k (298.4k–337.6k) | 2.6k (2.4k–2.7k) | $0.073 ($0.069–$0.076) |
+
+### Haiku 5.5, medium effort, `batch` mode
+
+Measured on 2026-10-11 on build `c4bbf40` with Chrome 155; see the note at the top.
+
+| Scenario         | OK  | Wall time              | Turns      | Tool calls | Server time           | Response chars      | Input tokens           | Output tokens    | Cost                   |
+| ---------------- | --- | ---------------------- | ---------- | ---------- | --------------------- | ------------------- | ---------------------- | ---------------- | ---------------------- |
+| `signup`         | 3/3 | 10.5 s (9.7 s–12.5 s)  | 9 (7–10)   | 8 (6–9)    | 1.4 s (1.3 s–2.0 s)   | 13.7k (9.7k–14.2k)  | 85.4k (83.2k–96.6k)    | 1.0k (1.0k–1.3k) | $0.003 ($0.003–$0.005) |
+| `payment-retry`  | 3/3 | 30.2 s (18.5 s–46.1 s) | 13 (13–14) | 12 (12–13) | 19.3 s (4.3 s–34.2 s) | 8.1k (6.9k–8.7k)    | 128.3k (112.4k–140.4k) | 1.7k (1.6k–1.7k) | $0.004 ($0.004–$0.004) |
+| `settings-login` | 3/3 | 10.1 s (9.4 s–12.9 s)  | 7 (7–10)   | 6 (6–9)    | 2.1 s (2.1 s–2.3 s)   | 13.5k (13.5k–14.6k) | 83.5k (83.5k–118.4k)   | 0.9k (0.8k–1.3k) | $0.003 ($0.003–$0.004) |
+| `research`       | 2/3 | 8.3 s (8.2 s–8.6 s)    | 4 (4–5)    | 3 (3–4)    | 1.7 s (1.7 s–1.7 s)   | 10.7k (10.7k–11.3k) | 53.1k (52.9k–54.3k)    | 0.6k (0.5k–0.8k) | $0.002 ($0.002–$0.003) |
 
 ### GPT-6-Astra, medium effort, `batch` mode
 

@@ -8,6 +8,10 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Changed
+
+- `PERFORMANCE.md` adds Claude Haiku 5.5, measured on build `c4bbf40`, which lists the same default tools as the benchmark build: 11 of 12 runs passed at $0.003 per task, a fifteenth of Haiku 4.5's cost. `bench/report.mjs` charts up to 8 series
+
 ## [0.4.0] - 2026-10-10
 
 This release adds `record_video`, which records what a Chromium tab shows
