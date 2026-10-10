@@ -58,6 +58,7 @@ const MODEL_NAMES = {
   "claude-opus-5-5": "Opus 5.5",
   "claude-sonnet-5-5": "Sonnet 5.5",
   "claude-haiku-4-5-20251001": "Haiku 4.5",
+  "claude-haiku-5-5": "Haiku 5.5",
   "gpt-6-astra": "GPT-6-Astra",
   "gpt-6.1-sol": "GPT-6.1 Sol",
   "gpt-6-luna": "GPT-6-Luna",
@@ -193,7 +194,7 @@ for (const entry of series.values()) {
   console.log();
 }
 
-const MAX_SERIES = 7;
+const MAX_SERIES = 8;
 
 if (options.out) {
   if (series.size > MAX_SERIES) {
@@ -400,6 +401,7 @@ function style() {
     .s4 { fill: #cf222e; }
     .s5 { fill: #1b7c83; }
     .s6 { fill: #bc4c00; }
+    .s7 { fill: #bf3989; }
     .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     @media (prefers-color-scheme: dark) {
@@ -414,6 +416,7 @@ function style() {
       .s4 { fill: #f85149; }
       .s5 { fill: #39c5cf; }
       .s6 { fill: #f0883e; }
+      .s7 { fill: #db61a2; }
     }
   </style>`;
 }

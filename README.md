@@ -152,7 +152,7 @@ Median of 3 runs on the current build, from the benchmark in [PERFORMANCE.md](PE
 | Sign in, then change settings       | 16.2 s · 11 turns               | 17.5 s · 7 turns         | 18.2 s · 8 turns       |
 | Read five pages from a results list | 27.7 s · 6 turns                | 8.5 s · 4 turns          | 11.8 s · 5 turns       |
 
-Every form run started with `get_snapshot` and acted by ref, without being told to. Each payment click waits for the page to settle and reports the decline or the receipt, so the agents could retry from each reply. The last row uses `run_tabs`. Seven models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) ran the same four tasks with the default tool set: all 96 runs passed, and PERFORMANCE.md has the time, cost, and turns for each, the charts, and how the runs were set up.
+Every form run started with `get_snapshot` and acted by ref, without being told to. Each payment click waits for the page to settle and reports the decline or the receipt, so the agents could retry from each reply. The last row uses `run_tabs`. Eight models (Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5, and Haiku 4.5; GPT-6-Astra, GPT-6.1 Sol, and GPT-6-Luna) ran the same four tasks with the default tool set: 95 of those 96 runs passed, and PERFORMANCE.md has the time, cost, and turns for each, the charts, and how the runs were set up.
 
 ## Tools
 
