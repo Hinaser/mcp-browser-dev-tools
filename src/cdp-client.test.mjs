@@ -1581,6 +1581,8 @@ test("CdpSessionManager keeps a detached session's frames for stop to encode", a
     assert.equal(session.closed, true);
     assert.equal(session.video.capturing, false);
     assert.equal(sentCommands.at(-1).method, "Page.stopScreencast");
+    // The first frame is written in the background; stop waits for it too.
+    await session.video.queue;
     assert.ok((await stat(path.join(started.dir, "000000.jpg"))).isFile());
 
     const capture = await manager.stopVideo(session.id);
@@ -1690,6 +1692,15 @@ test("CdpSessionManager keeps the frames of the eight most recently ended record
     cdpBaseUrl: "http://127.0.0.1:9222",
     eventBufferSize: 200,
   });
+  // Eviction deletes the frames in the background; collected so the test
+  // waits for the deletion rather than for a fixed time.
+  const discards = [];
+  const discard = manager.discardOrphanedVideo.bind(manager);
+  manager.discardOrphanedVideo = (session) => {
+    const done = discard(session);
+    discards.push(done);
+    return done;
+  };
   const dirs = [];
   try {
     for (let index = 0; index < 9; index += 1) {
@@ -1699,7 +1710,8 @@ test("CdpSessionManager keeps the frames of the eight most recently ended record
       await manager.detachSession(session.id);
     }
     assert.equal(manager.orphanedVideos.size, 8);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(discards.length, 1);
+    await Promise.all(discards);
     assert.equal(
       await stat(dirs[0].dir).then(
         () => true,
