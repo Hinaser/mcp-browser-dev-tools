@@ -8,6 +8,10 @@ release history retroactively.
 
 ## [Unreleased]
 
+### Fixed
+
+- When the MCP client went away, a write to the closed `stderr` pipe failed with `EPIPE`, and logging that uncaught exception wrote to `stderr` again, so the server never exited and, with `MCP_BROWSER_LOG_FILE` set, appended a stack trace to the file until the disk filled ([#57](https://github.com/Hinaser/mcp-browser-dev-tools/issues/57)). `serve` now handles errors on `stdout` and `stderr`: `EPIPE` on either, or any error on `stdout`, shuts the server down with exit code 0, and after an error on `stderr` the logger writes only to the log file. A failing `stderr` write no longer throws from the logger, and only the first uncaught exception or unhandled rejection is logged. A shutdown runs once whatever starts it, so a signal during it no longer cuts cleanup short or turns exit code 1 into 0. The log file is also capped: past 10 MB it moves to `<file>.1` and a new file starts
+
 ### Changed
 
 - `PERFORMANCE.md` adds Claude Haiku 5.5, measured on build `c4bbf40`, which lists the same default tools as the benchmark build: 11 of 12 runs passed at $0.003 per task, a fifteenth of Haiku 4.5's cost. `bench/report.mjs` charts up to 8 series
