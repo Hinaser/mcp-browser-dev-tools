@@ -64,28 +64,71 @@ export function createBrowserDevToolsApp({
     server.start();
   }
 
+  let exitCode = null;
+
+  // Closes once and exits with the highest code asked for meanwhile.
+  function closeAndExit(signal, code) {
+    const first = exitCode == null;
+    exitCode = Math.max(exitCode ?? 0, code);
+    if (first) {
+      void close(signal).finally(() => process.exit(exitCode));
+    }
+  }
+
+  let fatal = false;
+
+  function handleFatal(signal, message) {
+    // Only the first one is logged: a fatal error raised by the logging
+    // itself would otherwise come back here forever.
+    if (fatal) {
+      return;
+    }
+
+    fatal = true;
+    logger.error(message, { force: true });
+    closeAndExit(signal, 1);
+  }
+
+  function handleStreamError(name, stream, error) {
+    if (stream === errorOutput) {
+      logger.disableOutput();
+    }
+    logger.info(`${name} failed: ${error?.code ?? error?.message ?? error}`);
+    // EPIPE means the client closed its end, and without stdout the server
+    // cannot answer it anyway.
+    if (stream === output || error?.code === "EPIPE") {
+      closeAndExit(`${name} error`, 0);
+    }
+  }
+
   function installSignalHandlers() {
     process.on("SIGINT", () => {
-      void close("SIGINT").finally(() => process.exit(0));
+      closeAndExit("SIGINT", 0);
     });
 
     process.on("SIGTERM", () => {
-      void close("SIGTERM").finally(() => process.exit(0));
+      closeAndExit("SIGTERM", 0);
     });
 
+    // Without a listener, a failed write to a closed pipe becomes an
+    // uncaught exception.
+    output.on?.("error", (error) => handleStreamError("stdout", output, error));
+    errorOutput.on?.("error", (error) =>
+      handleStreamError("stderr", errorOutput, error),
+    );
+
     process.on("uncaughtException", (error) => {
-      logger.error(`uncaught exception: ${error?.stack ?? error}`, {
-        force: true,
-      });
-      void close("uncaughtException").finally(() => process.exit(1));
+      handleFatal(
+        "uncaughtException",
+        `uncaught exception: ${error?.stack ?? error}`,
+      );
     });
 
     process.on("unhandledRejection", (reason) => {
-      logger.error(
+      handleFatal(
+        "unhandledRejection",
         `unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : reason}`,
-        { force: true },
       );
-      void close("unhandledRejection").finally(() => process.exit(1));
     });
 
     process.on("exit", (code) => {

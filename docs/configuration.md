@@ -172,7 +172,7 @@ If you use WSL with a Windows Chrome or Edge browser, prefer `serve --bootstrap-
 - `MCP_BROWSER_USER_DATA_DIR` sets the browser profile directory that `ensure_browser` and `launch_browser` use when `userDataDir` is not passed; a leading `~/` expands to the home directory
 - `MCP_BROWSER_EVENT_BUFFER_SIZE` sets the per-session buffered event limit
 - `MCP_BROWSER_LOG_LEVEL` controls diagnostic logging to `stderr`: `error`, `warn`, `info`, or `debug`
-- `MCP_BROWSER_LOG_FILE` names a file that also receives every diagnostic line logged at that level
+- `MCP_BROWSER_LOG_FILE` names a file that also receives every diagnostic line logged at that level. When it would grow past 10 MB, it is renamed to `<file>.1`, replacing any older one, and a new file is started
 - `MCP_BROWSER_DEBUG_STDIO=1` emits raw MCP stdio transport diagnostics to `stderr`
 - `MCP_BROWSER_FFMPEG` names the ffmpeg executable `record_video` encodes with; without it, the first `ffmpeg` on `PATH` is used, and without that, `record_video stop` keeps the frames and returns the command that encodes them
 - `MCP_BROWSER_TIMING_LOG` names a file that gets one JSON line per tool call with the tool name, duration, success, and response size (text characters and image count); the benchmark in [PERFORMANCE.md](../PERFORMANCE.md) uses it

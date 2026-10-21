@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync, unlinkSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -71,5 +77,100 @@ test("createLogger writes to a log file when filePath is provided", () => {
     } catch {
       // ignore cleanup errors
     }
+  }
+});
+
+test("createLogger stops writing to an output whose write throws", () => {
+  let writes = 0;
+  const dir = mkdtempSync(join(tmpdir(), "mbdt-logger-"));
+  const logFile = join(dir, "server.log");
+  const logger = createLogger({
+    level: "info",
+    output: {
+      write() {
+        writes += 1;
+        throw new Error("EPIPE: broken pipe, write");
+      },
+    },
+    name: "test-logger",
+    filePath: logFile,
+  });
+
+  try {
+    logger.info("first");
+    logger.info("second");
+
+    assert.equal(writes, 1);
+    assert.match(readFileSync(logFile, "utf8"), /first\n.*second/s);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("createLogger disableOutput keeps logging to the file only", () => {
+  const output = createBufferOutput();
+  const dir = mkdtempSync(join(tmpdir(), "mbdt-logger-"));
+  const logFile = join(dir, "server.log");
+  const logger = createLogger({
+    level: "info",
+    output: output.stream,
+    name: "test-logger",
+    filePath: logFile,
+  });
+
+  try {
+    logger.disableOutput();
+    logger.info("file only");
+
+    assert.equal(output.read(), "");
+    assert.match(readFileSync(logFile, "utf8"), /file only/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("createLogger rotates the log file once it would pass maxFileBytes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mbdt-logger-"));
+  const logFile = join(dir, "server.log");
+  const logger = createLogger({
+    level: "info",
+    output: createBufferOutput().stream,
+    name: "t",
+    filePath: logFile,
+    maxFileBytes: 100,
+  });
+
+  try {
+    for (let index = 0; index < 50; index += 1) {
+      logger.info(`line ${index}`);
+    }
+
+    assert.ok(statSync(logFile).size <= 100);
+    assert.ok(statSync(`${logFile}.1`).size <= 100);
+    assert.match(readFileSync(logFile, "utf8"), /line 49\n$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("createLogger keeps a line longer than maxFileBytes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mbdt-logger-"));
+  const logFile = join(dir, "server.log");
+  const logger = createLogger({
+    level: "info",
+    output: createBufferOutput().stream,
+    name: "t",
+    filePath: logFile,
+    maxFileBytes: 10,
+  });
+
+  try {
+    logger.info("longer than ten bytes");
+    logger.info("next");
+
+    assert.match(readFileSync(`${logFile}.1`, "utf8"), /longer than ten bytes/);
+    assert.equal(readFileSync(logFile, "utf8"), "[t] info: next\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
