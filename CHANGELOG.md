@@ -8,6 +8,11 @@ release history retroactively.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-22
+
+This release fixes a server that never exited after its MCP client went
+away and could fill the disk through `MCP_BROWSER_LOG_FILE` (#57).
+
 ### Fixed
 
 - When the MCP client went away, a write to the closed `stderr` pipe failed with `EPIPE`, and logging that uncaught exception wrote to `stderr` again, so the server never exited and, with `MCP_BROWSER_LOG_FILE` set, appended a stack trace to the file until the disk filled ([#57](https://github.com/Hinaser/mcp-browser-dev-tools/issues/57)). `serve` now handles errors on `stdout` and `stderr`: `EPIPE` on either, or any error on `stdout`, shuts the server down with exit code 0, and after an error on `stderr` the logger writes only to the log file. A failing `stderr` write no longer throws from the logger, and only the first uncaught exception or unhandled rejection is logged. A shutdown runs once whatever starts it, so a signal during it no longer cuts cleanup short or turns exit code 1 into 0. The log file is also capped: past 10 MB it moves to `<file>.1` and a new file starts
